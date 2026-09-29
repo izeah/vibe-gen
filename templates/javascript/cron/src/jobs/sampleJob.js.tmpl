@@ -1,0 +1,11 @@
+import { sampleService } from '../services/sampleService.js';
+
+/**
+ * sampleJob - sample cron job implementation.
+ * Copy and adapt this pattern for your own jobs.
+ */
+export async function sampleJob() {
+  const items = await sampleService.findAll({ status: 'active' });
+  // Process items here.
+  return items.length;
+}

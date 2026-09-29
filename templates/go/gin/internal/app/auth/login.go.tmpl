@@ -1,0 +1,35 @@
+package auth
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Login authenticates a user and returns a token pair.
+// @Summary     Login
+// @Tags        auth
+// @Accept      json
+// @Produce     json
+// @Param       body  body      dto.LoginRequest  true  "Login credentials"
+// @Success     200   {object}  response.Base
+// @Router      /v1/auth/login [post]
+func (h *Handler) Login(c *gin.Context) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.LoginRequest)
+		data    *dto.LoginResponse
+		err     error
+	)
+	if err = c.ShouldBindJSON(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if data, err = h.AuthService.Login(ctx, payload); err != nil {
+		response.ErrorResponse(err).Send(c)
+		return
+	}
+	response.SuccessResponse(data).Send(c)
+}

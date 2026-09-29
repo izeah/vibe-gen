@@ -1,0 +1,29 @@
+package middleware
+
+import (
+	"time"
+
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/pkg/ptr"
+)
+
+// Context ...
+func Context(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		var (
+			now = time.Now()
+			ctx = &abstraction.Context{
+				Context: c,
+				Now: func() time.Time {
+					return now
+				},
+				PartnerID:   config.App().PartnerID,
+				CountryCode: ptr.String(config.App().CountryCode),
+			}
+		)
+		return next(ctx)
+	}
+}

@@ -1,0 +1,16 @@
+package date
+
+import "time"
+
+// ParseDuration ...
+func ParseDuration(start time.Time, duration int, durationUnit string) time.Time {
+	switch durationUnit {
+	case "day":
+		return start.AddDate(0, 0, duration)
+	case "month":
+		return start.AddDate(0, duration, 0)
+	case "year":
+		return start.AddDate(duration, 0, 0)
+	}
+	return start
+}

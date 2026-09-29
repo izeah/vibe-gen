@@ -1,0 +1,255 @@
+package response
+
+import (
+	"fmt"
+	"net/http"
+	"strings"
+
+	"github.com/gin-gonic/gin"
+	"github.com/go-playground/validator/v10"
+	pkgerrors "github.com/pkg/errors"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// ── Error message constants ───────────────────────────────────────────────────
+
+const (
+	E_BAD_REQUEST           = "bad request"
+	E_DUPLICATE             = "duplicate"
+	E_NOT_FOUND             = "not found"
+	E_UNAUTHORIZED          = "unauthorized"
+	E_FORBIDDEN             = "forbidden"
+	E_UNPROCESSABLE_ENTITY  = "unprocessable entity"
+	E_INTERNAL_SERVER_ERROR = "internal server error"
+)
+
+// ── Meta ─────────────────────────────────────────────────────────────────────
+
+// Meta is the standard response metadata envelope.
+type Meta struct {
+	Success      bool                        `json:"success"`
+	Message      string                      `json:"message"`
+	Info         *abstraction.PaginationInfo `json:"info,omitempty"`
+	Filter       interface{}                 `json:"filter,omitempty"`
+	RowsAffected *int64                      `json:"rows_affected,omitempty"`
+}
+
+// ── Error types ───────────────────────────────────────────────────────────────
+
+type errorResponse struct {
+	Meta        Meta        `json:"meta"`
+	Data        interface{} `json:"data"`
+	Description interface{} `json:"description,omitempty"`
+}
+
+// Error is the application error type. It implements the error interface.
+type Error struct {
+	Header   *http.Header
+	Response errorResponse `json:"response"`
+	Code     int           `json:"code"`
+	Err      error
+}
+
+// Error implements the error interface.
+func (e *Error) Error() string {
+	if e.Err != nil {
+		return e.Err.Error()
+	}
+	return e.Response.Meta.Message
+}
+
+// WithError attaches an underlying error.
+func (e *Error) WithError(err error) *Error {
+	e.Err = pkgerrors.WithStack(err)
+	if e.Response.Meta.Message == "" && err != nil {
+		e.Response.Meta.Message = err.Error()
+	}
+	return e
+}
+
+// WithData attaches response data.
+func (e *Error) WithData(data interface{}) *Error {
+	e.Response.Data = data
+	return e
+}
+
+// WithDescription attaches a description (e.g. validation field errors).
+func (e *Error) WithDescription(desc interface{}) *Error {
+	e.Response.Description = desc
+	return e
+}
+
+// WithMetaMessage overrides the meta message.
+func (e *Error) WithMetaMessage(msg string) *Error {
+	e.Response.Meta.Message = msg
+	return e
+}
+
+// WithHeader sets additional response headers.
+func (e *Error) WithHeader(h *http.Header) *Error {
+	e.Header = h
+	return e
+}
+
+// WithMessage overrides the meta message (alias for WithMetaMessage).
+func (e *Error) WithMessage(msg string) *Error {
+	return e.WithMetaMessage(msg)
+}
+
+// Send writes the error response to the gin.Context.
+func (e *Error) Send(c *gin.Context) {
+	if e.Header != nil {
+		for k, values := range *e.Header {
+			for _, v := range values {
+				c.Header(k, v)
+			}
+		}
+	}
+	c.JSON(e.Code, e.Response)
+}
+
+// ── ErrorConstant ─────────────────────────────────────────────────────────────
+
+var ErrorConstant = struct {
+	BadRequest          *Error
+	Unauthorized        *Error
+	Forbidden           *Error
+	NotFound            *Error
+	RouteNotFound       *Error
+	MethodNotAllowed    *Error
+	Duplicate           *Error
+	UnprocessableEntity *Error
+	InternalServerError *Error
+}{
+	BadRequest:          newConstantError(http.StatusBadRequest, E_BAD_REQUEST),
+	Unauthorized:        newConstantError(http.StatusUnauthorized, E_UNAUTHORIZED),
+	Forbidden:           newConstantError(http.StatusForbidden, E_FORBIDDEN),
+	NotFound:            newConstantError(http.StatusNotFound, E_NOT_FOUND),
+	RouteNotFound:       newConstantError(http.StatusNotFound, "route not found"),
+	MethodNotAllowed:    newConstantError(http.StatusMethodNotAllowed, "method not allowed"),
+	Duplicate:           newConstantError(http.StatusConflict, E_DUPLICATE),
+	UnprocessableEntity: newConstantError(http.StatusUnprocessableEntity, E_UNPROCESSABLE_ENTITY),
+	InternalServerError: newConstantError(http.StatusInternalServerError, E_INTERNAL_SERVER_ERROR),
+}
+
+func newConstantError(code int, message string) *Error {
+	return &Error{
+		Response: errorResponse{
+			Meta: Meta{Success: false, Message: message},
+		},
+		Code: code,
+	}
+}
+
+// ── Error builders ────────────────────────────────────────────────────────────
+
+func ErrorBuilder(code int, err error, messages ...interface{}) *Error {
+	msg := E_UNPROCESSABLE_ENTITY
+	if len(messages) > 0 {
+		msg = fmt.Sprint(messages[0])
+	}
+	return &Error{
+		Response: errorResponse{
+			Meta: Meta{Success: false, Message: msg},
+		},
+		Code: code,
+		Err:  pkgerrors.WithStack(err),
+	}
+}
+
+func ErrorBadRequest(err error) *Error {
+	if err == nil {
+		return nil
+	}
+
+	var eR *Error
+	if pkgerrors.As(err, &eR) {
+		return eR
+	}
+
+	var errValidation validator.ValidationErrors
+	if pkgerrors.As(err, &errValidation) {
+		data := make(map[string]interface{})
+		for _, ef := range errValidation {
+			data[strings.ToLower(ef.Field())] = map[string]string{
+				"field":   ef.Field(),
+				"tag":     ef.Tag(),
+				"param":   ef.Param(),
+				"message": validationMessage(ef),
+			}
+		}
+		return &Error{
+			Response: errorResponse{
+				Meta:        Meta{Success: false, Message: E_BAD_REQUEST},
+				Description: data,
+			},
+			Code: http.StatusBadRequest,
+			Err:  pkgerrors.WithStack(err),
+		}
+	}
+
+	return ErrorBuilder(http.StatusBadRequest, err)
+}
+
+func ErrorResponse(err error) *Error {
+	var e *Error
+	if pkgerrors.As(err, &e) {
+		return e
+	}
+	return ErrorBuilder(http.StatusInternalServerError, err)
+}
+
+func validationMessage(fe validator.FieldError) string {
+	switch fe.Tag() {
+	case "required":
+		return fmt.Sprintf("%s is required", fe.Field())
+	case "email":
+		return fmt.Sprintf("%s must be a valid email", fe.Field())
+	case "min":
+		return fmt.Sprintf("%s must be at least %s characters", fe.Field(), fe.Param())
+	case "max":
+		return fmt.Sprintf("%s must be at most %s characters", fe.Field(), fe.Param())
+	case "oneof":
+		return fmt.Sprintf("%s must be one of: %s", fe.Field(), fe.Param())
+	default:
+		return fmt.Sprintf("%s is invalid (%s)", fe.Field(), fe.Tag())
+	}
+}
+
+// ── Success response types ────────────────────────────────────────────────────
+
+type Base struct {
+	Meta Meta        `json:"meta"`
+	Data interface{} `json:"data,omitempty"`
+}
+
+type apiResponse struct {
+	code int
+	body Base
+}
+
+func (r *apiResponse) Send(c *gin.Context) {
+	c.JSON(r.code, r.body)
+}
+
+func SuccessResponse(data interface{}) *apiResponse {
+	return &apiResponse{
+		code: http.StatusOK,
+		body: Base{Meta: Meta{Success: true, Message: "OK"}, Data: data},
+	}
+}
+
+func SuccessListResponse(data interface{}, info *abstraction.PaginationInfo) *apiResponse {
+	return &apiResponse{
+		code: http.StatusOK,
+		body: Base{Meta: Meta{Success: true, Message: "OK", Info: info}, Data: data},
+	}
+}
+
+func CreatedResponse(data interface{}) *apiResponse {
+	return &apiResponse{
+		code: http.StatusCreated,
+		body: Base{Meta: Meta{Success: true, Message: "Created"}, Data: data},
+	}
+}

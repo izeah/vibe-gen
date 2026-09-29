@@ -1,0 +1,83 @@
+package database
+
+import (
+	"fmt"
+	"sync"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
+
+	"{{.ModuleName}}/internal/config"
+)
+
+var (
+	once sync.Once
+	db   *gorm.DB
+)
+
+// Init opens the primary database connection.
+func Init(cfg *config.Config) error {
+	var initErr error
+	once.Do(func() {
+		dsn := buildDSN(cfg.DB)
+		logLevel := resolveLogLevel(cfg.DB.LogLevel)
+
+		conn, err := gorm.Open(postgres.Open(dsn), &gorm.Config{
+			Logger: logger.Default.LogMode(logLevel),
+		})
+		if err != nil {
+			initErr = fmt.Errorf("opening database: %w", err)
+			return
+		}
+
+		sqlDB, err := conn.DB()
+		if err != nil {
+			initErr = fmt.Errorf("getting sql.DB: %w", err)
+			return
+		}
+		sqlDB.SetMaxIdleConns(cfg.DB.MaxIdleConns)
+		sqlDB.SetMaxOpenConns(cfg.DB.MaxOpenConns)
+
+		db = conn
+	})
+	return initErr
+}
+
+// DB returns the singleton *gorm.DB. Panics if Init was not called.
+func DB() *gorm.DB {
+	if db == nil {
+		panic("database.Init() must be called before database.DB()")
+	}
+	return db
+}
+
+// Close closes the underlying database connection.
+func Close() {
+	if db != nil {
+		sqlDB, err := db.DB()
+		if err == nil {
+			_ = sqlDB.Close()
+		}
+	}
+}
+
+func buildDSN(c config.DBConfig) string {
+	return fmt.Sprintf(
+		"host=%s user=%s password=%s dbname=%s port=%s sslmode=%s TimeZone=%s",
+		c.Host, c.Username, c.Password, c.NameDb, c.Port, c.SSLMode, c.TimeZone,
+	)
+}
+
+func resolveLogLevel(level string) logger.LogLevel {
+	switch level {
+	case "silent":
+		return logger.Silent
+	case "error":
+		return logger.Error
+	case "warn":
+		return logger.Warn
+	default:
+		return logger.Info
+	}
+}

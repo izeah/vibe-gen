@@ -1,0 +1,66 @@
+# Testing — {{.ProjectTitle}}
+
+## Strategy
+
+- **Unit tests**: test a single function/method in isolation with mocked dependencies.
+- **Integration tests**: test interactions between layers (e.g., service + repository with a real DB).
+- **E2E tests**: test full request lifecycle against a running server.
+
+Start with unit tests. Add integration tests for critical paths. E2E only where justified.
+
+## Test File Convention
+
+- **Go**: colocated with source, suffix `_test.go`. Example: `service_test.go`.
+- **JavaScript/TypeScript**: colocated or in `tests/`, suffix `.test.ts` / `.test.js`.
+
+## Test Naming
+
+- **Go**: `Test_FunctionName_Scenario` or `TestFunctionName`.
+- **JS**: descriptive `describe`/`it` blocks: `describe('AuthService', () => { it('returns token on valid credentials') })`.
+
+## Mocking & Third-Party APIs
+
+- **Mock Third-Party APIs Exclusively**: For any unit tests involving external services (e.g., Midtrans, Finpay, third-party payment gateways, webhook receivers), **ALWAYS test using mock APIs** (e.g., `httptest.Server`, `httptest.ResponseRecorder`, or interface mocks).
+- **NEVER Call Real Third-Party APIs**: Automated tests must never trigger real external endpoints (avoids rate limits, sandbox flakiness, accidental live charges, or credential leakage).
+- **Go**: define mockable interfaces; use hand-written mocks or `httptest.Server`.
+- **JS**: use Jest mocks (`jest.mock()`, `jest.spyOn()`) or `nock`.
+- Do not mock what you do not own — test third-party integrations via a thin adapter interface.
+
+## Database Testing & Query Safety Rules
+
+> [!CAUTION]
+> **LOCAL DOCKER DATABASE ONLY**: All database queries, schema tests, and integration tests must run **exclusively against a local database in a Docker container** (`localhost:5432`, started via `make pg-start`).
+>
+> **STRICT PROHIBITION**: Never point automated tests or query runners to **development (dev)**, **staging**, or **production (prod)** databases. Doing so is extremely risky (risk of accidental truncate, drop, data corruption, or privacy breach).
+>
+> Any inspection or execution against dev/staging/prod databases must be performed **manually by the developer** with deliberate human oversight.
+
+- **Go**: use a dedicated local test container or `sqlmock`.
+- **JS**: use a local test database seeded via migrations, or mock Sequelize.
+- Use `t.Skip()` (Go) or `test.skip()` (JS) when external dependencies are unavailable.
+
+## Running Tests
+
+```bash
+# Go
+go test ./...                    # full suite
+go test ./internal/service/...   # targeted
+
+# JavaScript
+npm test                         # full suite
+npm test -- --testPathPattern=auth  # targeted
+```
+
+## Test Workflow
+
+1. Write/update tests for the feature or bug.
+2. Run targeted tests first.
+3. Fix any failures introduced by the implementation.
+4. Run the full suite before merging.
+5. Report results honestly — never remove tests to make the build pass.
+
+## Fixtures
+
+- Keep fixtures minimal and domain-agnostic.
+- Do not commit real production data as fixtures.
+- Use factories or builders for test data where possible.

@@ -1,0 +1,9 @@
+package auth
+
+import "github.com/gin-gonic/gin"
+
+// Route registers auth endpoints on the given router group.
+func (h *Handler) Route(g *gin.RouterGroup) {
+	g.POST("/login", h.Login)
+	g.POST("/refresh", h.Refresh)
+}

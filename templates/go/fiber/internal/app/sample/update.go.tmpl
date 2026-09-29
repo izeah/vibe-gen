@@ -1,0 +1,37 @@
+package sample
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Update updates an existing sample.
+// @Summary     Update sample
+// @Tags        sample
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string                   true  "Sample ID"
+// @Param       body  body  dto.SampleUpdateRequest  true  "Update payload"
+// @Success     200   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/samples/{id} [put]
+func (h *Handler) Update(c *fiber.Ctx) (err error) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.SampleUpdateRequest)
+		data    *dto.SampleResponse
+	)
+	if err = c.BodyParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = c.ParamsParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.SampleService.Update(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(data).Send(c)
+}

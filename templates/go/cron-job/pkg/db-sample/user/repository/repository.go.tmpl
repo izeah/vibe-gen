@@ -1,0 +1,20 @@
+package repository
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/pkg/db-sample/user"
+)
+
+type repo struct {
+	db *gorm.DB
+}
+
+// New creates a new user repository.
+func New(db *gorm.DB) user.Repository {
+	return &repo{db: db}
+}
+
+func (r *repo) WithTx(tx *gorm.DB) user.Repository {
+	return &repo{db: tx}
+}

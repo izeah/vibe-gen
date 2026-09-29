@@ -1,0 +1,10 @@
+package user
+
+import "github.com/gin-gonic/gin"
+
+// Route registers user endpoints on the given router group.
+func (h *Handler) Route(g *gin.RouterGroup) {
+	g.GET("/:id", h.FindByID)
+	g.POST("", h.Create)
+	g.PUT("/:id", h.Update)
+}

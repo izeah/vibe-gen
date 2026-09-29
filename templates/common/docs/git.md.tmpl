@@ -1,0 +1,59 @@
+# Git Rules — {{.ProjectTitle}}
+
+## Before Modifying Files
+
+```bash
+git status          # check current state
+git diff            # review unstaged changes
+git log --oneline -10  # recent history
+```
+
+Never start work without knowing the current state of the repository.
+
+## Commits
+
+- Keep commits **focused** on a single concern.
+- Write meaningful commit messages.
+- Use conventional commit format:
+
+```
+<type>(<scope>): <short description>
+
+feat(user): add pagination to user list endpoint
+fix(auth): correct token expiry calculation
+docs(api): document pagination query params
+refactor(service): extract validation to helper
+test(repository): add find-by-email test
+chore(deps): update go dependencies
+```
+
+## Workflow
+
+```bash
+git add -p                    # stage hunks intentionally
+git diff --staged             # review what will be committed
+git commit -m "feat: ..."
+```
+
+## Rules
+
+- **Do not force push** to shared branches.
+- **Do not rewrite history** unless explicitly requested and isolated to a private branch.
+- **Never commit secrets** — run a scan before committing: `git diff --staged | grep -i password`.
+- **Do not discard uncommitted developer work** without explicit confirmation.
+- **Preserve unrelated changes** — commit your changes separately from unrelated developer work.
+
+## Before a Context Transition
+
+1. Ensure no significant work is uncommitted.
+2. Update `docs/progress.md`.
+3. Commit at a logical task boundary.
+
+## Branch Strategy
+
+Use a strategy appropriate for the team:
+- `main` / `master` — stable, deployable
+- `develop` — integration branch
+- `feat/<name>` — feature branches
+- `fix/<name>` — bug fix branches
+- `chore/<name>` — maintenance branches

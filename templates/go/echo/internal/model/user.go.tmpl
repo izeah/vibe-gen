@@ -1,0 +1,50 @@
+package model
+
+import (
+	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// UserEntity contains the domain-specific attributes of User.
+type UserEntity struct {
+	Name     string `gorm:"column:name;not null"                            json:"name"`
+	Email    string `gorm:"column:email;uniqueIndex;not null"               json:"email"`
+	Password string `gorm:"column:password;not null"                        json:"-"`
+	Role     string `gorm:"column:role;not null;default:'user'"             json:"role"`
+}
+
+// User is the database entity for users.
+type User struct {
+	abstraction.Entity
+	UserEntity
+
+	// context
+	Context *abstraction.Context `json:"-" gorm:"-"`
+}
+
+// TableName returns the database table name.
+func (User) TableName() string {
+	return "users"
+}
+
+// BeforeCreate sets UUIDv7, timestamps, hashes password, and sets audit creator.
+func (m *User) BeforeCreate(_ *gorm.DB) error {
+	m.SetupBeforeCreate(m.Context)
+	if m.Password != "" && len(m.Password) < 60 {
+		hashed, err := bcrypt.GenerateFromPassword([]byte(m.Password), bcrypt.DefaultCost)
+		if err != nil {
+			return err
+		}
+		m.Password = string(hashed)
+	}
+	return nil
+}
+
+// BeforeUpdate sets updated_at (UnixNano) and updated_by.
+func (m *User) BeforeUpdate(_ *gorm.DB) error {
+	m.SetupBeforeUpdate(m.Context)
+	return nil
+}
+

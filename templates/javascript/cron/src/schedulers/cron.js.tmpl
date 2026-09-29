@@ -1,0 +1,19 @@
+import { sampleJob } from '../jobs/sampleJob.js';
+import { logger } from '../config/logger.js';
+
+/**
+ * registerJobs - registers all cron jobs.
+ * @param {import('node-cron')} cron - node-cron instance.
+ */
+export function registerJobs(cron) {
+  // Run sample job every minute.
+  cron.schedule('* * * * *', async () => {
+    logger.info('[sampleJob] started');
+    try {
+      await sampleJob();
+      logger.info('[sampleJob] completed');
+    } catch (err) {
+      logger.error('[sampleJob] failed', { error: err.message });
+    }
+  });
+}

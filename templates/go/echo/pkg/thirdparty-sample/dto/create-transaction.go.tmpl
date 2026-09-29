@@ -1,0 +1,20 @@
+package thirdpartysampledto
+
+// CreateTransactionRequest is a sample request payload.
+// Replace field names and types to match the actual third-party API contract.
+type CreateTransactionRequest struct {
+	OrderID     string      `json:"order_id"`
+	Amount      int64       `json:"amount"`
+	Currency    string      `json:"currency"`
+	Description string      `json:"description"`
+	Metadata    interface{} `json:"metadata,omitempty"`
+}
+
+// CreateTransactionResponse is a sample response payload.
+type CreateTransactionResponse struct {
+	TransactionID string `json:"transaction_id"`
+	Status        string `json:"status"`
+	RedirectURL   string `json:"redirect_url,omitempty"`
+	PaymentCode   string `json:"payment_code,omitempty"`
+	ExpiresAt     string `json:"expires_at,omitempty"`
+}

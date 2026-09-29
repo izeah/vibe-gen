@@ -1,0 +1,29 @@
+package psql
+
+import (
+	"database/sql/driver"
+	"fmt"
+	"net"
+
+	"golang.org/x/crypto/ssh"
+)
+
+// ViaSSHDialer implements database/sql/driver.Connector by routing TCP connections
+// through an established SSH client tunnel.
+type ViaSSHDialer struct {
+	Client *ssh.Client
+}
+
+// Open opens a new TCP connection to addr tunneled through the SSH client.
+func (v *ViaSSHDialer) Open(addr string) (driver.Conn, error) {
+	return nil, fmt.Errorf("ViaSSHDialer.Open is not implemented; use Connect")
+}
+
+// Connect establishes a net.Conn through the SSH tunnel for use by pq.
+func (v *ViaSSHDialer) Connect(addr string) (net.Conn, error) {
+	conn, err := v.Client.Dial("tcp", addr)
+	if err != nil {
+		return nil, fmt.Errorf("SSH tunnel dial %s: %w", addr, err)
+	}
+	return conn, nil
+}

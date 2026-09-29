@@ -1,0 +1,448 @@
+# Security — {{.ProjectTitle}}
+
+## Secrets & Credentials
+
+**Never hardcode:**
+- API keys, access tokens, refresh tokens
+- Database passwords
+- Private/encryption keys
+- JWT secrets, OAuth secrets
+- SMTP passwords, service credentials
+
+All secrets must come from **environment variables** or a **secret manager** (e.g., Vault).
+
+### Configuration Pattern & Precedence
+
+```
+1. YAML config (config.yml — primary application configuration)
+        ↓ (fallback if absent or empty in config.yml)
+2. .env file in root project (loaded via loadDotEnv, e.g. DB_HOST=localhost) / OS Environment Variables
+        ↓ (final fallback if absent in both)
+3. Safe Defaults (defined in internal/config/config.go)
+```
+
+- **`config.yml`**: Primary source for application configuration.
+- **`.env` (root project)**: Loaded automatically by `loadDotEnv()` as a fallback when an entry is missing or empty in `config.yml`. Uses standard `KEY=value` format (e.g., `DB_HOST=localhost`).
+- **OS Environment Variables**: Evaluated via `AutomaticEnv()`; overrides `.env` values when present in the runtime environment.
+- **Defaults**: Hardcoded fallback values defined in `internal/config/config.go`.
+
+### .env & Third-Party Credentials Rules
+
+- `.env` is always git-ignored.
+- Only `.env.example` is committed.
+- **Third-Party APIs (Midtrans, Finpay, etc.)**: Always initialize with **dummy values** in `config.example.yml` and `.env.example` (e.g., `MIDTRANS_SERVER_KEY=SB-Mid-server-dummy-key`). Real keys must be provided manually by the developer in local `.env` or secret manager.
+- Never commit real credentials to version control.
+- Never log secret values — not even in debug mode.
+
+### Database Environment Isolation
+
+> [!CAUTION]
+> **Strict Environment Isolation**: Automated workflows, CI pipelines, and unit/integration tests are strictly limited to the **local Docker container** (`localhost:5432`).
+>
+> Never allow scripts or automated agents to connect to, query, or execute migrations against **development (dev)**, **staging**, or **production (prod)** databases. Any remote database intervention must be conducted manually by the developer.
+
+---
+
+## Authentication & Authorization
+
+### JWT + Refresh Token Rotation
+
+Use stateless JWT with short-lived access tokens and rotating refresh tokens.
+
+**Token Lifetimes:**
+| Token Type | TTL | Storage |
+|---|---|---|
+| Access Token | 15 minutes | Memory / `Authorization: Bearer` header |
+| Refresh Token | 7–30 days | HttpOnly cookie (preferred) or secure storage |
+
+**Rotation Policy:**
+1. Every refresh token use **must issue a new refresh token** and invalidate the old one.
+2. Implement **token family** tracking: if a refresh token is reused (replay detected), revoke the **entire family** (force logout all sessions).
+3. Refresh tokens are stored as a hash (SHA-256) in Redis or database — never store raw tokens.
+
+```go
+// Example: Refresh token family pattern in Redis
+// Key: refresh_token_family:<user_id>:<family_id>
+// Value: hashed_refresh_token + expiry
+// On replay detected: DEL refresh_token_family:<user_id>:* (revoke all families)
+```
+
+**Access Token Claims — Minimal PII:**
+```go
+type Claims struct {
+    UserID string `json:"sub"`  // UUID only, no email/name
+    Role   string `json:"role"`
+    jwt.RegisteredClaims        // exp, iat, jti
+}
+// NEVER put: email, phone, full name, password hash in JWT claims
+```
+
+**Validation Rules:**
+- Validate on every protected request via middleware.
+- Verify: `exp` (not expired), `iat` (not in future), `iss` and `aud` (correct issuer/audience), signature.
+- Reject tokens with `alg: none`.
+- Use `RS256` (asymmetric) in production; `HS256` is acceptable only for internal services.
+
+### RBAC (Role-Based Access Control)
+
+```go
+// Pattern: middleware chain — Authentication first, then Authorization
+g.Use(middleware.Authentication())
+g.Use(middleware.Authorization("admin", "superadmin"))
+// Handler runs only if both middlewares pass
+```
+
+---
+
+## Rate Limiting
+
+### Redis Sliding Window Algorithm
+
+Use sliding window over fixed window to prevent burst exploitation at window boundaries.
+
+**Go implementation pattern (using Redis):**
+
+```go
+// internal/repository/redis/rate-limit/rate-limit.go
+// Key: rate_limit:<identifier>:<window_start_unix>
+// Algorithm:
+// 1. ZADD key <current_timestamp_ms> <current_timestamp_ms>
+// 2. ZREMRANGEBYSCORE key 0 <window_start_ms>  (remove old entries)
+// 3. ZCARD key  (count requests in window)
+// 4. If count > limit: reject (HTTP 429)
+// 5. EXPIRE key <window_seconds>
+```
+
+**Rate Limit Tiers:**
+
+| Endpoint Category | Limit | Window | Identifier |
+|---|---|---|---|
+| Auth (login, register) | 5 req | 1 minute | IP |
+| OTP send | 3 req | 5 minutes | phone/email |
+| OTP verify | 5 attempts | 10 minutes | phone/email |
+| General API (authenticated) | 1000 req | 1 minute | user_id |
+| General API (unauthenticated) | 60 req | 1 minute | IP |
+| File upload | 10 req | 1 hour | user_id |
+
+**Response Headers (always include):**
+```
+X-RateLimit-Limit: 100
+X-RateLimit-Remaining: 87
+X-RateLimit-Reset: 1716900000
+Retry-After: 60  (only on 429)
+```
+
+---
+
+## OWASP Top 10 Checklist (2021)
+
+| # | Vulnerability | Status | Mitigation |
+|---|---|---|---|
+| A01 | Broken Access Control | ☐ | RBAC middleware; validate ownership (`user_id` match) before any data access; never trust client-provided IDs for authorization |
+| A02 | Cryptographic Failures | ☐ | bcrypt cost ≥ 12 for passwords; TLS everywhere; no MD5/SHA1 for sensitive data; encrypt PII fields at rest |
+| A03 | Injection | ☐ | Parameterized queries via ORM only; never concatenate user input into SQL, shell, or LDAP queries |
+| A04 | Insecure Design | ☐ | Threat model per feature; rate limiting on auth; token rotation; least privilege DB user |
+| A05 | Security Misconfiguration | ☐ | Security headers (see below); disable debug endpoints in production; no default credentials |
+| A06 | Vulnerable Components | ☐ | `go list -m all` / `npm audit` in CI; pin versions; remove unused dependencies |
+| A07 | Auth & Session Failures | ☐ | JWT rotation; no session fixation; secure cookie flags; account lockout after N failures |
+| A08 | Software & Data Integrity | ☐ | Verify webhook signatures (HMAC); sign build artifacts; no untrusted deserialization |
+| A09 | Logging & Monitoring Failures | ☐ | Structured audit log; no PII in logs; alert on repeated 401/403/429; retain logs ≥ 90 days |
+| A10 | SSRF | ☐ | Allowlist outbound URLs; reject private/loopback addresses in user-supplied URLs; no raw `http.Get(userInput)` |
+
+---
+
+## Input Sanitization & Validation
+
+**Rules:**
+- Validate all incoming request data **before** any processing or database operation.
+- Use strict schema validation (go-playground/validator for Go, zod for TypeScript).
+- **Reject unexpected fields** — use allowlist-based binding, not denylist.
+- Sanitize all user-controlled values used in file paths, SQL, or shell commands.
+- Never pass raw user input to `fmt.Sprintf`, `exec.Command`, or string interpolation in queries.
+
+```go
+// Go: strict binding + validation pattern
+type CreateUserRequest struct {
+    Name     string `json:"name"     validate:"required,min=2,max=100"`
+    Email    string `json:"email"    validate:"required,email"`
+    Password string `json:"password" validate:"required,min=8,max=72"`
+}
+
+// In handler:
+var req dto.CreateUserRequest
+if err := c.Bind(&req); err != nil {
+    return response.ErrorBadRequest(err).Send(c)
+}
+if err := c.Validate(req); err != nil {
+    return response.ErrorBadRequest(err).Send(c)
+}
+```
+
+---
+
+## Security Headers
+
+Apply on every response. For Go (Echo/Gin/Fiber), use middleware. For Node.js, use Helmet.
+
+```go
+// Go — Echo middleware example
+e.Use(middleware.SecureWithConfig(middleware.SecureConfig{
+    XSSProtection:         "1; mode=block",
+    ContentTypeNosniff:    "nosniff",
+    XFrameOptions:         "DENY",
+    HSTSMaxAge:            31536000,
+    HSTSExcludeSubdomains: false,
+    ContentSecurityPolicy: "default-src 'self'",
+    ReferrerPolicy:        "strict-origin-when-cross-origin",
+}))
+```
+
+```typescript
+// Node.js — Helmet
+import helmet from "helmet";
+app.use(helmet({
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      scriptSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'"],
+      imgSrc: ["'self'", "data:", "https:"],
+    },
+  },
+  hsts: { maxAge: 31536000, includeSubDomains: true, preload: true },
+  referrerPolicy: { policy: "strict-origin-when-cross-origin" },
+}));
+```
+
+**Required headers in production:**
+
+| Header | Value |
+|---|---|
+| `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` |
+| `X-Content-Type-Options` | `nosniff` |
+| `X-Frame-Options` | `DENY` |
+| `X-XSS-Protection` | `1; mode=block` |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` |
+| `Content-Security-Policy` | At minimum: `default-src 'self'` |
+| `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
+
+---
+
+## SQL Injection Prevention
+
+- Use parameterized queries / ORM query builders **exclusively**.
+- Never concatenate user input into SQL strings.
+- In GORM: always use `?` placeholders or GORM's method chaining.
+
+```go
+// ✅ Safe — parameterized
+db.Where("email = ? AND deleted_at IS NULL", userInput).Take(&user)
+
+// ❌ DANGEROUS — never do this
+db.Where("email = '" + userInput + "'").Take(&user)
+db.Raw("SELECT * FROM users WHERE email = '" + userInput + "'").Scan(&user)
+```
+
+---
+
+## CORS
+
+- Restrict `Access-Control-Allow-Origin` to known origins in production.
+- Do not use `*` in production without explicit justification.
+- Allowlist origins from config/environment, not hardcoded.
+
+```go
+e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
+    AllowOrigins: config.Get().AllowedOrigins, // from environment
+    AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
+    AllowHeaders: []string{"Authorization", "Content-Type", "X-Request-ID"},
+    MaxAge:       86400,
+}))
+```
+
+---
+
+## HTTPS / TLS
+
+- Always use HTTPS in staging and production.
+- Do not disable TLS verification in production code (`InsecureSkipVerify: false`).
+- Use TLS 1.2 minimum; prefer TLS 1.3.
+
+---
+
+## Audit Logging
+
+Every state-changing operation must produce a structured audit log entry.
+
+**Required fields per audit event:**
+```json
+{
+  "timestamp": "2026-09-29T00:00:00Z",
+  "actor_id": "uuid-of-user-performing-action",
+  "actor_ip": "203.0.113.1",
+  "actor_role": "admin",
+  "action": "user.delete",
+  "resource_type": "user",
+  "resource_id": "uuid-of-affected-resource",
+  "old_value": { "status": "active" },
+  "new_value": { "status": "deleted" },
+  "request_id": "x-request-id-header-value",
+  "result": "success"
+}
+```
+
+**Rules:**
+- Audit logs must be **append-only** — never update or delete audit records.
+- Store in a dedicated `audit_logs` table or separate append-only storage.
+- Minimum retention: **12 months** (adjust per regulatory requirement).
+- Sensitive fields in `old_value`/`new_value` must be redacted (password hashes, tokens).
+
+---
+
+## File Upload Security
+
+- Validate **both** MIME type (Content-Type header) AND file magic bytes (first N bytes of content).
+- Enforce maximum file size (e.g., 10MB) before reading the body.
+- Store uploads **outside the web root** or in dedicated object storage (e.g., MinIO, S3).
+- Never execute uploaded files.
+- Generate a random UUID filename server-side — never use the client-supplied filename.
+- Scan for malware if handling untrusted binary files (ClamAV integration).
+
+```go
+// Go: magic bytes validation example
+func validateFileMagicBytes(header *multipart.FileHeader, allowed []string) error {
+    f, _ := header.Open()
+    defer f.Close()
+    buf := make([]byte, 512)
+    f.Read(buf)
+    mimeType := http.DetectContentType(buf)
+    for _, a := range allowed {
+        if strings.HasPrefix(mimeType, a) { return nil }
+    }
+    return errors.New("invalid file type")
+}
+```
+
+---
+
+## SSRF Prevention
+
+- Validate and allowlist URLs before making server-side HTTP requests.
+- Do not pass raw user input as HTTP request targets.
+- Block requests to private/loopback addresses (10.x.x.x, 172.16.x.x, 192.168.x.x, 127.x.x.x, ::1).
+
+---
+
+## Logging Security
+
+**Never log:**
+- Passwords, tokens, private keys
+- Full authorization headers
+- Sensitive customer data (PII, payment info)
+- OTP codes, verification codes
+
+Use structured logging with field-level redaction for sensitive fields.
+
+---
+
+## Dependency Security
+
+- Audit dependencies regularly (`go list -m all` / `npm audit`).
+- Pin dependency versions in `go.sum` / `package-lock.json`.
+- Do not add a dependency for functionality that can be implemented in a few lines.
+- Run `govulncheck ./...` (Go) or `npm audit --audit-level=high` in CI.
+
+---
+
+## Password Security
+
+- Hash passwords with **bcrypt** (cost factor ≥ 12).
+- Do not store plain-text passwords.
+- Do not store password hints.
+- Implement account lockout: after 5 failed attempts, lock for 15 minutes (use Redis cooldown).
+
+---
+
+## Privacy & PII Protection
+
+> [!IMPORTANT]
+> Privacy is a first-class concern, not an afterthought. Apply these rules from day one.
+
+### PII Minimization
+
+- **Only collect data that is strictly necessary** for the feature to function.
+- Before adding any personal data field, ask: *"Can this feature work without this data?"*
+- Do not collect date of birth if only age verification is needed.
+- Do not store device fingerprints unless explicitly required for fraud prevention.
+
+**PII fields that require special handling:**
+- Full name, email, phone number, national ID (KTP/NIK)
+- Location data (GPS coordinates, address)
+- Financial data (account numbers, transaction history)
+- Health data, biometric data
+
+### Encryption at Rest (Sensitive Fields)
+
+Sensitive PII fields must be encrypted at the database column level, not just at the disk level.
+
+```go
+// Pattern: AES-256-GCM encryption for PII columns
+// Encrypt before Save, Decrypt after Load
+// Key stored in secret manager / environment variable — NEVER in source
+
+// Columns that MUST be encrypted:
+// - phone_number
+// - national_id (KTP/NIK)
+// - bank_account_number
+// - anything considered "sensitive" per UU PDP
+```
+
+### Logging Redaction Rules
+
+```go
+// ✅ Safe — redacted structured log
+logger.Info("user login",
+    zap.String("user_id", userID),
+    zap.String("ip", ip),
+    zap.String("email", maskEmail(email)), // "j***@example.com"
+)
+
+// ❌ Never — raw PII in logs
+logger.Info("user login: " + email + " from " + ip)
+
+// Masking helpers:
+// maskEmail("john@example.com")   → "j***@example.com"
+// maskPhone("+6281234567890")     → "+628*****7890"
+// maskNationalID("3271234567890") → "327*********"
+```
+
+### Audit Trail Immutability
+
+- Audit logs are **write-once**. No `UPDATE` or `DELETE` on `audit_logs` table.
+- Use a separate database role with INSERT-only permission for the audit log writer.
+- Consider write-once object storage (S3 Object Lock / MinIO Object Lock) for critical audit events.
+
+### Data Retention Policy
+
+| Data Category | Retention Period | Action After |
+|---|---|---|
+| User accounts (active) | Indefinite while active | Soft-delete on request |
+| User accounts (deleted) | 30 days post-deletion | Hard delete + anonymize |
+| Audit logs | 12 months minimum | Archive to cold storage |
+| Access logs / request logs | 90 days | Delete |
+| Transaction records | 5 years (regulatory) | Archive |
+| OTP / temp tokens | 10–15 minutes TTL | Auto-expire in Redis |
+| Session / refresh tokens | Per token TTL | Auto-expire |
+
+**Right to Erasure (UU PDP / GDPR):**
+- Provide a documented process for user data deletion requests.
+- Deletion = anonymize PII fields (replace with `[DELETED]` or NULL), not hard delete of records.
+- Cannot delete audit log entries — anonymize the `actor_id` reference instead.
+
+### Third-Party Data Sharing Policy
+
+- **API partners must NEVER receive raw PII** without explicit user consent.
+- Always anonymize or pseudonymize data before sending to analytics/third-party services.
+- Log every third-party data share event in the audit log.
+- Review third-party data processing agreements (DPA) before integration.
+- No user data to be sent to AI/ML services (e.g., OpenAI, Gemini) without explicit consent.

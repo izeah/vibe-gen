@@ -1,0 +1,33 @@
+package sample
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Delete removes a sample by ID.
+// @Summary     Delete sample
+// @Tags        sample
+// @Param       id   path      string  true  "Sample ID"
+// @Success     200  {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/samples/{id} [delete]
+func (h *Handler) Delete(c *gin.Context) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.SampleDeleteRequest)
+		err     error
+	)
+	if err = c.ShouldBindUri(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = h.SampleService.Delete(ctx, payload); err != nil {
+		response.ErrorResponse(err).Send(c)
+		return
+	}
+	response.SuccessResponse(nil).Send(c)
+}

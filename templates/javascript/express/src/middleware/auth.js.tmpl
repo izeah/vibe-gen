@@ -1,0 +1,33 @@
+import jwt from 'jsonwebtoken';
+import { config } from '../config/config.js';
+
+/**
+ * authenticate - verifies the Bearer JWT token.
+ * Sets req.user with the decoded payload on success.
+ */
+export const authenticate = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+    return res.status(401).json({ success: false, message: 'Unauthorized' });
+  }
+
+  const token = authHeader.slice(7);
+  try {
+    const decoded = jwt.verify(token, config.jwt.accessSecret);
+    req.user = decoded;
+    next();
+  } catch {
+    return res.status(401).json({ success: false, message: 'Invalid or expired token' });
+  }
+};
+
+/**
+ * requireRole - checks if the authenticated user has the required role(s).
+ * Must be used after authenticate middleware.
+ */
+export const requireRole = (...roles) => (req, res, next) => {
+  if (!req.user || !roles.includes(req.user.role)) {
+    return res.status(403).json({ success: false, message: 'Forbidden' });
+  }
+  next();
+};

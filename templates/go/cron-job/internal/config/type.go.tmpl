@@ -1,0 +1,85 @@
+package config
+
+const (
+	BlockTypePublic = "PUBLIC KEY"
+)
+
+// Config is the root application configuration.
+type Config struct {
+	App            AppConfig
+	DB             DBConfig
+	Redis          RedisConfig
+	Crypto         CryptoConfig
+	OpenTelemetry  OpenTelemetryConfig
+	CircuitBreaker CircuitBreakerConfig
+	RateLimit      RateLimitConfig
+	BindingUrl     string
+}
+
+// AppConfig holds application-level settings.
+type AppConfig struct {
+	Name            string
+	Port            int
+	PrometheusPort  int
+	LogLevel        string
+	ServiceAPIURL   string
+	CorsAllowOrigin []string
+	TimeoutTest     bool
+}
+
+// DBConfig holds database connection settings.
+// Sensitive fields (Password) are sourced from environment variables.
+type DBConfig struct {
+	Host         string
+	Username     string
+	Password     string // sourced from DB_PASS env
+	Port         string
+	NameDb       string
+	SSLMode      string
+	TimeZone     string
+	MaxIdleConns int
+	MaxOpenConns int
+	LogLevel     string
+}
+
+// RedisConfig holds Redis connection settings.
+// Password is sourced from REDIS_PASSWORD env.
+type RedisConfig struct {
+	Address         string
+	Password        string // #nosec G117 -- sourced from env, not hardcoded
+	MaxIdle         int
+	MaxActive       int
+	IdleTimeout     int
+	MaxConnLifetime int
+}
+
+// CryptoConfig holds cryptographic key settings.
+// All key values are sourced from environment variables.
+type CryptoConfig struct {
+	PrivateKey           string // sourced from CRYPTO_PRIVATE_KEY env
+	PublicKey            string // sourced from CRYPTO_PUBLIC_KEY env
+	AccessTokenLifetime  int    // minutes
+	RefreshTokenLifetime int    // minutes
+	KeyEncryptionKey     string // sourced from CRYPTO_KEY_ENCRYPTION_KEY env
+}
+
+// OpenTelemetryConfig holds OpenTelemetry exporter settings.
+type OpenTelemetryConfig struct {
+	HostGrpc string
+}
+
+// CircuitBreakerConfig holds circuit breaker thresholds.
+type CircuitBreakerConfig struct {
+	MaxRequest          int
+	Interval            int
+	Timeout             int
+	ConsecutiveFailures int
+}
+
+// RateLimitConfig holds rate limiting settings.
+type RateLimitConfig struct {
+	Enabled   bool
+	Limit     int    // max requests per window
+	WindowSec int    // time window in seconds
+	KeyPrefix string // redis key prefix
+}

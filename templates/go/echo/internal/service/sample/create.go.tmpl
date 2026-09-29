@@ -1,0 +1,43 @@
+package servicesample
+
+import (
+	"net/http"
+	"time"
+	"uuid"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Create(ctx *abstraction.Context, req *dto.SampleCreateRequest) (*dto.SampleResponse, error) {
+	m := &model.Sample{
+		Context: ctx,
+		SampleEntity: model.SampleEntity{
+			Name:        req.Name,
+			Description: req.Description,
+		},
+	}
+	if res := s.sampleRepository.Create(ctx, m); res.Error != nil {
+		return nil, response.ErrorBuilder(http.StatusInternalServerError, res.Error)
+	}
+	r := &dto.SampleResponse{
+		ID:          m.ID.String(),
+		Name:        m.Name,
+		Description: m.Description,
+		Status:      m.Status,
+		CreatedAt:   time.Unix(0, m.CreatedAt).UTC().Format(time.RFC3339),
+	}
+	if m.UpdatedAt != nil {
+		r.UpdatedAt = time.Unix(0, *m.UpdatedAt).UTC().Format(time.RFC3339)
+	}
+	if m.CreatedBy != uuid.Nil() {
+		r.CreatedBy = m.CreatedBy.String()
+	}
+	if m.UpdatedBy != nil {
+		updStr := m.UpdatedBy.String()
+		r.UpdatedBy = &updStr
+	}
+	return r, nil
+}

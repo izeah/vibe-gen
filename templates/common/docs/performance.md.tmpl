@@ -1,0 +1,132 @@
+# Performance — {{.ProjectTitle}}
+
+## Principles
+
+- **Measure before optimizing.** Do not optimize speculatively.
+- Fix known bottlenecks with evidence (profiling, metrics, slow query logs).
+- Performance work is evidence-driven, not assumption-driven.
+
+## Database
+
+### Connection Pooling Best Practices
+
+Configure connection pools to prevent resource exhaustion and connection storms.
+
+```go
+// Example GORM connection pool config
+sqlDB, err := db.DB()
+if err == nil {
+    // Limits the number of open connections (prevents OOM on DB server)
+    sqlDB.SetMaxOpenConns(100)
+    // Keeps connections ready to avoid TCP handshake overhead
+    sqlDB.SetMaxIdleConns(20)
+    // Recycles connections safely
+    sqlDB.SetConnMaxLifetime(time.Hour)
+    // Closes idle connections after a period
+    sqlDB.SetConnMaxIdleTime(15 * time.Minute)
+}
+```
+
+### Query Optimization Rules
+
+1. **Always index foreign keys and columns used in WHERE clauses.**
+   - Do not add indexes to columns that are rarely filtered or have low cardinality (e.g., boolean `is_active`).
+2. **Avoid `SELECT *` / returning entire models if only specific fields are needed.** Use `.Select("id, name")` for large tables or list endpoints.
+3. **Analyze slow queries with `EXPLAIN ANALYZE`.** Ensure queries use index scans instead of sequential scans.
+4. **Soft-delete indexes:** If querying by `deleted_at IS NULL`, ensure it's part of a composite index if the table is large.
+
+### N+1 Prevention Checklist
+
+N+1 queries occur when a query is executed for each item in a list (e.g., fetching 100 users, then running 100 queries to fetch their profiles).
+
+- [ ] Use eager loading (GORM `Preload("Profile")`) or JOINs for 1:1 and 1:N relationships.
+- [ ] For complex relationships, use the **Bulk Query Pattern** (see `docs/coding-standards.md`):
+  1. Fetch all IDs first.
+  2. Query relations where `id IN (...)`.
+  3. Map the results in memory.
+- [ ] Never use `for` loops to execute individual `SELECT` queries.
+
+## Pagination Efficiency
+
+For very large datasets (millions of rows), standard `OFFSET` pagination becomes slow because the database must scan and discard all skipped rows.
+
+- **Standard (Offset) Pagination:** Use for small/medium datasets or admin panels where users jump to specific pages (`LIMIT 10 OFFSET 1000`).
+- **Cursor / Keyset Pagination:** Use for large feeds, infinite scrolls, or high-traffic public endpoints.
+  - Pattern: `WHERE created_at < ? ORDER BY created_at DESC LIMIT 10`
+  - Requires an index on the cursor column.
+
+## Caching Strategy
+
+Use caching where read load is high and data changes infrequently. Use **Redis** for distributed caching.
+
+**Cache Patterns:**
+- **Cache-Aside:** Application checks cache, if miss, checks DB, then updates cache.
+- **Write-Through:** Application updates DB and cache simultaneously.
+
+**Rules:**
+- **Document TTL:** Every cache key must have an explicit TTL (Time-To-Live). Never cache indefinitely.
+- **Cache Invalidation:** Do not rely on TTL alone for correctness. Implement explicit invalidation (e.g., `DEL key`) on mutation (Create/Update/Delete).
+- **Thundering Herd Prevention:** Add random jitter to TTLs to prevent simultaneous cache stampedes.
+
+## Rate Limiting
+
+### Redis Sliding Window Algorithm
+
+Use a sliding window rate limiter over a fixed window to prevent burst exploitation at window boundaries.
+
+**Pattern Overview:**
+1. Key: `rate_limit:<identifier>` (e.g., `rate_limit:ip:192.168.1.1` or `rate_limit:user:uuid`)
+2. Store timestamps as scores in a Redis Sorted Set (`ZSET`).
+3. On request:
+   - Remove elements older than `current_time - window_size` (`ZREMRANGEBYSCORE`).
+   - Add current request timestamp (`ZADD`).
+   - Count elements (`ZCARD`).
+   - If count > limit, reject request.
+   - Set expiration on the key equal to window size to prevent memory leaks (`EXPIRE`).
+
+*See `docs/security.md` for rate limit tiers.*
+
+## Background Job Tuning
+
+When using workers (e.g., machinery, asynq, or goroutines):
+
+- **Concurrency Limits:** Do not spin up unbounded workers. Use worker pools or semaphores.
+- **Retry Strategy:** Use Exponential Backoff with Jitter for failed jobs (prevents hammering downstream services).
+- **Dead Letter Queue (DLQ):** Jobs that fail repeatedly must be moved to a DLQ for manual inspection, not retried forever.
+- **Idempotency:** Background jobs must be safe to run multiple times.
+
+## HTTP Configuration
+
+Tune HTTP servers and clients to prevent resource leaks and connection hanging.
+
+**Server:**
+- `ReadTimeout`: Prevent slowloris attacks (e.g., 5-10s).
+- `WriteTimeout`: Prevent stuck responses (e.g., 10-20s).
+- `IdleTimeout`: Keep-alive timeout (e.g., 120s).
+- `Graceful Shutdown`: Allow in-flight requests to complete before exiting (e.g., 30s timeout).
+
+**Client (e.g., `http.Client`):**
+- **NEVER use the default `http.Client`** (it has no timeout).
+- Always set a `Timeout` (e.g., 10s).
+- Tune `Transport` `MaxIdleConnsPerHost` if calling an API frequently.
+
+## Observability & Tracing
+
+- Use **OpenTelemetry** for distributed tracing.
+- Ensure trace context (Trace ID, Span ID) is propagated across HTTP boundaries and into background jobs.
+- Add spans for critical operations: Database queries, external API calls, Redis operations.
+- Send traces to Jaeger, Zipkin, or a managed observability platform.
+- Monitor basic RED metrics (Rate, Errors, Duration) for all endpoints.
+
+## Memory Management
+
+- Avoid excessive allocations in hot paths.
+- Use `sync.Pool` for frequently allocated, short-lived objects (only where benchmarks justify it).
+- Profile with `pprof` (Go) or Node Clinic (JS) before making allocation optimizations.
+- Be cautious with large byte slices or reading large files fully into memory (use `io.Reader`).
+
+## Load Testing
+
+- Run load tests in a staging environment before major releases.
+- Define SLOs (e.g., p95 < 200ms at 1000 RPS) and test against them.
+- Tools: k6, Vegeta, or Artillery.

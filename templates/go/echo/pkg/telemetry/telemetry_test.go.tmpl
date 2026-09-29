@@ -1,0 +1,184 @@
+package telemetry
+
+import (
+	"context"
+	"testing"
+
+	"github.com/phuslu/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	otellog "go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/log/embedded"
+)
+
+// mockOtelLogger implements otellog.Logger to capture emitted records
+type mockOtelLogger struct {
+	embedded.Logger
+	records []otellog.Record
+}
+
+func (m *mockOtelLogger) Emit(ctx context.Context, r otellog.Record) {
+	m.records = append(m.records, r)
+}
+func (m *mockOtelLogger) Enabled(ctx context.Context, p otellog.EnabledParameters) bool { return true }
+
+func TestInit_Local(t *testing.T) {
+	ResetForTesting()
+	ctx := context.Background()
+	tele, err := Init(ctx, "test-service", "", "debug")
+	if err != nil {
+		t.Fatalf("Expected no error for local init, got: %v", err)
+	}
+	if tele == nil {
+		t.Fatal("Expected telemetry instance, got nil")
+	}
+	if tele.Endpoint != "" {
+		t.Errorf("Expected empty endpoint, got %s", tele.Endpoint)
+	}
+	
+	// Test double init (Singleton behavior)
+	tele2, err2 := Init(ctx, "test-service", "", "debug")
+	if err2 != nil || tele2 != tele {
+		t.Errorf("Singleton init failed: err2=%v, tele2=%p, tele=%p", err2, tele2, tele)
+	}
+}
+
+func TestInit_Remote(t *testing.T) {
+	ResetForTesting()
+	ctx := context.Background()
+	
+	// Since otlptracegrpc defaults to non-blocking dial, passing a dummy address should succeed
+	tele, err := Init(ctx, "test-service", "127.0.0.1:4317", "info")
+	if err != nil {
+		t.Fatalf("Expected no error for remote init, got: %v", err)
+	}
+	if tele == nil {
+		t.Fatal("Expected telemetry instance, got nil")
+	}
+	if tele.TracerProvider == nil {
+		t.Error("Expected TracerProvider, got nil")
+	}
+	if tele.LoggerProvider == nil {
+		t.Error("Expected LoggerProvider, got nil")
+	}
+	if tele.OtelLogger == nil {
+		t.Error("Expected OtelLogger, got nil")
+	}
+}
+
+func TestShutdown(t *testing.T) {
+	// Shutdown when instance is nil
+	ResetForTesting()
+	if err := Shutdown(context.Background()); err != nil {
+		t.Errorf("Shutdown with nil instance should return nil, got %v", err)
+	}
+
+	// Shutdown with initialized providers
+	ctx := context.Background()
+	_, _ = Init(ctx, "test-service", "127.0.0.1:4317", "info")
+	if err := Shutdown(ctx); err != nil {
+		t.Errorf("Shutdown returned error: %v", err)
+	}
+}
+
+func TestParsePhusluLevel(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected log.Level
+	}{
+		{"debug", log.DebugLevel},
+		{"trace", log.TraceLevel},
+		{"warn", log.WarnLevel},
+		{"warning", log.WarnLevel},
+		{"error", log.ErrorLevel},
+		{"fatal", log.FatalLevel},
+		{"panic", log.PanicLevel},
+		{"info", log.InfoLevel},
+		{"unknown", log.InfoLevel},
+		{"", log.InfoLevel},
+	}
+
+	for _, tt := range tests {
+		result := parsePhusluLevel(tt.input)
+		if result != tt.expected {
+			t.Errorf("parsePhusluLevel(%q) = %v; expected %v", tt.input, result, tt.expected)
+		}
+	}
+}
+
+func TestOtelLogWriter_WriteEntry(t *testing.T) {
+	// Mock the OTel logger
+	mockLogger := &mockOtelLogger{}
+	writer := &OtelLogWriter{logger: mockLogger}
+
+	// 1. Test nil logger handling
+	emptyWriter := &OtelLogWriter{logger: nil}
+	entry := &log.Entry{Level: log.InfoLevel}
+	n, err := emptyWriter.WriteEntry(entry)
+	if err != nil || n != 0 {
+		t.Errorf("Empty logger write failed: n=%d, err=%v", n, err)
+	}
+
+	// 2. Test valid JSON log entry with attributes and trace context
+	tp := otel.GetTracerProvider()
+	tracer := tp.Tracer("test")
+	_, span := tracer.Start(context.Background(), "test-span")
+	spanContext := span.SpanContext()
+
+	// Simulate phuslu/log JSON output
+	logger := log.Logger{
+		Level:  log.InfoLevel,
+		Writer: writer,
+	}
+
+	// This write will trigger our OtelLogWriter.WriteEntry
+	logger.Error().
+		Str("trace_id", spanContext.TraceID().String()).
+		Str("span_id", spanContext.SpanID().String()).
+		Int("user_id", 123).
+		Bool("is_active", true).
+		Float64("price", 99.99).
+		Any("complex", map[string]string{"key": "val"}).
+		Msg("test error msg")
+
+	logger.Info().Msg("test info msg")
+	logger.Warn().Msg("test warn msg")
+	logger.Trace().Msg("test trace msg")
+	logger.Debug().Msg("test debug msg")
+
+	if len(mockLogger.records) < 3 {
+		t.Fatalf("Expected at least 3 records emitted, got %d", len(mockLogger.records))
+	}
+	
+	record := mockLogger.records[0]
+	
+	if record.Severity() != otellog.SeverityError {
+		t.Errorf("Expected SeverityError, got %v", record.Severity())
+	}
+	
+	// Test the attributes we mapped
+	var foundUser, foundActive bool
+	record.WalkAttributes(func(kv attribute.KeyValue) bool {
+		if kv.Key == "user_id" {
+			foundUser = true
+		}
+		if kv.Key == "is_active" {
+			foundActive = true
+		}
+		return true
+	})
+	if !foundUser || !foundActive {
+		t.Errorf("Missing attributes from log fields")
+	}
+
+	// 3. Test invalid JSON output
+	// Create an invalid JSON string directly 
+	writer2 := &OtelLogWriter{logger: mockLogger}
+	_, _ = writer2.WriteEntry(&log.Entry{}) // empty entry
+
+	// Test fallback string message
+	_ = log.Logger{
+		Level: log.InfoLevel,
+		Writer: writer,
+	}
+}

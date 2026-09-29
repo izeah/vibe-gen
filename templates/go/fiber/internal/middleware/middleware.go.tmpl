@@ -1,0 +1,29 @@
+package middleware
+
+import (
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/pkg/ptr"
+)
+
+// Context returns a Fiber middleware that enriches the context with *abstraction.Context.
+func Context() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		now := time.Now()
+		ctx := &abstraction.Context{
+			Ctx: c,
+			Now: func() time.Time {
+				return now
+			},
+			PartnerID:   config.App().PartnerID,
+			CountryCode: ptr.String(config.App().CountryCode),
+		}
+		c.Locals("context", ctx)
+		return c.Next()
+	}
+}
+

@@ -1,0 +1,10 @@
+/out
+/bin
+/.vscode
+*.exe
+main
+*.out
+.DS_Store
+*.log
+coverage.*
+__debug_bin*

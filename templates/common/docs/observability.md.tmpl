@@ -1,0 +1,125 @@
+# Observability — {{.ProjectTitle}}
+
+## Logging
+
+{{.ProjectTitle}} standardizes strictly on **`github.com/phuslu/log`** for high-performance structured logging. It delivers the fastest execution speeds in the Go logging ecosystem with zero heap allocations in critical paths.
+
+### Benchmark Comparison
+
+| Logger | Time (ns/op) | Memory (B/op) | Allocations (allocs/op) |
+| :--- | :---: | :---: | :---: |
+| **`github.com/phuslu/log`** | **~48 ns/op** | **0 B/op** | **0 allocs/op** |
+| `rs/zerolog` | ~150 ns/op | ~0 B/op | 0 allocs/op |
+| `uber-go/zap` | ~140 ns/op | ~120 B/op | 1 allocs/op |
+| `log/slog` (Go stdlib) | ~190 ns/op | ~16 B/op | 1 allocs/op |
+| `sirupsen/logrus` (deprecated) | ~1,200 ns/op | ~1,400 B/op | ~24 allocs/op |
+
+### Usage Example
+
+```go
+import "github.com/phuslu/log"
+
+log.Info().
+    Str("trace_id", traceID).
+    Str("span_id", spanID).
+    Str("method", req.Method).
+    Str("path", req.URL.Path).
+    Int("status", res.Status).
+    Msg("trace")
+```
+
+**Logging Security Rules (Never Log):**
+- Plaintext passwords, pins, private keys
+- Full Authorization / Bearer tokens
+- Cardholder PANs, CVV, or payment provider credentials
+- Sensitive customer PII
+
+Field masking is automatically handled in `internal/middleware/trace.go`.
+
+---
+
+## OpenTelemetry & SigNoz Integration
+
+### Architecture
+
+```
+[HTTP Request]
+       │
+  Trace Middleware ──> [OpenTelemetry Tracer] ──> OTLP gRPC (localhost:4317)
+       │
+  phuslu/log (Log Entry)
+       │
+  OtelLogWriter Bridge ──> [OpenTelemetry Logger] ──> OTLP gRPC (localhost:4317)
+                                                              │
+                                                      [SigNoz Collector]
+                                                              │
+                                                       [SigNoz Web UI]
+                                                    (http://localhost:3301)
+```
+
+Each log record includes `trace_id` and `span_id`. When clicking a trace in SigNoz, all correlated log lines appear directly under the trace timeline.
+
+### Database Tracing (GORM)
+
+Database query spans are captured using `gorm.io/plugin/opentelemetry/tracing` configured with production security & debugging options:
+
+```go
+db.Use(tracing.NewPlugin(
+    tracing.WithoutQueryVariables(), // Parameterized placeholders ($1, ?) to prevent secret leakage
+    tracing.WithoutMetrics(),        // Omit DBStats metrics reporting overhead
+    tracing.WithoutServerAddress(),  // Omit internal DB IP/host from span attributes
+    tracing.WithRecordStackTrace(),  // Record full Go call stack trace on query errors
+))
+```
+
+### Outbound HTTP Client Tracing
+
+All external third-party HTTP calls wrapped with OpenTelemetry client tracing:
+
+```go
+// Option A: Via Circuit Breaker (Recommended for all 3rd-party calls)
+client := resty.NewWithClient(circuitbreaker.NewClient())
+
+// Option B: Direct HTTP client wrap
+client := resty.NewWithClient(telemetry.WrapClient(nil))
+```
+
+### Starting SigNoz on Local Docker / OrbStack
+
+Run the provided Makefile targets:
+
+```bash
+# 1. Start SigNoz + OpenTelemetry Collector (auto-initializes via official SigNoz Foundry CLI)
+make signoz-start
+
+# 2. Open SigNoz UI in your browser
+open http://localhost:3301
+
+# 3. Stop SigNoz containers
+make signoz-stop
+
+# 4. Clean up SigNoz containers and volumes
+make signoz-clean
+```
+
+### Configuration
+
+Set in `config.yml`:
+```yaml
+opentelemetry:
+  host_grpc: "localhost:4317"
+```
+
+Or via environment variable in `.env`:
+```bash
+OTEL_HOST_GRPC=localhost:4317
+```
+
+If `host_grpc` is left empty, the application runs standalone with console logging only.
+
+---
+
+## Health Checks
+
+- `GET /health` — returns `200 OK` when the service process is running.
+- `GET /ready` — returns `200 OK` only when all dependencies (PostgreSQL, Redis) are healthy.

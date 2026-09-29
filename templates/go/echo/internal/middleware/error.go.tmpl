@@ -1,0 +1,38 @@
+package middleware
+
+import (
+	"errors"
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+	"github.com/phuslu/log"
+	"go.opentelemetry.io/otel/trace"
+
+	"{{.ModuleName}}/pkg/response"
+)
+
+// ErrorHandler ...
+func ErrorHandler(err error, c echo.Context) {
+	if c.Response().Committed {
+		return
+	}
+
+	var report *echo.HTTPError
+	if ok := errors.As(err, &report); !ok {
+		report = echo.NewHTTPError(http.StatusUnprocessableEntity, err)
+	}
+
+	switch report.Code {
+	case http.StatusNotFound:
+		err = response.ErrorConstant.RouteNotFound
+	case http.StatusMethodNotAllowed:
+		err = response.ErrorConstant.MethodNotAllowed
+	default:
+		err = response.ErrorConstant.UnprocessableEntity
+	}
+
+	if err = response.ErrorResponse(err).Send(c); err != nil {
+		span := trace.SpanFromContext(c.Request().Context())
+		log.Error().Str("trace_id", span.SpanContext().TraceID().String()).Err(err).Msg("")
+	}
+}

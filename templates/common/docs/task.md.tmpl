@@ -1,0 +1,165 @@
+# Task Plan — {{.ProjectTitle}}
+
+> [!IMPORTANT]
+> **MANDATORY PLANNING GATE — AI AGENT MUST READ THIS FIRST**
+>
+> Before writing **any code**, you MUST fully populate this file with a complete implementation plan.
+> After writing the plan, you MUST **STOP** and wait for the developer to explicitly type **`deal`**.
+> **Do NOT write any code, create any file, or run any command until you receive `deal`.**
+
+---
+
+## How to Use This File
+
+1. **AI fills this file** with a complete plan every time a new feature or task begins.
+2. **Developer reviews** the plan — edits, asks questions, or rejects sections.
+3. **Developer types `deal`** to approve and unblock execution.
+4. **AI executes** the plan phase-by-phase, updating the checklist as it goes.
+5. **After completion**, move the task to `docs/progress.md` and clear this file for the next task.
+
+---
+
+## Current Task
+
+**Task Title:** <!-- e.g., "Add user authentication with JWT" -->
+
+**Requested by:** <!-- Developer prompt summary -->
+
+**Status:** `DRAFT` <!-- DRAFT → AWAITING REVIEW → APPROVED (deal) → IN PROGRESS → DONE -->
+
+**Scope Size:** <!-- S (1-2 files) | M (3-6 files) | L (7-15 files) | XL (16+ files, consider splitting) -->
+
+---
+
+## Clarifying Questions (if any)
+
+> If any requirements are ambiguous or underspecified, list questions here and STOP.
+> Do NOT proceed until the developer answers them.
+
+- [ ] <!-- Question 1 -->
+- [ ] <!-- Question 2 -->
+
+---
+
+## Implementation Plan
+
+### Files to Create
+
+| File Path | Layer | Purpose |
+|---|---|---|
+| <!-- e.g., internal/app/user/handler.go --> | <!-- Handler --> | <!-- Registers HTTP routes for user domain --> |
+
+### Files to Modify
+
+| File Path | Change Description |
+|---|---|
+| <!-- e.g., internal/factory/factory.go --> | <!-- Add UserRepository field and initialization --> |
+
+### DB Schema Changes
+
+> Skip this section if no database changes are required.
+
+```sql
+-- Migration: <migration_name>
+-- Run: make migrate-create NAME=<migration_name>
+
+CREATE TABLE IF NOT EXISTS <table_name> (
+    id UUID PRIMARY KEY DEFAULT uuidv7(),
+    -- columns here
+    created_at BIGINT NOT NULL,
+    created_by UUID NOT NULL,
+    updated_at BIGINT,
+    updated_by UUID,
+    deleted_at BIGINT,
+    deleted_by UUID
+);
+
+CREATE INDEX IF NOT EXISTS idx_<table>_<col> ON <table_name> (<column>);
+```
+
+**Tables affected:** <!-- List all tables created or altered -->
+**Indexes to add:** <!-- List all indexes -->
+**Migration command:** `make migrate-create NAME=<migration_name>`
+
+### API Contracts
+
+> Skip this section if no API changes are required.
+
+| Method | Path | Auth | Request Body | Response |
+|---|---|---|---|---|
+| <!-- POST --> | <!-- /api/v1/users --> | <!-- JWT --> | <!-- {name, email, password} --> | <!-- {id, name, email} --> |
+
+### Business Rules & Validations
+
+- [ ] <!-- e.g., Email must be unique across all users -->
+- [ ] <!-- e.g., Password minimum 8 chars, at least 1 uppercase, 1 number -->
+- [ ] <!-- e.g., Only ADMIN role can delete users -->
+
+### Dependencies (New Libraries)
+
+> List any NEW libraries that need to be installed. Leave empty if none.
+
+| Library | Version | Reason |
+|---|---|---|
+| <!-- e.g., golang.org/x/crypto --> | <!-- latest --> | <!-- bcrypt password hashing --> |
+
+### Testing Plan
+
+- [ ] Unit test: <!-- e.g., TestUserService_Create_Success -->
+- [ ] Unit test: <!-- e.g., TestUserService_Create_DuplicateEmail_ReturnsError -->
+- [ ] Integration test: <!-- e.g., TestUserHandler_POST_/users_201 -->
+- [ ] Mock: <!-- e.g., Mock UserRepository for service tests -->
+
+### Security Considerations
+
+- [ ] <!-- e.g., Password hashed with bcrypt cost 12 before storage -->
+- [ ] <!-- e.g., JWT claims do not include sensitive PII -->
+- [ ] <!-- e.g., Rate limit: 5 login attempts per minute per IP -->
+- [ ] <!-- e.g., SQL injection: all queries use parameterized GORM calls -->
+
+---
+
+## Execution Checklist
+
+> Filled by AI during execution after `deal` is received.
+> Check off each item as it is completed.
+
+### Phase 1: Database & Models
+- [ ] Create migration file via `make migrate-create NAME=<name>`
+- [ ] Apply migration via `make migrate-up`
+- [ ] Create/update model in `internal/model/`
+- [ ] Update `docs/database.md`
+
+### Phase 2: Data Access Layer
+- [ ] Create repository interface + struct in `internal/repository/<domain>/repository.go`
+- [ ] Implement all minimal methods (find, find-one, count, create, update, updates, soft-delete, update-or-insert, first-or-create, exists, delete, ids)
+- [ ] Register repository in `internal/factory/factory.go`
+
+### Phase 3: Business Logic
+- [ ] Create DTO (request/response/filter) in `internal/dto/<domain>/`
+- [ ] Create service interface + implementation in `internal/service/<domain>/`
+- [ ] Implement all service methods with business rule validations
+
+### Phase 4: HTTP Layer
+- [ ] Create handler struct + constructor in `internal/app/<domain>/handler.go`
+- [ ] Create route registration in `internal/app/<domain>/route.go`
+- [ ] Create one file per action: `create.go`, `find.go`, `find-by-id.go`, `update.go`, `delete.go`
+- [ ] Register route group in `internal/delivery/http.go`
+
+### Phase 5: Tests & Verification
+- [ ] Write unit tests for service layer
+- [ ] Run targeted tests: `go test ./internal/service/<domain>/...`
+- [ ] Run full suite: `go test ./...`
+- [ ] `go build ./...` passes with no errors
+- [ ] Review `git diff` — changes are scoped correctly
+
+### Phase 6: Docs & Commit
+- [ ] Update `docs/progress.md`
+- [ ] Update `docs/api.md` with new endpoints
+- [ ] Commit at logical boundary
+
+---
+
+> [!NOTE]
+> After all phases are complete, archive this task summary to `docs/progress.md`
+> and reset this file for the next task.

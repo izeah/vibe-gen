@@ -1,0 +1,16 @@
+package thirdpartysample
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	thirdpartysampledto "{{.ModuleName}}/pkg/thirdparty-sample/dto"
+)
+
+// Service defines the contract for the ThirdPartySample API client.
+// Rename this interface and its methods to match the actual third-party service.
+type Service interface {
+	// CreateTransaction is a sample method — rename/replace with real operations.
+	CreateTransaction(ctx *abstraction.Context, payload *thirdpartysampledto.CreateTransactionRequest) (*thirdpartysampledto.CreateTransactionResponse, error)
+
+	// GetTransactionStatus is a sample method — rename/replace with real operations.
+	GetTransactionStatus(ctx *abstraction.Context, req *thirdpartysampledto.GetTransactionStatusRequest) (*thirdpartysampledto.GetTransactionStatusResponse, error)
+}

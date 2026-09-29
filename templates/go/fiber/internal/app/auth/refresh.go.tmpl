@@ -1,0 +1,32 @@
+package auth
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Refresh exchanges a valid refresh token for a new token pair.
+// @Summary     Refresh access token
+// @Tags        auth
+// @Accept      json
+// @Produce     json
+// @Param       body  body      dto.RefreshRequest  true  "Refresh token"
+// @Success     200   {object}  response.Base
+// @Router      /v1/auth/refresh [post]
+func (h *Handler) Refresh(c *fiber.Ctx) (err error) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.RefreshRequest)
+		data    *dto.LoginResponse
+	)
+	if err = c.BodyParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.AuthService.Refresh(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(data).Send(c)
+}

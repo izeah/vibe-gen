@@ -1,0 +1,31 @@
+package thirdpartysampleservice
+
+import (
+	"errors"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/pkg/response"
+	thirdpartysampledto "{{.ModuleName}}/pkg/thirdparty-sample/dto"
+)
+
+// GetTransactionStatus is a sample method implementation.
+func (s *service) GetTransactionStatus(ctx *abstraction.Context, req *thirdpartysampledto.GetTransactionStatusRequest) (*thirdpartysampledto.GetTransactionStatusResponse, error) {
+	var result thirdpartysampledto.GetTransactionStatusResponse
+
+	resp, err := s.client.R().
+		SetContext(ctx.Request().Context()).
+		SetResult(&result).
+		Get("/transactions/" + req.TransactionID)
+
+	if err != nil {
+		return nil, response.ErrorConstant.UnprocessableEntity.WithError(err)
+	}
+
+	if !s.isSuccess(resp.StatusCode()) {
+		return nil, response.ErrorConstant.NotFound.
+			WithError(errors.New("transaction not found")).
+			WithData(result)
+	}
+
+	return &result, nil
+}

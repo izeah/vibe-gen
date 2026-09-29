@@ -1,0 +1,45 @@
+package middleware
+
+import (
+	"strings"
+	"uuid"
+
+	"github.com/gofiber/fiber/v2"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Authentication returns a Fiber middleware that validates Bearer JWT tokens.
+func Authentication() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		authHeader := c.Get("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			return response.ErrorConstant.Unauthorized.Send(c)
+		}
+
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		claims, err := authtoken.Verify(tokenStr, config.AuthKey().PemDataPublic)
+		if err != nil {
+			return response.ErrorConstant.Unauthorized.WithError(err).Send(c)
+		}
+
+		uidStr := claims.Subject
+		var uid uuid.UUID
+		if uidStr != "" {
+			uid, _ = uuid.Parse(uidStr)
+		}
+		email := claims.Email
+		role := claims.Role
+
+		c.Locals("auth", &abstraction.AuthContext{
+			ID:     uid,
+			UserID: uidStr,
+			Email:  email,
+			Role:   role,
+		})
+		return c.Next()
+	}
+}

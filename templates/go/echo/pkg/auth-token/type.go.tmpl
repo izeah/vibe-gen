@@ -1,0 +1,32 @@
+package authtoken
+
+import (
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
+type CustomClaims struct {
+	PartnerId string `json:"partnerId,omitempty"`
+	Email     string `json:"email,omitempty"`
+	Role      string `json:"role,omitempty"`
+
+	jwt.RegisteredClaims
+}
+
+type AddtionalClaims struct {
+	TokenId string
+	UserId  string
+	Email   string
+	Role    string
+
+	PartnerId string
+
+	Issuer    string
+	ExpiredAt time.Time
+	IssuedAt  time.Time
+}
+
+type AuthToken struct {
+	token *jwt.Token
+}

@@ -1,0 +1,88 @@
+// @title           {{.ProjectTitle}} API
+// @version         v1
+// @description     {{.ProjectTitle}} REST API
+// @termsOfService  http://swagger.io/terms/
+//
+// @contact.name    API Support
+// @contact.email   support@example.com
+//
+// @license.name    MIT
+//
+// @host            localhost:8080
+// @BasePath        /v1
+//
+// @securityDefinitions.apikey BearerAuth
+// @in header
+// @name Authorization
+// @description Type "Bearer" followed by a space and the JWT token.
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/recover"
+	"github.com/phuslu/log"
+
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/internal/delivery"
+	"{{.ModuleName}}/internal/factory"
+	"{{.ModuleName}}/internal/middleware"
+	"{{.ModuleName}}/pkg/database"
+	"{{.ModuleName}}/pkg/telemetry"
+)
+
+func main() {
+	cfg := config.Get()
+
+	// 2. Initialize Telemetry (OpenTelemetry tracer/logger + phuslu/log bridge)
+	teleCtx, teleCancel := context.WithCancel(context.Background())
+	defer teleCancel()
+	if _, err := telemetry.Init(teleCtx, cfg.App.Name, cfg.OpenTelemetry.HostGrpc, cfg.App.LogLevel); err != nil {
+		log.Fatal().Err(err).Msg("failed to initialize telemetry")
+	}
+	defer func() {
+		shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer shutdownCancel()
+		if err := telemetry.Shutdown(shutdownCtx); err != nil {
+			log.Error().Err(err).Msg("telemetry shutdown error")
+		}
+	}()
+
+	// 1. Initialize database.
+	database.Init()
+	defer database.Close()
+
+	app := fiber.New(fiber.Config{
+		AppName: cfg.App.Name,
+	})
+	app.Use(recover.New())
+	app.Use(cors.New())
+	app.Use(middleware.Trace())
+	app.Use(middleware.Context())
+
+	f := factory.NewFactory()
+	delivery.HTTP(app, f)
+
+	go func() {
+		log.Info().Msgf("starting %s on :%d", cfg.App.Name, cfg.App.Port)
+		if err := app.Listen(fmt.Sprintf(":%d", cfg.App.Port)); err != nil {
+			log.Fatal().Err(err).Msg("server error")
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	if err := app.Shutdown(); err != nil {
+		log.Error().Err(err).Msg("shutdown error")
+	}
+	log.Info().Msg("server stopped")
+}

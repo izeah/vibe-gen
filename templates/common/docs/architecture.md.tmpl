@@ -1,0 +1,66 @@
+# Architecture — {{.ProjectTitle}}
+
+## Overview
+
+**{{.ProjectTitle}}** is a **{{.Framework}}** project generated on {{.Date}}.
+
+## Request Flow
+
+```
+Client
+  ↓
+HTTP Handler (internal/app/)
+  ↓
+Service (internal/service/)
+  ↓
+Repository (internal/repository/)
+  ↓
+Database (PostgreSQL via GORM)
+```
+
+## Layer Responsibilities
+
+| Layer | Location | Responsibility |
+|---|---|---|
+| Handler | `internal/app/<domain>/handler.go` | HTTP binding, validation, response |
+| Route | `internal/app/<domain>/route.go` | Endpoint registration |
+| Service | `internal/service/<domain>/service.go` | Business logic |
+| Repository | `internal/repository/<domain>/repository.go` | Data access |
+| Model | `internal/model/` | Database entity |
+| DTO | `internal/dto/<domain>/` | Request/response shapes |
+| Factory | `internal/factory/factory.go` | Dependency composition |
+| Config | `internal/config/` | Configuration loading |
+| Middleware | `internal/middleware/` | Auth, logging, CORS |
+
+## Directory Structure
+
+```
+.
+├── main.go
+├── internal/
+│   ├── abstraction/   # Echo context, pagination
+│   ├── app/           # HTTP handlers + routes per domain
+│   ├── config/        # Viper config loading + typed structs
+│   ├── delivery/      # HTTP orchestrator
+│   ├── dto/           # Request/response DTOs
+│   ├── factory/       # Dependency wiring
+│   ├── middleware/    # Auth, CORS, rate-limit
+│   ├── model/         # GORM models
+│   ├── redis/         # Redis adapter
+│   ├── repository/    # Data access layer
+│   └── service/       # Business logic layer
+└── pkg/
+    ├── circuitbreaker/
+    ├── database/
+    ├── date/
+    ├── pad/
+    └── response/
+```
+
+## Key Design Principles
+
+- Dependency flows inward: `handler → service → repository → database`.
+- Dependencies are injected via `factory.Factory` — no global state.
+- Secrets never appear in source; they come from environment variables or Vault.
+- Config is initialized once via `sync.Once`.
+- **Configuration Precedence**: `config.yml` (primary) → `.env` file in root project loaded via `loadDotEnv()` (fallback, format: `DB_HOST=localhost`) / OS environment variables → safe defaults in `internal/config/config.go`.

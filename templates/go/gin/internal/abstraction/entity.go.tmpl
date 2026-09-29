@@ -1,0 +1,55 @@
+package abstraction
+
+import (
+	"time"
+	"uuid"
+)
+
+// DefaultSystemUserID is used as default creator when no specific user context is provided.
+var DefaultSystemUserID = uuid.MustParse("018b1234-5678-7abc-8def-123456789a01")
+
+// Entity provides standard primary key and audit columns across all database entities.
+// Timestamp standard: time.Now().UnixNano() (BIGINT in UTC).
+// Soft delete semantics: deleted_at IS NULL means active (not deleted).
+type Entity struct {
+	ID        uuid.UUID  `gorm:"column:id;type:uuid;primaryKey" json:"id"`
+	CreatedAt int64      `gorm:"column:created_at;autoCreateTime:nano;not null" json:"created_at"`
+	CreatedBy uuid.UUID  `gorm:"column:created_by;type:uuid;not null" json:"created_by"`
+	UpdatedAt *int64     `gorm:"column:updated_at;autoUpdateTime:false" json:"updated_at,omitempty"`
+	UpdatedBy *uuid.UUID `gorm:"column:updated_by;type:uuid" json:"updated_by,omitempty"`
+	DeletedAt *int64     `gorm:"column:deleted_at;index" json:"deleted_at,omitempty"`
+	DeletedBy *uuid.UUID `gorm:"column:deleted_by;type:uuid" json:"deleted_by,omitempty"`
+}
+
+// SetupBeforeCreate initializes ID (UUIDv7), created_at (UnixNano), and created_by.
+func (e *Entity) SetupBeforeCreate(ctx *Context) {
+	if e.ID == uuid.Nil() {
+		e.ID = uuid.NewV7()
+	}
+	if e.CreatedAt == 0 {
+		e.CreatedAt = time.Now().UnixNano()
+	}
+	if ctx != nil && ctx.Auth != nil && ctx.Auth.ID != uuid.Nil() {
+		e.CreatedBy = ctx.Auth.ID
+	} else if e.CreatedBy == uuid.Nil() {
+		e.CreatedBy = DefaultSystemUserID
+	}
+}
+
+// SetupBeforeUpdate sets updated_at (UnixNano) and updated_by.
+func (e *Entity) SetupBeforeUpdate(ctx *Context) {
+	now := time.Now().UnixNano()
+	e.UpdatedAt = &now
+	if ctx != nil && ctx.Auth != nil && ctx.Auth.ID != uuid.Nil() {
+		e.UpdatedBy = &ctx.Auth.ID
+	}
+}
+
+// SetupBeforeDelete sets deleted_at (UnixNano) and deleted_by.
+func (e *Entity) SetupBeforeDelete(ctx *Context) {
+	now := time.Now().UnixNano()
+	e.DeletedAt = &now
+	if ctx != nil && ctx.Auth != nil && ctx.Auth.ID != uuid.Nil() {
+		e.DeletedBy = &ctx.Auth.ID
+	}
+}

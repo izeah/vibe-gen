@@ -1,0 +1,14 @@
+package thirdpartysampledto
+
+// GetTransactionStatusRequest is a sample status check request.
+type GetTransactionStatusRequest struct {
+	TransactionID string `json:"transaction_id"`
+}
+
+// GetTransactionStatusResponse is a sample status check response.
+type GetTransactionStatusResponse struct {
+	TransactionID string `json:"transaction_id"`
+	Status        string `json:"status"`
+	Amount        int64  `json:"amount"`
+	UpdatedAt     string `json:"updated_at"`
+}

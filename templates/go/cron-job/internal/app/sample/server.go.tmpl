@@ -1,0 +1,11 @@
+package sample
+
+import (
+	"{{.ModuleName}}/internal/factory"
+	sampleservice "{{.ModuleName}}/internal/app/sample/service"
+)
+
+// NewServer creates the sample application service.
+func NewServer(f *factory.Factory) Service {
+	return sampleservice.New(f)
+}

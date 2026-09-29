@@ -1,0 +1,31 @@
+package thirdpartysampleservice
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/pkg/response"
+	thirdpartysampledto "{{.ModuleName}}/pkg/thirdparty-sample/dto"
+)
+
+// CreateTransaction is a sample method implementation.
+// Adapt the endpoint path, request/response types to the actual third-party API.
+func (s *service) CreateTransaction(ctx *abstraction.Context, payload *thirdpartysampledto.CreateTransactionRequest) (*thirdpartysampledto.CreateTransactionResponse, error) {
+	var result thirdpartysampledto.CreateTransactionResponse
+
+	resp, err := s.client.R().
+		SetContext(ctx.Request().Context()).
+		SetBody(payload).
+		SetResult(&result).
+		Post("/transactions")
+
+	if err != nil {
+		return nil, response.ErrorConstant.UnprocessableEntity.WithError(err)
+	}
+
+	if !s.isSuccess(resp.StatusCode()) {
+		return nil, response.ErrorConstant.UnprocessableEntity.
+			WithError(s.parseAPIError(resp)).
+			WithData(result)
+	}
+
+	return &result, nil
+}

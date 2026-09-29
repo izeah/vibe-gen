@@ -1,0 +1,29 @@
+package middleware
+
+import (
+	"time"
+
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/pkg/ptr"
+)
+
+// Context returns a Gin middleware that enriches the context with *abstraction.Context.
+func Context() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		now := time.Now()
+		ctx := &abstraction.Context{
+			Context: c,
+			Now: func() time.Time {
+				return now
+			},
+			PartnerID:   config.App().PartnerID,
+			CountryCode: ptr.String(config.App().CountryCode),
+		}
+		c.Set("context", ctx)
+		c.Next()
+	}
+}
+

@@ -1,0 +1,55 @@
+# Language-aware .gitignore for {{.ProjectTitle}}
+
+# — Secrets —
+.env
+.env.*
+!.env.example
+secret/
+secret-auth/
+*.key
+*.pem
+
+# — Go —
+/out/
+/bin/
+*.test
+*.prof
+vendor/
+
+# — Node.js —
+node_modules/
+dist/
+.next/
+.nuxt/
+.svelte-kit/
+coverage/
+*.log
+npm-debug.log*
+
+# — Editors —
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# — Docker —
+*.env.docker
+
+# — Config overrides —
+config.yml
+config.*.yml
+config.yaml
+config.*.yaml
+secret/
+
+# — Build output —
+/out/
+/build/
+/dist/
+
+# — Third-Party Deployments (SigNoz via Foundry) —
+deploy-signoz/
+pours/
+casting.yaml
+casting.yaml.lock

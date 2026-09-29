@@ -1,0 +1,169 @@
+package redis
+
+import (
+	"context"
+	"crypto/md5"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"math/rand"
+	"time"
+
+	"golang.org/x/crypto/bcrypt"
+	"github.com/redis/go-redis/v9"
+	"github.com/pkg/errors" // using standard alias as pkgerr if needed, but imported directly
+	
+	dtoredis "{{.ModuleName}}/internal/dto/redis"
+)
+
+var (
+	ErrNotFound = errors.New("data not found")
+)
+
+const (
+	RedisExpireOtpDefault   = 300 // 5 minutes
+	RedisExpireTokenDefault = 3600 // 1 hour
+	RedisKeyGenerateToken   = "session:token:%s"
+)
+
+// helper functions to replace utilcodeidhelper
+func randomNumber(length int) string {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	digits := "0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = digits[r.Intn(len(digits))]
+	}
+	return string(b)
+}
+
+func randomChar(length int) string {
+	r := rand.New(rand.NewSource(time.Now().UnixNano()))
+	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[r.Intn(len(charset))]
+	}
+	return string(b)
+}
+
+func hashMD5(text string) string {
+	hasher := md5.New()
+	hasher.Write([]byte(text))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
+type OtpRepository interface {
+	CheckOtp(ctx context.Context, key string) error
+	DeleteOtp(ctx context.Context, key string) error
+	ValidateOTP(ctx context.Context, key, otp string) error
+	GetOTP(ctx context.Context, key string, expire, lengthOtp int) (*dtoredis.OtpNumber, error)
+	DeleteSessionToken(ctx context.Context, key string) error
+	GenerateSessionToken(ctx context.Context, key string, expiresInSecond int) (*dtoredis.OtpToken, error)
+}
+
+type otp struct {
+	client *redis.Client
+}
+
+func NewOtp(client *redis.Client) OtpRepository {
+	return &otp{
+		client: client,
+	}
+}
+
+func (r *otp) CheckOtp(ctx context.Context, key string) error {
+	storageData, err := r.client.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	if storageData != "" {
+		expiredIn, err := r.client.TTL(ctx, key).Result()
+		if err != nil {
+			return err
+		}
+		return fmt.Errorf("Otp already request. Will expire in %d second", int(expiredIn.Seconds()))
+	}
+
+	return nil
+}
+
+func (r *otp) DeleteOtp(ctx context.Context, key string) error {
+	if _, err := r.client.Del(ctx, key).Result(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *otp) ValidateOTP(ctx context.Context, key, otp string) error {
+	o, err := r.client.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	if err = bcrypt.CompareHashAndPassword([]byte(o), []byte(otp)); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (r *otp) GetOTP(ctx context.Context, key string, expire, lengthOtp int) (*dtoredis.OtpNumber, error) {
+	otpStr := randomNumber(lengthOtp)
+	otpMD5 := hashMD5(otpStr)
+	hashedOTP, err := bcrypt.GenerateFromPassword([]byte(otpMD5), bcrypt.MinCost)
+	if err != nil {
+		return nil, err
+	}
+
+	expiresInSecond := expire
+	if expiresInSecond <= 0 {
+		expiresInSecond = RedisExpireOtpDefault
+	}
+
+	_, err = r.client.SetEx(ctx, key, hashedOTP, time.Duration(expiresInSecond)*time.Second).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	return &dtoredis.OtpNumber{
+		Otp:       otpStr,
+		ExpiresIn: expiresInSecond,
+	}, nil
+}
+
+func (r *otp) DeleteSessionToken(ctx context.Context, key string) error {
+	if _, err := r.client.Del(ctx, fmt.Sprintf(RedisKeyGenerateToken, key)).Result(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *otp) GenerateSessionToken(ctx context.Context, key string, expiresInSecond int) (*dtoredis.OtpToken, error) {
+	if expiresInSecond <= 0 {
+		expiresInSecond = RedisExpireTokenDefault
+	}
+
+	otpToken := randomChar(32)
+	hashedToken, err := bcrypt.GenerateFromPassword([]byte(otpToken), bcrypt.MinCost)
+	if err != nil {
+		return nil, err
+	}
+
+	_, err = r.client.SetEx(ctx, fmt.Sprintf(RedisKeyGenerateToken, key), hashedToken, time.Duration(expiresInSecond)*time.Second).Result()
+	if err != nil {
+		return nil, err
+	}
+
+	return &dtoredis.OtpToken{
+		Token:     otpToken,
+		ExpiresIn: expiresInSecond,
+	}, nil
+}

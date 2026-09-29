@@ -1,0 +1,17 @@
+package service
+
+import (
+	"{{.ModuleName}}/internal/factory"
+	dbsample "{{.ModuleName}}/pkg/db-sample"
+)
+
+type service struct {
+	dbSampleRepo dbsample.Repository
+}
+
+// New creates a new sample cron service.
+func New(f *factory.Factory) *service {
+	return &service{
+		dbSampleRepo: f.DBSampleRepo,
+	}
+}

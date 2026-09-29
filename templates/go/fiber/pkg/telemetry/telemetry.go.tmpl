@@ -1,0 +1,326 @@
+package telemetry
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"github.com/phuslu/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	otellog "go.opentelemetry.io/otel/log"
+	"go.opentelemetry.io/otel/log/global"
+	"go.opentelemetry.io/otel/propagation"
+	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"go.opentelemetry.io/otel/sdk/resource"
+	semconv "go.opentelemetry.io/otel/semconv/v1.26.0"
+	sdklog "go.opentelemetry.io/otel/sdk/log"
+	"go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc"
+	"go.opentelemetry.io/otel/exporters/otlp/otlplog/otlploggrpc"
+	trace "go.opentelemetry.io/otel/trace"
+)
+
+var (
+	instance *Telemetry
+	once     sync.Once
+)
+
+// Telemetry manages OpenTelemetry tracing and logging lifecycles.
+type Telemetry struct {
+	ServiceName    string
+	Endpoint       string
+	TracerProvider *sdktrace.TracerProvider
+	LoggerProvider *sdklog.LoggerProvider
+	OtelLogger     otellog.Logger
+}
+
+// Init initializes OpenTelemetry tracing and logging and bridges phuslu/log.
+func Init(ctx context.Context, serviceName, endpoint, logLevel string) (*Telemetry, error) {
+	var initErr error
+	once.Do(func() {
+		t := &Telemetry{
+			ServiceName: serviceName,
+			Endpoint:    endpoint,
+		}
+
+		lvl := parsePhusluLevel(logLevel)
+
+		// Base console writer for clean terminal output
+		consoleWriter := &log.ConsoleWriter{
+			ColorOutput:    true,
+			QuoteString:    false,
+			EndWithMessage: true,
+		}
+
+		if endpoint == "" {
+			// Local standalone without remote OTel collector:
+			// Initialize local TracerProvider so TraceID and SpanID are generated for logs and child spans.
+			tp := sdktrace.NewTracerProvider(
+				sdktrace.WithSampler(sdktrace.AlwaysSample()),
+			)
+			otel.SetTracerProvider(tp)
+			otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+				propagation.TraceContext{},
+				propagation.Baggage{},
+			))
+			t.TracerProvider = tp
+
+			log.DefaultLogger = log.Logger{
+				Level:      lvl,
+				Caller:     1,
+				TimeFormat: "2006-01-02T15:04:05.000Z07:00",
+				Writer:     consoleWriter,
+			}
+			instance = t
+			return
+		}
+
+		// Resource metadata for SigNoz
+		res, err := resource.New(ctx,
+			resource.WithAttributes(
+				semconv.ServiceNameKey.String(serviceName),
+				attribute.String("service.name", serviceName),
+				attribute.String("environment", "local"),
+			),
+		)
+		if err != nil {
+			initErr = fmt.Errorf("creating otel resource: %w", err)
+			return
+		}
+
+		// 1. OTLP Trace Exporter (gRPC)
+		traceExp, err := otlptracegrpc.New(ctx,
+			otlptracegrpc.WithEndpoint(endpoint),
+			otlptracegrpc.WithInsecure(),
+		)
+		if err != nil {
+			initErr = fmt.Errorf("creating otlp trace exporter: %w", err)
+			return
+		}
+
+		tp := sdktrace.NewTracerProvider(
+			sdktrace.WithBatcher(traceExp),
+			sdktrace.WithResource(res),
+		)
+		otel.SetTracerProvider(tp)
+		otel.SetTextMapPropagator(propagation.NewCompositeTextMapPropagator(
+			propagation.TraceContext{},
+			propagation.Baggage{},
+		))
+		t.TracerProvider = tp
+
+		// 2. OTLP Log Exporter (gRPC)
+		logExp, err := otlploggrpc.New(ctx,
+			otlploggrpc.WithEndpoint(endpoint),
+			otlploggrpc.WithInsecure(),
+		)
+		if err != nil {
+			initErr = fmt.Errorf("creating otlp log exporter: %w", err)
+			return
+		}
+
+		lp := sdklog.NewLoggerProvider(
+			sdklog.WithProcessor(sdklog.NewBatchProcessor(logExp)),
+			sdklog.WithResource(res),
+		)
+		global.SetLoggerProvider(lp)
+		t.LoggerProvider = lp
+		t.OtelLogger = lp.Logger(serviceName)
+
+		// 3. Configure phuslu/log to write to both Console and SigNoz OTel Collector
+		otelBridge := &OtelLogWriter{logger: t.OtelLogger}
+
+		log.DefaultLogger = log.Logger{
+			Level:      lvl,
+			Caller:     1,
+			TimeFormat: "2006-01-02T15:04:05.000Z07:00",
+			Writer: &log.MultiEntryWriter{
+				consoleWriter,
+				otelBridge,
+			},
+		}
+
+		instance = t
+	})
+
+	return instance, initErr
+}
+
+// Shutdown flushes and terminates the tracer and logger providers.
+func Shutdown(ctx context.Context) error {
+	if instance == nil {
+		return nil
+	}
+	var errs []string
+	if instance.TracerProvider != nil {
+		if err := instance.TracerProvider.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Sprintf("tracer shutdown: %v", err))
+		}
+	}
+	if instance.LoggerProvider != nil {
+		if err := instance.LoggerProvider.Shutdown(ctx); err != nil {
+			errs = append(errs, fmt.Sprintf("logger shutdown: %v", err))
+		}
+	}
+	if len(errs) > 0 {
+		return fmt.Errorf("%s", strings.Join(errs, "; "))
+	}
+	return nil
+}
+
+// OtelLogWriter bridges phuslu/log entries to OpenTelemetry Logger for SigNoz ingestion.
+type OtelLogWriter struct {
+	logger otellog.Logger
+}
+
+func (w *OtelLogWriter) WriteEntry(e *log.Entry) (int, error) {
+	if w.logger == nil {
+		return len(e.Value()), nil
+	}
+
+	rawJSON := e.Value()
+	var fields map[string]interface{}
+	if err := json.Unmarshal(rawJSON, &fields); err != nil {
+		return len(rawJSON), nil
+	}
+
+	var record otellog.Record
+	record.SetTimestamp(time.Now())
+
+	// Map phuslu severity to OTel
+	switch e.Level {
+	case log.DebugLevel, log.TraceLevel:
+		record.SetSeverity(otellog.SeverityDebug)
+		record.SetSeverityText("DEBUG")
+	case log.InfoLevel:
+		record.SetSeverity(otellog.SeverityInfo)
+		record.SetSeverityText("INFO")
+	case log.WarnLevel:
+		record.SetSeverity(otellog.SeverityWarn)
+		record.SetSeverityText("WARN")
+	case log.ErrorLevel:
+		record.SetSeverity(otellog.SeverityError)
+		record.SetSeverityText("ERROR")
+	case log.FatalLevel, log.PanicLevel:
+		record.SetSeverity(otellog.SeverityFatal)
+		record.SetSeverityText("FATAL")
+	default:
+		record.SetSeverity(otellog.SeverityInfo)
+		record.SetSeverityText("INFO")
+	}
+
+	if msg, ok := fields["message"].(string); ok {
+		record.SetBody(attribute.StringValue(msg))
+	} else {
+		record.SetBody(attribute.StringValue(string(rawJSON)))
+	}
+
+	// Extract attributes and trace context
+	var attrs []attribute.KeyValue
+	var traceIDStr, spanIDStr string
+
+	for k, v := range fields {
+		if k == "time" || k == "level" || k == "message" {
+			continue
+		}
+		if k == "trace_id" {
+			if s, ok := v.(string); ok {
+				traceIDStr = s
+			}
+			continue
+		}
+		if k == "span_id" {
+			if s, ok := v.(string); ok {
+				spanIDStr = s
+			}
+			continue
+		}
+
+		switch val := v.(type) {
+		case string:
+			attrs = append(attrs, attribute.String(k, val))
+		case float64:
+			attrs = append(attrs, attribute.Float64(k, val))
+		case bool:
+			attrs = append(attrs, attribute.Bool(k, val))
+		default:
+			b, _ := json.Marshal(val)
+			attrs = append(attrs, attribute.String(k, string(b)))
+		}
+	}
+	record.AddAttributes(attrs...)
+
+	// Correlate with active trace context if present
+	ctx := context.Background()
+	if traceIDStr != "" && spanIDStr != "" {
+		if tID, err := trace.TraceIDFromHex(traceIDStr); err == nil {
+			if sID, err := trace.SpanIDFromHex(spanIDStr); err == nil {
+				sc := trace.NewSpanContext(trace.SpanContextConfig{
+					TraceID:    tID,
+					SpanID:     sID,
+					TraceFlags: trace.FlagsSampled,
+				})
+				ctx = trace.ContextWithSpanContext(ctx, sc)
+			}
+		}
+	}
+
+	w.logger.Emit(ctx, record)
+	return len(rawJSON), nil
+}
+
+func parsePhusluLevel(level string) log.Level {
+	switch strings.ToLower(level) {
+	case "debug":
+		return log.DebugLevel
+	case "trace":
+		return log.TraceLevel
+	case "warn", "warning":
+		return log.WarnLevel
+	case "error":
+		return log.ErrorLevel
+	case "fatal":
+		return log.FatalLevel
+	case "panic":
+		return log.PanicLevel
+	default:
+		return log.InfoLevel
+	}
+}
+
+// ResetForTesting resets the telemetry singleton for test suites.
+func ResetForTesting() {
+	instance = nil
+	once = sync.Once{}
+}
+
+// WrapClient wraps an *http.Client with OpenTelemetry HTTP client tracing.
+// It is the OpenTelemetry equivalent to Elastic APM's apmhttp.WrapClient.
+//
+// Usage:
+//
+//	client := resty.NewWithClient(telemetry.WrapClient(nil))
+func WrapClient(client *http.Client, opts ...otelhttp.Option) *http.Client {
+	if client == nil {
+		client = &http.Client{
+			Timeout: 30 * time.Second,
+		}
+	}
+	transport := client.Transport
+	if transport == nil {
+		transport = http.DefaultTransport
+	}
+	defaultOpts := []otelhttp.Option{
+		otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+			return fmt.Sprintf("%s %s", r.Method, r.URL.String())
+		}),
+	}
+	combinedOpts := append(defaultOpts, opts...)
+	client.Transport = otelhttp.NewTransport(transport, combinedOpts...)
+	return client
+}

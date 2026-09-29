@@ -1,0 +1,29 @@
+{
+  "name": "{{.ProjectSlug}}",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare",
+    "lint": "eslint .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "nuxt": "^3.15.4",
+    "@pinia/nuxt": "^0.10.1",
+    "pinia": "^2.3.1",
+    "axios": "^1.8.4"
+  },
+  "devDependencies": {
+    "@nuxt/devtools": "latest",
+    "typescript": "^5.7.2",
+    "vue": "^3.5.13",
+    "vue-router": "^4.5.0",
+    "vitest": "^3.0.7",
+    "eslint": "^9.22.0"
+  }
+}

@@ -1,0 +1,13 @@
+package health
+
+import (
+	"{{.ModuleName}}/internal/factory"
+)
+
+// Handler handles health check requests.
+type Handler struct{}
+
+// NewHandler creates a new health Handler.
+func NewHandler(_ *factory.Factory) *Handler {
+	return &Handler{}
+}

@@ -1,0 +1,68 @@
+package config
+
+import (
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
+	"github.com/phuslu/log"
+)
+
+// AuthKeyConfig holds the loaded PEM bytes for JWT generation/verification.
+type AuthKeyConfig struct {
+	PemDataPublic        []byte
+	PemDataPrivate       []byte
+	AccessTokenLifetime  time.Duration
+	RefreshTokenLifetime time.Duration
+}
+
+var (
+	authKey     *AuthKeyConfig
+	authKeyOnce sync.Once
+)
+
+// AuthKey lazy-loads the crypto keys from the file system.
+func AuthKey() *AuthKeyConfig {
+	authKeyOnce.Do(func() {
+		cfg := Get()
+		var err error
+		var privateKey, publicKey []byte
+
+		if privateKey, err = readFile(cfg.Crypto.PrivateKey); err != nil {
+			log.Error().Err(err).Msg("Error reading private key file for JWT")
+		}
+		if publicKey, err = readFile(cfg.Crypto.PublicKey); err != nil {
+			log.Error().Err(err).Msg("Error reading public key file for JWT")
+		}
+
+		authKey = &AuthKeyConfig{
+			PemDataPublic:        publicKey,
+			PemDataPrivate:       privateKey,
+			AccessTokenLifetime:  time.Duration(cfg.Crypto.AccessTokenLifetime) * time.Minute,
+			RefreshTokenLifetime: time.Duration(cfg.Crypto.RefreshTokenLifetime) * time.Minute,
+		}
+	})
+	return authKey
+}
+
+// readFile reads a file from the given path, falling back to parent directories
+// when the direct path is not found (useful for running from subdirectories).
+func readFile(path string) ([]byte, error) {
+	data, err := os.ReadFile(path)
+	if err == nil {
+		return data, nil
+	}
+	for _, prefix := range []string{"..", "../..", "../../.."} {
+		if d, e := os.ReadFile(filepath.Join(prefix, path)); e == nil {
+			return d, nil
+		}
+	}
+	return nil, err
+}
+
+// ResetAuthKeyForTesting resets the authKey singleton for test suites.
+func ResetAuthKeyForTesting() {
+	authKey = nil
+	authKeyOnce = sync.Once{}
+}

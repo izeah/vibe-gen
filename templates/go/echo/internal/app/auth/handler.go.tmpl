@@ -1,0 +1,18 @@
+package auth
+
+import (
+	"{{.ModuleName}}/internal/factory"
+	serviceauth "{{.ModuleName}}/internal/service/auth"
+)
+
+// Handler handles authentication requests.
+type Handler struct {
+	AuthService serviceauth.Service
+}
+
+// NewHandler creates a new auth Handler.
+func NewHandler(f *factory.Factory) *Handler {
+	return &Handler{
+		AuthService: serviceauth.New(f),
+	}
+}

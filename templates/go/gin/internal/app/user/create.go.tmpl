@@ -1,0 +1,36 @@
+package user
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Create creates a new user.
+// @Summary     Create user
+// @Tags        user
+// @Accept      json
+// @Produce     json
+// @Param       body  body  dto.UserCreateRequest  true  "Create payload"
+// @Success     201   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/users [post]
+func (h *Handler) Create(c *gin.Context) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.UserCreateRequest)
+		data    *dto.UserResponse
+		err     error
+	)
+	if err = c.ShouldBindJSON(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if data, err = h.UserService.Create(ctx, payload); err != nil {
+		response.ErrorResponse(err).Send(c)
+		return
+	}
+	response.CreatedResponse(data).Send(c)
+}

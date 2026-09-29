@@ -1,0 +1,23 @@
+package serviceauth
+
+import (
+	"golang.org/x/crypto/bcrypt"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Login(ctx *abstraction.Context, req *dto.LoginRequest) (*dto.LoginResponse, error) {
+	f := &dto.UserFilter{Email: req.Email}
+	user, err := s.userRepository.FindOne(ctx, f)
+	if err != nil {
+		return nil, response.ErrorConstant.Unauthorized.WithMessage("invalid credentials")
+	}
+
+	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
+		return nil, response.ErrorConstant.Unauthorized.WithMessage("invalid credentials")
+	}
+
+	return s.issueTokens(user)
+}

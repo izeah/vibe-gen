@@ -1,0 +1,23 @@
+package health
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Check returns 200 OK when the service is running.
+// @Summary     Health check
+// @Tags        health
+// @Produce     json
+// @Success     200  {object}  response.Base
+// @Router      /health [get]
+func (h *Handler) Check(c *fiber.Ctx) (err error) {
+	var (
+		ctx  = abstraction.GetContext(c)
+		data = map[string]string{"status": "ok"}
+	)
+	_ = ctx
+	return response.SuccessResponse(data).Send(c)
+}

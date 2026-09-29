@@ -1,0 +1,32 @@
+package config
+
+// Get returns the singleton Config instance.
+// Calling Get multiple times always returns the same instance.
+func GetConfig() *Config {
+	return Get()
+}
+
+// GetApp returns the application config.
+func GetApp() AppConfig {
+	return Get().App
+}
+
+// App returns the application config (convenience alias for GetApp).
+func App() AppConfig {
+	return Get().App
+}
+
+// GetDB returns the database config.
+func GetDB() DBConfig {
+	return Get().DB
+}
+
+// GetRedis returns the Redis config.
+func GetRedis() RedisConfig {
+	return Get().Redis
+}
+
+// GetCrypto returns the crypto config.
+func GetCrypto() CryptoConfig {
+	return Get().Crypto
+}

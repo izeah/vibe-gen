@@ -1,0 +1,23 @@
+package repositoryuser
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) Count(ctx *abstraction.Context, f *dto.UserFilter) (data *int64, err error) {
+	var count int64
+	err = r.CheckTrx(ctx).Model(&model.User{}).Where("deleted_at IS NULL").Scopes(func(tx *gorm.DB) *gorm.DB {
+		if f != nil {
+			f.ForCount = true
+			return f.Apply(tx)
+		}
+		return tx
+	}).Count(&count).Error
+	data = &count
+	return
+}
+

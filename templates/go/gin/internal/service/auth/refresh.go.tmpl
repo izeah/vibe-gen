@@ -1,0 +1,24 @@
+package serviceauth
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/internal/dto"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Refresh(ctx *abstraction.Context, req *dto.RefreshRequest) (*dto.LoginResponse, error) {
+	pubKey := config.AuthKey().PemDataPublic
+	claims, err := authtoken.Verify(req.RefreshToken, pubKey)
+	if err != nil {
+		return nil, response.ErrorConstant.Unauthorized.WithError(err)
+	}
+
+	user, err := s.userRepository.FindOne(ctx, &dto.UserFilter{IDs: []string{claims.Subject}})
+	if err != nil {
+		return nil, response.ErrorConstant.Unauthorized.WithMessage("user not found")
+	}
+
+	return s.issueTokens(user)
+}

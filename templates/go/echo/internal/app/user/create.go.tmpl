@@ -1,0 +1,36 @@
+package user
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Create creates a new user.
+// @Summary     Create user
+// @Tags        user
+// @Accept      json
+// @Produce     json
+// @Param       body  body  dto.UserCreateRequest  true  "Create payload"
+// @Success     201   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/users [post]
+func (h *Handler) Create(c echo.Context) (err error) {
+	var (
+		ctx     = c.(*abstraction.Context)
+		payload = new(dto.UserCreateRequest)
+		data    *dto.UserResponse
+	)
+	if err = c.Bind(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = c.Validate(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.UserService.Create(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.CreatedResponse(data).Send(c)
+}

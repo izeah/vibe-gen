@@ -1,0 +1,26 @@
+package servicesample
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/factory"
+	repositorysample "{{.ModuleName}}/internal/repository/sample"
+)
+
+// Service defines the business logic contract for the sample domain.
+type Service interface {
+	Find(ctx *abstraction.Context, f *dto.SampleFilter) ([]*dto.SampleResponse, *abstraction.PaginationInfo, error)
+	FindByID(ctx *abstraction.Context, req *dto.SampleFindByIDRequest) (*dto.SampleResponse, error)
+	Create(ctx *abstraction.Context, req *dto.SampleCreateRequest) (*dto.SampleResponse, error)
+	Update(ctx *abstraction.Context, req *dto.SampleUpdateRequest) (*dto.SampleResponse, error)
+	Delete(ctx *abstraction.Context, req *dto.SampleDeleteRequest) error
+}
+
+type service struct {
+	sampleRepository repositorysample.Repository
+}
+
+// New creates a new sample Service.
+func New(f *factory.Factory) Service {
+	return &service{sampleRepository: f.SampleRepository}
+}

@@ -1,0 +1,17 @@
+package servicesample
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Delete(ctx *abstraction.Context, req *dto.SampleDeleteRequest) error {
+	if _, err := s.sampleRepository.FindOne(ctx, &dto.SampleFilter{IDs: []string{req.ID}}); err != nil {
+		return response.ErrorConstant.NotFound.WithMessage("sample not found")
+	}
+	if res := s.sampleRepository.SoftDelete(ctx, &dto.SampleFilter{IDs: []string{req.ID}}); res.Error != nil {
+		return response.ErrorResponse(res.Error)
+	}
+	return nil
+}

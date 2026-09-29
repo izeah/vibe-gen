@@ -1,0 +1,36 @@
+package repositorysample
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+// Repository defines the data access contract for samples.
+type Repository interface {
+	Find(ctx *abstraction.Context, f *dto.SampleFilter) (data []*model.Sample, err error)
+	FindOne(ctx *abstraction.Context, f *dto.SampleFilter) (data *model.Sample, err error)
+	Count(ctx *abstraction.Context, f *dto.SampleFilter) (data *int64, err error)
+	Create(ctx *abstraction.Context, e interface{}) (db *gorm.DB)
+	Update(ctx *abstraction.Context, f *dto.SampleFilter, e *model.Sample) *gorm.DB
+	Updates(ctx *abstraction.Context, f *dto.SampleFilter, e *model.Sample) *gorm.DB
+	UpdateOrInsert(ctx *abstraction.Context, e []*model.Sample) *gorm.DB
+	FirstOrCreate(ctx *abstraction.Context, data *model.Sample) (err error)
+	Exists(ctx *abstraction.Context, f *dto.SampleFilter) (bool, error)
+	Delete(ctx *abstraction.Context, f *dto.SampleFilter) *gorm.DB
+	SoftDelete(ctx *abstraction.Context, f *dto.SampleFilter) *gorm.DB
+	IDs(ctx *abstraction.Context, f *dto.SampleFilter) (data []string, err error)
+}
+
+type repository struct {
+	abstraction.Repository
+}
+
+// New creates a new sample Repository.
+func New(db *gorm.DB) Repository {
+	return &repository{
+		Repository: abstraction.Repository{Db: db},
+	}
+}

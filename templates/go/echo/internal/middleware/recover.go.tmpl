@@ -1,0 +1,27 @@
+package middleware
+
+import (
+	"fmt"
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+	"github.com/phuslu/log"
+
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Recover returns a middleware that recovers from panics and returns a 500 response.
+func Recover() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			defer func() {
+				if r := recover(); r != nil {
+					log.Error().Str("panic", fmt.Sprint(r)).Msg("recovered from panic")
+					_ = response.ErrorBuilder(http.StatusInternalServerError,
+						nil, "internal server error").Send(c)
+				}
+			}()
+			return next(c)
+		}
+	}
+}

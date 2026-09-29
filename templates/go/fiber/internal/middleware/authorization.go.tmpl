@@ -1,0 +1,28 @@
+package middleware
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Authorization returns a Fiber middleware that checks the authenticated user's role.
+// Must be used after Authentication.
+func Authorization(roles ...string) fiber.Handler {
+	allowed := make(map[string]bool, len(roles))
+	for _, r := range roles {
+		allowed[r] = true
+	}
+	return func(c *fiber.Ctx) error {
+		val := c.Locals("auth")
+		if val == nil {
+			return response.ErrorConstant.Unauthorized.Send(c)
+		}
+		claims, ok := val.(*abstraction.AuthContext)
+		if !ok || !allowed[claims.Role] {
+			return response.ErrorConstant.Forbidden.WithMessage("insufficient permissions").Send(c)
+		}
+		return c.Next()
+	}
+}

@@ -1,0 +1,40 @@
+package model
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// SampleEntity contains the domain-specific attributes of Sample.
+type SampleEntity struct {
+	Name        string `gorm:"column:name;not null"                            json:"name"`
+	Description string `gorm:"column:description"                              json:"description"`
+	Status      string `gorm:"column:status;not null;default:'active'"         json:"status"`
+}
+
+// Sample is the database entity for the sample domain.
+type Sample struct {
+	abstraction.Entity
+	SampleEntity
+
+	// context
+	Context *abstraction.Context `json:"-" gorm:"-"`
+}
+
+// TableName returns the database table name.
+func (Sample) TableName() string {
+	return "samples"
+}
+
+// BeforeCreate sets a sortable UUID v7 primary key before insert.
+func (m *Sample) BeforeCreate(_ *gorm.DB) error {
+	m.SetupBeforeCreate(m.Context)
+	return nil
+}
+
+// BeforeUpdate sets updated_at (UnixNano) and updated_by.
+func (m *Sample) BeforeUpdate(_ *gorm.DB) error {
+	m.SetupBeforeUpdate(m.Context)
+	return nil
+}

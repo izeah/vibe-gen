@@ -1,0 +1,41 @@
+package sample
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Update updates an existing sample.
+// @Summary     Update sample
+// @Tags        sample
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string                   true  "Sample ID"
+// @Param       body  body  dto.SampleUpdateRequest  true  "Update payload"
+// @Success     200   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/samples/{id} [put]
+func (h *Handler) Update(c *gin.Context) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.SampleUpdateRequest)
+		data    *dto.SampleResponse
+		err     error
+	)
+	if err = c.ShouldBindJSON(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = c.ShouldBindUri(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if data, err = h.SampleService.Update(ctx, payload); err != nil {
+		response.ErrorResponse(err).Send(c)
+		return
+	}
+	response.SuccessResponse(data).Send(c)
+}

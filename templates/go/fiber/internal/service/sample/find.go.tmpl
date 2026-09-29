@@ -1,0 +1,61 @@
+package servicesample
+
+import (
+	"math"
+	"time"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Find(ctx *abstraction.Context, f *dto.SampleFilter) ([]*dto.SampleResponse, *abstraction.PaginationInfo, error) {
+	count, err := s.sampleRepository.Count(ctx, f)
+	if err != nil {
+		return nil, nil, response.ErrorResponse(err)
+	}
+
+	records, err := s.sampleRepository.Find(ctx, f)
+	if err != nil {
+		return nil, nil, response.ErrorResponse(err)
+	}
+
+	result := make([]*dto.SampleResponse, len(records))
+	for i, m := range records {
+		r := &dto.SampleResponse{
+			ID:          m.ID.String(),
+			Name:        m.Name,
+			Description: m.Description,
+			Status:      m.Status,
+			CreatedAt:   time.Unix(0, int64(m.CreatedAt)).UTC().Format(time.RFC3339),
+		}
+		if m.UpdatedAt != nil {
+			r.UpdatedAt = time.Unix(0, int64(*m.UpdatedAt)).UTC().Format(time.RFC3339)
+		}
+		if m.CreatedBy.String() != "00000000-0000-0000-0000-000000000000" {
+			r.CreatedBy = m.CreatedBy.String()
+		}
+		if m.UpdatedBy != nil {
+			updStr := m.UpdatedBy.String()
+			r.UpdatedBy = &updStr
+		}
+		result[i] = r
+	}
+
+	var info *abstraction.PaginationInfo
+	if f.Pagination != nil && f.Pagination.PageSize != nil && count != nil {
+		info = &abstraction.PaginationInfo{
+			Pagination:  f.Pagination,
+			MoreRecords: false,
+		}
+		info.Count = *count
+		info.Pages = int(math.Ceil(float64(*count) / float64(*f.Pagination.PageSize)))
+		if len(result) > *f.Pagination.PageSize {
+			result = result[:len(result)-1]
+			info.MoreRecords = true
+		}
+	}
+
+	return result, info, nil
+}
+

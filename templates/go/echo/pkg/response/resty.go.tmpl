@@ -1,0 +1,70 @@
+package response
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+
+	"github.com/go-resty/resty/v2"
+	pkgerrors "github.com/pkg/errors"
+)
+
+// RestyErrorBuilder interprets a resty.Response as an *Error.
+// Call this after every external API call. Returns nil if the response is successful.
+//
+// Usage:
+//
+//	resp, err := client.R().SetResult(&result).Post("/endpoint")
+//	if err != nil {
+//	    return nil, ErrorConstant.UnprocessableEntity.WithError(err)
+//	}
+//	if apiErr := RestyErrorBuilder(resp, Meta{}); apiErr != nil {
+//	    return nil, apiErr
+//	}
+func RestyErrorBuilder(resp *resty.Response, meta Meta) error {
+	statusOK := resp.StatusCode() >= http.StatusOK && resp.StatusCode() < http.StatusMultipleChoices
+	if statusOK && meta.Success {
+		return nil
+	}
+
+	var (
+		dataResponse      map[string]interface{}
+		data, description interface{}
+	)
+	if jsonErr := json.Unmarshal(resp.Body(), &dataResponse); jsonErr == nil {
+		data = dataResponse["data"]
+		description = dataResponse["description"]
+	}
+
+	rawErr := fmt.Errorf("error(%d): %s", resp.StatusCode(), string(resp.Body()))
+
+	// If the meta message is explicitly set by the caller, use it.
+	if meta.Message != "" {
+		return ErrorBuilder(resp.StatusCode(), rawErr).
+			WithData(data).
+			WithDescription(description).
+			WithMetaMessage(meta.Message)
+	}
+
+	switch resp.StatusCode() {
+	case http.StatusNotFound:
+		return ErrorConstant.NotFound.WithError(rawErr).WithData(data).WithDescription(description)
+	case http.StatusConflict:
+		return ErrorConstant.Duplicate.WithError(rawErr).WithData(data).WithDescription(description)
+	case http.StatusUnauthorized:
+		return ErrorConstant.Unauthorized.WithError(rawErr).WithData(data).WithDescription(description)
+	case http.StatusBadRequest:
+		return ErrorConstant.BadRequest.WithError(rawErr).WithData(data).WithDescription(description)
+	}
+
+	return &Error{
+		Response: errorResponse{
+			Meta:        Meta{Success: false, Message: E_UNPROCESSABLE_ENTITY},
+			Data:        data,
+			Description: description,
+		},
+		Code: http.StatusUnprocessableEntity,
+		Err:  pkgerrors.WithStack(errors.New(string(resp.Body()))),
+	}
+}

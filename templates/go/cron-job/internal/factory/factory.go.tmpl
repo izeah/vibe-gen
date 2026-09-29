@@ -1,0 +1,28 @@
+package factory
+
+import (
+	"{{.ModuleName}}/internal/config"
+	dbsample "{{.ModuleName}}/pkg/db-sample"
+	"{{.ModuleName}}/pkg/database"
+	redisrepo "{{.ModuleName}}/internal/repository/redis"
+)
+
+// Factory is the composition root for cron job dependencies.
+type Factory struct {
+	Cfg          *config.Config
+	DBSampleRepo dbsample.Repository
+	RedisRepo    redisrepo.Repository
+}
+
+// New creates a new Factory.
+func New(cfg *config.Config) *Factory {
+	db := database.DB()
+	f := &Factory{
+		Cfg:          cfg,
+		DBSampleRepo: dbsample.NewRepository(db),
+	}
+	
+	f.RedisRepo = redisrepo.New(config.Redis().DB0())
+	
+	return f
+}

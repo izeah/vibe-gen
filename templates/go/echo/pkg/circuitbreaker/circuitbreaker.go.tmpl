@@ -1,0 +1,54 @@
+package circuitbreaker
+
+import (
+	"fmt"
+	"net/http"
+	"time"
+
+	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
+	"github.com/sony/gobreaker"
+)
+
+// Breaker defines the circuit breaker execution contract.
+type Breaker interface {
+	Execute(func() (interface{}, error)) (interface{}, error)
+}
+
+// NewClient returns an *http.Client backed by a circuit breaker transport wrapped with OpenTelemetry tracing.
+// Use this for all outbound HTTP calls to third-party services.
+//
+// Example:
+//
+//	client := resty.NewWithClient(circuitbreaker.NewClient())
+func NewClient() *http.Client {
+	return &http.Client{
+		Transport: otelhttp.NewTransport(
+			newTransport(newCircuitBreaker()),
+			otelhttp.WithSpanNameFormatter(func(operation string, r *http.Request) string {
+				return fmt.Sprintf("%s %s", r.Method, r.URL.String())
+			}),
+		),
+		Timeout: 30 * time.Second,
+	}
+}
+
+func newCircuitBreaker() *gobreaker.CircuitBreaker {
+	return gobreaker.NewCircuitBreaker(gobreaker.Settings{
+		Name:    "HTTP Client",
+		Timeout: 45 * time.Second,
+		ReadyToTrip: func(counts gobreaker.Counts) bool {
+			// Trip the breaker if ≥3 requests have ≥60% failure rate.
+			if counts.Requests < 3 {
+				return false
+			}
+			failureRatio := float64(counts.TotalFailures) / float64(counts.Requests)
+			return failureRatio >= 0.6
+		},
+		OnStateChange: func(name string, from, to gobreaker.State) {
+			// Log state transitions — plug in your logger here.
+			_ = name
+			_ = from
+			_ = to
+		},
+	})
+}

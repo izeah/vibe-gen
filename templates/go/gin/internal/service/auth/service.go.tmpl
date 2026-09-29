@@ -1,0 +1,79 @@
+package serviceauth
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+	"uuid"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/factory"
+	"{{.ModuleName}}/internal/model"
+	repositoryuser "{{.ModuleName}}/internal/repository/user"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Service defines the authentication business logic contract.
+type Service interface {
+	Login(ctx *abstraction.Context, req *dto.LoginRequest) (*dto.LoginResponse, error)
+	Refresh(ctx *abstraction.Context, req *dto.RefreshRequest) (*dto.LoginResponse, error)
+}
+
+type service struct {
+	userRepository repositoryuser.Repository
+}
+
+// New creates a new auth Service.
+func New(f *factory.Factory) Service {
+	return &service{
+		userRepository: f.UserRepository,
+	}
+}
+
+func (s *service) issueTokens(user *model.User) (*dto.LoginResponse, error) {
+	keyCfg := config.AuthKey()
+	privKey := keyCfg.PemDataPrivate
+	if len(privKey) == 0 {
+		return nil, response.ErrorBuilder(http.StatusInternalServerError, errors.New("private key not configured"))
+	}
+
+	accessLifetime := keyCfg.AccessTokenLifetime
+	if accessLifetime <= 0 {
+		accessLifetime = 60 * time.Minute
+	}
+	refreshLifetime := keyCfg.RefreshTokenLifetime
+	if refreshLifetime <= 0 {
+		refreshLifetime = 10080 * time.Minute
+	}
+
+	now := time.Now()
+	tokenHelper := authtoken.New(&authtoken.AddtionalClaims{
+		TokenId:   uuid.NewV7().String(),
+		UserId:    user.ID.String(),
+		Email:     user.Email,
+		Role:      user.Role,
+		Issuer:    config.Get().App.Name,
+		IssuedAt:  now,
+		ExpiredAt: now.Add(accessLifetime),
+	})
+
+	accessToken, err := tokenHelper.AccessToken(privKey)
+	if err != nil {
+		return nil, response.ErrorBuilder(http.StatusInternalServerError, fmt.Errorf("generating access token: %w", err))
+	}
+
+	refreshToken, err := tokenHelper.RefreshToken(now.Add(refreshLifetime), privKey)
+	if err != nil {
+		return nil, response.ErrorBuilder(http.StatusInternalServerError, fmt.Errorf("generating refresh token: %w", err))
+	}
+
+	return &dto.LoginResponse{
+		AccessToken:  accessToken,
+		RefreshToken: refreshToken,
+		ExpiresIn:    int(accessLifetime.Seconds()),
+	}, nil
+}

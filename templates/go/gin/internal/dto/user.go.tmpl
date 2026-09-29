@@ -1,0 +1,123 @@
+package dto
+
+import (
+	"fmt"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// UserFilter is the query filter for listing users.
+type UserFilter struct {
+	*abstraction.Pagination
+	Sorts     []abstraction.SortItem `json:"sorts,omitempty" form:"sorts"`
+	IDs       []string               `json:"ids"             form:"ids"`
+	Email     string                 `json:"email"           form:"email"`
+	Role      string                 `json:"role"            form:"role"`
+	ForCount  bool                   `json:"-"`
+	ForUpdate bool                   `json:"-"`
+	clauses   []clause.Expression
+	scopes    []func(*gorm.DB) *gorm.DB
+}
+
+// Clauses appends GORM clause expressions (e.g. clause.Locking{Strength: "UPDATE"}).
+func (f *UserFilter) Clauses(conds ...clause.Expression) *UserFilter {
+	if f != nil {
+		f.clauses = append(f.clauses, conds...)
+	}
+	return f
+}
+
+// Scopes appends custom GORM query scopes.
+func (f *UserFilter) Scopes(funcs ...func(*gorm.DB) *gorm.DB) *UserFilter {
+	if f != nil {
+		f.scopes = append(f.scopes, funcs...)
+	}
+	return f
+}
+
+// Order appends SortItem entries.
+func (f *UserFilter) Order(items ...abstraction.SortItem) *UserFilter {
+	if f != nil {
+		f.Sorts = append(f.Sorts, items...)
+	}
+	return f
+}
+
+// Apply applies the filter conditions to a GORM query.
+func (f *UserFilter) Apply(tx *gorm.DB) *gorm.DB {
+	if f == nil {
+		return tx
+	}
+	if len(f.IDs) > 0 {
+		tx = tx.Where("users.id IN ?", f.IDs)
+	}
+	if f.Email != "" {
+		tx = tx.Where("users.email ILIKE ?", "%"+f.Email+"%")
+	}
+	if f.Role != "" {
+		tx = tx.Where("users.role = ?", f.Role)
+	}
+	for _, c := range f.clauses {
+		tx = tx.Clauses(c)
+	}
+	for _, s := range f.scopes {
+		tx = tx.Scopes(s)
+	}
+	for _, s := range f.Sorts {
+		if s.Field != "" {
+			order := s.Order
+			if order == "" {
+				order = "asc"
+			}
+			tx = tx.Order(fmt.Sprintf("%s %s", s.Field, order))
+		}
+	}
+	if !f.ForCount && !f.ForUpdate {
+		tx.Select("users.*")
+		if f.Pagination != nil {
+			f.Pagination.Apply(tx)
+		}
+	}
+	return tx
+}
+
+
+// UserFindByIDRequest is the payload for finding a user by ID.
+type UserFindByIDRequest struct {
+	ID string `uri:"id" json:"id" binding:"required" validate:"required"`
+}
+
+// UserDeleteRequest is the payload for deleting a user by ID.
+type UserDeleteRequest struct {
+	ID string `uri:"id" json:"id" binding:"required" validate:"required"`
+}
+
+// UserCreateRequest is the payload for creating a user.
+type UserCreateRequest struct {
+	Name     string `json:"name"     validate:"required,min=1,max=100"`
+	Email    string `json:"email"    validate:"required,email"`
+	Password string `json:"password" validate:"required,min=8"`
+	Role     string `json:"role"     validate:"omitempty,oneof=user admin"`
+}
+
+// UserUpdateRequest is the payload for updating a user.
+type UserUpdateRequest struct {
+	ID   string `uri:"id" json:"id" binding:"required" validate:"required"`
+	Name string `json:"name" validate:"omitempty,min=1,max=100"`
+	Role string `json:"role" validate:"omitempty,oneof=user admin"`
+}
+
+// UserResponse is the user read representation. Password is never included.
+type UserResponse struct {
+	ID        string  `json:"id"`
+	Name      string  `json:"name"`
+	Email     string  `json:"email"`
+	Role      string  `json:"role"`
+	CreatedAt string  `json:"created_at"`
+	UpdatedAt string  `json:"updated_at,omitempty"`
+	CreatedBy string  `json:"created_by,omitempty"`
+	UpdatedBy *string `json:"updated_by,omitempty"`
+}

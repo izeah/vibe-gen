@@ -1,0 +1,29 @@
+package dbsample
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/pkg/db-sample/user"
+	userrepo "{{.ModuleName}}/pkg/db-sample/user/repository"
+)
+
+// Repository is the aggregate repository for the db-sample bounded context.
+// Add more entity repositories here as the project grows.
+type Repository interface {
+	User() user.Repository
+}
+
+type repository struct {
+	user user.Repository
+}
+
+// NewRepository creates the aggregate repository for db-sample.
+func NewRepository(db *gorm.DB) Repository {
+	return &repository{
+		user: userrepo.New(db),
+	}
+}
+
+func (r *repository) User() user.Repository {
+	return r.user
+}

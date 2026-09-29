@@ -1,0 +1,186 @@
+package database
+
+import (
+	"database/sql"
+	"fmt"
+	"net"
+	"os"
+	"time"
+
+	"github.com/phuslu/log"
+	"golang.org/x/crypto/ssh"
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/pkg/database/psql"
+)
+
+var (
+	err           error
+	netConnection map[string]net.Conn
+	sshConnection map[string]*ssh.Client
+	dbConnections map[string]*gorm.DB
+)
+
+// Database defines the interface for opening a database connection.
+type Database interface {
+	Open() (*gorm.DB, error)
+	DSN() string
+}
+
+// Init opens all configured database connections.
+// Connections are configured via environment variables.
+// Call Init() once at application startup before using any DB accessor.
+func Init() {
+	netConnection = make(map[string]net.Conn)
+	sshConnection = make(map[string]*ssh.Client)
+
+	// SSH tunnel config — uncomment and configure if your DB is behind an SSH bastion.
+	sshConfig := map[string]SSHConfig{
+		// "DB_PRIMARY": {
+		// 	Host: os.Getenv("SSH_HOST"),
+		// 	User: os.Getenv("SSH_USER"),
+		// 	Pass: os.Getenv("SSH_PASS"),
+		// 	Port: os.Getenv("SSH_PORT"),
+		// },
+	}
+	for k, config := range sshConfig {
+		if netConnection[k], sshConnection[k], err = config.Open(); err != nil {
+			panic(fmt.Errorf("connect SSH %s: %w", k, err))
+		}
+		log.Info().Msgf("connected to SSH %s", k)
+	}
+
+	cfg := config.GetDB()
+	host := os.Getenv("DB_HOST")
+	if host == "" {
+		host = cfg.Host
+	}
+	user := os.Getenv("DB_USER")
+	if user == "" {
+		user = cfg.Username
+	}
+	pass := os.Getenv("DB_PASS")
+	if pass == "" {
+		pass = cfg.Password
+	}
+	port := os.Getenv("DB_PORT")
+	if port == "" {
+		port = cfg.Port
+	}
+	name := os.Getenv("DB_NAME")
+	if name == "" {
+		name = cfg.NameDb
+	}
+	sslMode := os.Getenv("DB_SSLMODE")
+	if sslMode == "" {
+		sslMode = cfg.SSLMode
+	}
+	tz := os.Getenv("DB_TZ")
+	if tz == "" {
+		tz = cfg.TimeZone
+	}
+	if tz == "" {
+		tz = "UTC"
+	}
+
+	dbConnections = make(map[string]*gorm.DB)
+	dbConfig := map[string]Database{
+		"PGSQL_PRIMARY": psql.Config{
+			Write: psql.DBConfig{
+				Host:    host,
+				User:    user,
+				Pass:    pass,
+				Port:    port,
+				Name:    name,
+				SslMode: sslMode,
+				Tz:      tz,
+			},
+			Read: []psql.DBConfig{
+				{
+					Host:    host,
+					User:    user,
+					Pass:    pass,
+					Port:    port,
+					Name:    name,
+					SslMode: sslMode,
+					Tz:      tz,
+				},
+			},
+		},
+	}
+
+	var sqlDB *sql.DB
+	for k, db := range dbConfig {
+		if dbConnections[k], err = db.Open(); err != nil {
+			panic(fmt.Errorf("open db %s: %w", k, err))
+		}
+
+		if sqlDB, err = dbConnections[k].DB(); err != nil {
+			panic(fmt.Errorf("get pool %s: %w", k, err))
+		}
+
+		sqlDB.SetMaxOpenConns(20)
+		sqlDB.SetMaxIdleConns(5)
+		sqlDB.SetConnMaxLifetime(5 * time.Minute)
+		sqlDB.SetConnMaxIdleTime(time.Hour)
+
+		if err = sqlDB.Ping(); err != nil {
+			panic(fmt.Errorf("ping db %s: %w", k, err))
+		}
+
+		log.Info().Msgf("connected to db %s", k)
+	}
+}
+
+// Connection returns the named *gorm.DB connection. Panics if not initialized.
+func Connection(name string) *gorm.DB {
+	if dbConnections[name] == nil {
+		panic(fmt.Sprintf("db connection %q is undefined", name))
+	}
+	return dbConnections[name]
+}
+
+// PSQL returns the primary PostgreSQL write connection.
+func PSQL() *gorm.DB {
+	return Connection("PGSQL_PRIMARY")
+}
+
+// PSQLReplica returns the replica connection if configured, otherwise the primary.
+func PSQLReplica() *gorm.DB {
+	if os.Getenv("DB_REPLICA_HOST") != "" && dbConnections["PGSQL_REPLICA"] != nil {
+		return Connection("PGSQL_REPLICA")
+	}
+	return PSQL()
+}
+
+// Close closes all open database and SSH connections.
+func Close() {
+	var sqlDB *sql.DB
+	for k, db := range dbConnections {
+		if sqlDB, err = db.DB(); err == nil {
+			err = sqlDB.Close()
+		}
+		if err != nil {
+			log.Error().Err(err).Msgf("close db %s", k)
+		} else {
+			log.Info().Msgf("db %s closed", k)
+		}
+	}
+
+	for key, conn := range sshConnection {
+		if err = conn.Close(); err != nil {
+			log.Error().Err(err).Msgf("close SSH %s", key)
+		} else {
+			log.Info().Msgf("SSH %s closed", key)
+		}
+	}
+
+	for key, conn := range netConnection {
+		if err = conn.Close(); err != nil {
+			log.Error().Err(err).Msgf("close net %s", key)
+		} else {
+			log.Info().Msgf("net %s closed", key)
+		}
+	}
+}

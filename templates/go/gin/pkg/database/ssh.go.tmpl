@@ -1,0 +1,43 @@
+package database
+
+import (
+	"fmt"
+	"net"
+	"os"
+
+	"golang.org/x/crypto/ssh"
+)
+
+// SSHConfig holds the configuration for an SSH tunnel to a database.
+type SSHConfig struct {
+	Host string
+	User string
+	Pass string
+	Port string
+}
+
+// Open establishes the SSH tunnel and returns the net.Conn and *ssh.Client.
+func (c SSHConfig) Open() (net.Conn, *ssh.Client, error) {
+	config := &ssh.ClientConfig{
+		User: c.User,
+		Auth: []ssh.AuthMethod{
+			ssh.Password(c.Pass),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // use known_hosts in production
+	}
+
+	addr := fmt.Sprintf("%s:%s", c.Host, c.Port)
+	sshClient, err := ssh.Dial("tcp", addr, config)
+	if err != nil {
+		return nil, nil, fmt.Errorf("SSH dial %s: %w", addr, err)
+	}
+
+	dbHost := os.Getenv("DB_HOST")
+	dbPort := os.Getenv("DB_PORT")
+	conn, err := sshClient.Dial("tcp", fmt.Sprintf("%s:%s", dbHost, dbPort))
+	if err != nil {
+		return nil, nil, fmt.Errorf("SSH tunnel to DB: %w", err)
+	}
+
+	return conn, sshClient, nil
+}

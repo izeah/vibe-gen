@@ -1,0 +1,19 @@
+package repositoryuser
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) IDs(ctx *abstraction.Context, f *dto.UserFilter) (data []string, err error) {
+	err = r.CheckTrx(ctx).Model(&model.User{}).Scopes(func(tx *gorm.DB) *gorm.DB {
+		if f != nil {
+			return f.Apply(tx).Select("users.id")
+		}
+		return tx.Select("users.id")
+	}).Pluck("users.id", &data).Error
+	return
+}

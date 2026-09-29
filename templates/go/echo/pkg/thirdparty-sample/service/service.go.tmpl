@@ -1,0 +1,65 @@
+package thirdpartysampleservice
+
+import (
+	"errors"
+	"fmt"
+	"net/http"
+	"os"
+	"sync"
+
+	"github.com/go-resty/resty/v2"
+
+	"{{.ModuleName}}/pkg/circuitbreaker"
+	thirdpartysample "{{.ModuleName}}/pkg/thirdparty-sample"
+)
+
+type service struct {
+	client *resty.Client
+}
+
+var (
+	instance thirdpartysample.Service
+	once     sync.Once
+)
+
+// New returns the singleton ThirdPartySample service.
+// All config is read from environment variables — no hardcoded credentials.
+func New() thirdpartysample.Service {
+	once.Do(func() {
+		baseURL := os.Getenv("THIRDPARTY_SAMPLE_HOST")
+		apiKey := os.Getenv("THIRDPARTY_SAMPLE_API_KEY")
+
+		if baseURL == "" {
+			panic("THIRDPARTY_SAMPLE_HOST env var is required")
+		}
+
+		client := resty.NewWithClient(circuitbreaker.NewClient()).
+			SetBaseURL(baseURL).
+			SetHeader("Content-Type", "application/json").
+			SetHeader("Accept", "application/json").
+			SetHeader("Authorization", fmt.Sprintf("Bearer %s", apiKey)).
+			SetRetryCount(0).
+			OnBeforeRequest(func(c *resty.Client, r *resty.Request) error {
+				// Add per-request logging or tracing hooks here.
+				return nil
+			}).
+			OnAfterResponse(func(c *resty.Client, r *resty.Response) error {
+				// Add response logging or metrics here.
+				return nil
+			})
+
+		instance = &service{client: client}
+	})
+	return instance
+}
+
+// parseAPIError extracts a human-readable error from a non-2xx resty response.
+func (s *service) parseAPIError(resp *resty.Response) error {
+	return errors.New(fmt.Sprintf("third-party API error (%d): %s",
+		resp.StatusCode(), string(resp.Body())))
+}
+
+// isSuccess returns true for 2xx HTTP status codes.
+func (s *service) isSuccess(code int) bool {
+	return code >= http.StatusOK && code < http.StatusMultipleChoices
+}

@@ -1,0 +1,10 @@
+package auth
+
+import "github.com/labstack/echo/v4"
+
+// Route registers auth endpoints on the given echo.Group.
+func (h *Handler) Route(g *echo.Group) {
+	g.POST("/login", h.Login)
+	g.POST("/refresh", h.Refresh)
+}
+

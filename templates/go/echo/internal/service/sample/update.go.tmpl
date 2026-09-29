@@ -1,0 +1,45 @@
+package servicesample
+
+import (
+	"net/http"
+	"time"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Update(ctx *abstraction.Context, req *dto.SampleUpdateRequest) (*dto.SampleResponse, error) {
+	m, err := s.sampleRepository.FindOne(ctx, &dto.SampleFilter{IDs: []string{req.ID}})
+	if err != nil {
+		return nil, response.ErrorConstant.NotFound.WithMessage("sample not found")
+	}
+	m.Context = ctx
+	if req.Name != "" {
+		m.Name = req.Name
+	}
+	if req.Description != "" {
+		m.Description = req.Description
+	}
+	if res := s.sampleRepository.Update(ctx, &dto.SampleFilter{IDs: []string{req.ID}}, m); res.Error != nil {
+		return nil, response.ErrorBuilder(http.StatusInternalServerError, res.Error)
+	}
+	r := &dto.SampleResponse{
+		ID:          m.ID.String(),
+		Name:        m.Name,
+		Description: m.Description,
+		Status:      m.Status,
+		CreatedAt:   time.Unix(0, m.CreatedAt).UTC().Format(time.RFC3339),
+	}
+	if m.UpdatedAt != nil {
+		r.UpdatedAt = time.Unix(0, *m.UpdatedAt).UTC().Format(time.RFC3339)
+	}
+	if m.CreatedBy.String() != "00000000-0000-0000-0000-000000000000" {
+		r.CreatedBy = m.CreatedBy.String()
+	}
+	if m.UpdatedBy != nil {
+		updStr := m.UpdatedBy.String()
+		r.UpdatedBy = &updStr
+	}
+	return r, nil
+}

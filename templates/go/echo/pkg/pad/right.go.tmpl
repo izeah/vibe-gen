@@ -1,0 +1,13 @@
+package pad
+
+import (
+	"fmt"
+)
+
+func Right(input string, padLength int, padString string) string {
+	if len(input) < padLength {
+		return fmt.Sprintf("%v%0*s\n", input, padLength-len(input), padString)
+	} else {
+		return input
+	}
+}

@@ -1,0 +1,165 @@
+package authtoken
+
+import (
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
+	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+)
+
+func generateTestKeys(t *testing.T) ([]byte, []byte) {
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("Failed to generate test RSA key: %v", err)
+	}
+
+	privBytes := x509.MarshalPKCS1PrivateKey(privateKey)
+	privPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: privBytes,
+	})
+
+	pubBytes, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatalf("Failed to marshal test public key: %v", err)
+	}
+	pubPEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "PUBLIC KEY",
+		Bytes: pubBytes,
+	})
+
+	return privPEM, pubPEM
+}
+
+func TestAuthToken_AccessToken(t *testing.T) {
+	privPEM, pubPEM := generateTestKeys(t)
+	invalidPrivPEM := []byte("invalid-key")
+
+	additionalInfo := &AddtionalClaims{
+		TokenId:   "token-123",
+		UserId:    "user-123",
+		Email:     "user@example.com",
+		Role:      "user",
+		PartnerId: "partner-123",
+		Issuer:    "test-issuer",
+		ExpiredAt: time.Now().Add(1 * time.Hour),
+		IssuedAt:  time.Now(),
+	}
+
+	at := New(additionalInfo)
+
+	// Test successful generation
+	tokenStr, err := at.AccessToken(privPEM)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if tokenStr == "" {
+		t.Error("Expected token string, got empty")
+	}
+
+	// Verify the generated token
+	claims, err := Verify(tokenStr, pubPEM)
+	if err != nil {
+		t.Errorf("Verify failed for valid token: %v", err)
+	}
+	if claims.Subject != "user-123" {
+		t.Errorf("Expected subject 'user-123', got '%s'", claims.Subject)
+	}
+	if claims.PartnerId != "partner-123" {
+		t.Errorf("Expected partnerId 'partner-123', got '%s'", claims.PartnerId)
+	}
+	if claims.Email != "user@example.com" {
+		t.Errorf("Expected email 'user@example.com', got '%s'", claims.Email)
+	}
+	if claims.Role != "user" {
+		t.Errorf("Expected role 'user', got '%s'", claims.Role)
+	}
+
+	// Test generation with invalid private key
+	_, err = at.AccessToken(invalidPrivPEM)
+	if err == nil {
+		t.Error("Expected error with invalid private key, got nil")
+	}
+}
+
+func TestAuthToken_RefreshToken(t *testing.T) {
+	privPEM, _ := generateTestKeys(t)
+
+	additionalInfo := &AddtionalClaims{
+		TokenId:   "token-123",
+		UserId:    "user-123",
+		Email:     "user@example.com",
+		Role:      "user",
+		PartnerId: "partner-123",
+		Issuer:    "test-issuer",
+		ExpiredAt: time.Now().Add(1 * time.Hour),
+		IssuedAt:  time.Now(),
+	}
+
+	at := New(additionalInfo)
+	newExpiry := time.Now().Add(24 * time.Hour)
+
+	// Test successful refresh token generation
+	refreshStr, err := at.RefreshToken(newExpiry, privPEM)
+	if err != nil {
+		t.Errorf("Expected no error, got %v", err)
+	}
+	if refreshStr == "" {
+		t.Error("Expected token string, got empty")
+	}
+
+	// Test with invalid private key
+	_, err = at.RefreshToken(newExpiry, []byte("invalid"))
+	if err == nil {
+		t.Error("Expected error with invalid private key, got nil")
+	}
+
+	// Test with missing or wrong type claims
+	invalidAt := &AuthToken{token: jwt.New(jwt.SigningMethodRS256)} // Empty claims
+	_, err = invalidAt.RefreshToken(newExpiry, privPEM)
+	if err == nil {
+		t.Error("Expected error for missing claims, got nil")
+	}
+}
+
+func TestVerify(t *testing.T) {
+	privPEM, pubPEM := generateTestKeys(t)
+
+	// Create a valid token string
+	at := New(&AddtionalClaims{
+		TokenId:   "token-123",
+		UserId:    "user-123",
+		Email:     "user@example.com",
+		Role:      "user",
+		Issuer:    "test-issuer",
+		ExpiredAt: time.Now().Add(1 * time.Hour),
+		IssuedAt:  time.Now(),
+	})
+	validTokenStr, _ := at.AccessToken(privPEM)
+
+	// Test Verify with invalid public key
+	_, err := Verify(validTokenStr, []byte("invalid-pub"))
+	if err == nil {
+		t.Error("Expected error with invalid public key")
+	}
+
+	// Test Verify with invalid token string
+	_, err = Verify("invalid.token.string", pubPEM)
+	if err == nil {
+		t.Error("Expected error with invalid token string")
+	}
+
+	// Test Verify with wrong signing method (e.g., HS256 instead of RS256)
+	wrongMethodToken := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.RegisteredClaims{
+		Subject: "user-123",
+	})
+	wrongTokenStr, _ := wrongMethodToken.SignedString([]byte("secret"))
+	_, err = Verify(wrongTokenStr, pubPEM)
+	if err == nil {
+		t.Error("Expected error for wrong signing method")
+	}
+}

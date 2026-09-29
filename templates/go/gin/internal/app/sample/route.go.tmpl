@@ -1,0 +1,12 @@
+package sample
+
+import "github.com/gin-gonic/gin"
+
+// Route registers sample CRUD endpoints on the given router group.
+func (h *Handler) Route(g *gin.RouterGroup) {
+	g.GET("", h.Find)
+	g.GET("/:id", h.FindByID)
+	g.POST("", h.Create)
+	g.PUT("/:id", h.Update)
+	g.DELETE("/:id", h.Delete)
+}

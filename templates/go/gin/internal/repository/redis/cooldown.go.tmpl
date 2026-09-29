@@ -1,0 +1,111 @@
+package redis
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+type CooldownRepository interface {
+	TryAcquire(ctx context.Context, key string) error
+	TryAcquireTTL(ctx context.Context, key string) (int, error)
+	TryAcquireWithTimeout(ctx context.Context, key string, value any, durationAtMinute int) error
+	TryAcquireWithTimeoutSecond(ctx context.Context, key string, value any, durationAtSecond int) error
+	GetValue(ctx context.Context, key string) (string, error)
+	DeleteValue(ctx context.Context, key string) error
+}
+
+type cooldown struct {
+	client *redis.Client
+}
+
+func NewCooldown(client *redis.Client) CooldownRepository {
+	return &cooldown{
+		client: client,
+	}
+}
+
+// EndOfDayTTL helper
+func endOfDayTTL() time.Duration {
+	now := time.Now()
+	endOfDay := time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, 0, now.Location())
+	return time.Until(endOfDay)
+}
+
+// Returns nil if this request is the first → proceed.
+// Returns error if already claimed → reject as duplicate.
+func (r *cooldown) TryAcquire(ctx context.Context, key string) error {
+	ttl := endOfDayTTL()
+	set, err := r.client.SetNX(ctx, key, 1, ttl).Result()
+	if err != nil {
+		return err
+	}
+	if !set {
+		return errors.New("already acquired")
+	}
+	return nil
+}
+
+func (r *cooldown) TryAcquireTTL(ctx context.Context, key string) (int, error) {
+	duration, err := r.client.TTL(ctx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+	return int(duration.Seconds()), nil
+}
+
+func (r *cooldown) TryAcquireWithTimeout(ctx context.Context, key string, value any, durationAtMinute int) error {
+	now := time.Now()
+	duration := now.Add(time.Duration(durationAtMinute) * time.Minute)
+	ttl := time.Until(duration)
+	if ttl < 1 {
+		return errors.New("need TTL")
+	}
+
+	set, err := r.client.SetNX(ctx, key, value, ttl).Result()
+	if err != nil {
+		return err
+	}
+	if !set {
+		return errors.New("already acquired")
+	}
+	return nil
+}
+
+func (r *cooldown) TryAcquireWithTimeoutSecond(ctx context.Context, key string, value any, durationAtSecond int) error {
+	now := time.Now()
+	duration := now.Add(time.Duration(durationAtSecond) * time.Second)
+	ttl := time.Until(duration)
+	if ttl < 1 {
+		return errors.New("need TTL")
+	}
+
+	set, err := r.client.SetNX(ctx, key, value, ttl).Result()
+	if err != nil {
+		return err
+	}
+	if !set {
+		return errors.New("already acquired")
+	}
+	return nil
+}
+
+func (r *cooldown) GetValue(ctx context.Context, key string) (string, error) {
+	result, err := r.client.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return "", ErrNotFound
+		}
+		return "", err
+	}
+	return result, nil
+}
+
+func (r *cooldown) DeleteValue(ctx context.Context, key string) error {
+	if _, err := r.client.Del(ctx, key).Result(); err != nil {
+		return err
+	}
+	return nil
+}

@@ -1,0 +1,37 @@
+package user
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Update updates an existing user.
+// @Summary     Update user
+// @Tags        user
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string                 true  "User ID"
+// @Param       body  body  dto.UserUpdateRequest  true  "Update payload"
+// @Success     200   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/users/{id} [put]
+func (h *Handler) Update(c echo.Context) (err error) {
+	var (
+		ctx     = c.(*abstraction.Context)
+		payload = new(dto.UserUpdateRequest)
+		data    *dto.UserResponse
+	)
+	if err = c.Bind(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = c.Validate(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.UserService.Update(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(data).Send(c)
+}

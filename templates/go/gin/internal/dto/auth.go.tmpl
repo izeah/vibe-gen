@@ -1,0 +1,19 @@
+package dto
+
+// LoginRequest is the payload for authenticating a user.
+type LoginRequest struct {
+	Email    string `json:"email"    validate:"required,email"`
+	Password string `json:"password" validate:"required,min=8"`
+}
+
+// LoginResponse holds the token pair returned after successful authentication.
+type LoginResponse struct {
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	ExpiresIn    int    `json:"expires_in"`
+}
+
+// RefreshRequest is the payload for obtaining a new access token.
+type RefreshRequest struct {
+	RefreshToken string `json:"refresh_token" validate:"required"`
+}

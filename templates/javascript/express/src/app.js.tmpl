@@ -1,0 +1,55 @@
+import express from 'express';
+import cors from 'cors';
+import helmet from 'helmet';
+import morgan from 'morgan';
+import rateLimit from 'express-rate-limit';
+
+import { config } from './config/config.js';
+import router from './api/v1/index.js';
+import { logger } from './utils/logger.js';
+import { errorHandler } from './middleware/errorHandler.js';
+
+const app = express();
+
+// — Security middleware
+app.use(helmet());
+app.use(cors({ origin: config.corsAllowOrigin }));
+
+// — Rate limiting
+app.use(
+  rateLimit({
+    windowMs: config.rateLimit.windowMs,
+    max: config.rateLimit.max,
+    standardHeaders: true,
+    legacyHeaders: false,
+  })
+);
+
+// — Parsing
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+// — Logging
+if (config.env !== 'test') {
+  app.use(morgan('combined', { stream: { write: (msg) => logger.info(msg.trim()) } }));
+}
+
+// — Routes
+app.use('/v1', router);
+
+// — Not found
+app.use((_req, res) => {
+  res.status(404).json({ success: false, message: 'Not Found' });
+});
+
+// — Error handler
+app.use(errorHandler);
+
+// — Start
+if (process.env.NODE_ENV !== 'test') {
+  app.listen(config.port, () => {
+    logger.info(`${config.appName} started on port ${config.port}`);
+  });
+}
+
+export default app;

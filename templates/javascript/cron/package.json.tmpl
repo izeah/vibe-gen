@@ -1,0 +1,31 @@
+{
+  "name": "{{.ProjectSlug}}",
+  "version": "1.0.0",
+  "description": "{{.ProjectTitle}} — Cron Scheduler",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "dev": "node --env-file=.env --watch src/index.js",
+    "start": "node --env-file=.env src/index.js",
+    "job": "node --env-file=.env src/cli/run-job.js",
+    "test": "node --experimental-vm-modules node_modules/.bin/jest --detectOpenHandles --forceExit",
+    "lint": "eslint src/**/*.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "node-cron": "^3.0.3",
+    "sequelize": "^6.37.5",
+    "pg": "^8.14.0",
+    "pg-hstore": "^2.3.4",
+    "ioredis": "^5.4.2",
+    "winston": "^3.17.0",
+    "dotenv": "^16.4.7",
+    "uuid": "^11.0.5"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0",
+    "eslint": "^9.22.0"
+  }
+}

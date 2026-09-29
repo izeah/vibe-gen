@@ -1,0 +1,73 @@
+package config
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/bsm/redislock"
+	"github.com/redis/go-redis/v9"
+)
+
+// RedisClientConfig manages Redis connections per database index and provides distributed locking.
+type RedisClientConfig struct {
+	cfg    *Config
+	client map[int]*redis.Client
+	locker *redislock.Client
+	mu     sync.Mutex
+}
+
+var (
+	redisConfigInstance *RedisClientConfig
+	redisOnce           sync.Once
+)
+
+// Redis returns the singleton instance of the Redis client configuration.
+func Redis() *RedisClientConfig {
+	redisOnce.Do(func() {
+		cfg := Get()
+		redisConfigInstance = &RedisClientConfig{
+			cfg:    cfg,
+			client: make(map[int]*redis.Client),
+		}
+		// Initialize the locker using DB0 by default
+		redisConfigInstance.locker = redislock.New(redisConfigInstance.DB0())
+	})
+	return redisConfigInstance
+}
+
+// Client returns a Redis client for the specified database index.
+// It creates a new connection lazily if one doesn't exist for that index.
+func (c *RedisClientConfig) Client(db int) *redis.Client {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	if c.client[db] == nil {
+		c.client[db] = redis.NewClient(&redis.Options{
+			ClientName: fmt.Sprintf("%s-API-GO:%s/%v", strings.ToUpper(c.cfg.App.Name), strings.ToLower(c.cfg.App.LogLevel), time.Now().Unix()),
+			Addr:       c.cfg.Redis.Address,
+			Password:   c.cfg.Redis.Password,
+			MaxRetries: 3,
+			DB:         db,
+			
+			// Optional: apply pooling limits from config
+			PoolSize:        c.cfg.Redis.MaxActive,
+			MinIdleConns:    c.cfg.Redis.MaxIdle,
+			ConnMaxIdleTime: time.Duration(c.cfg.Redis.IdleTimeout) * time.Second,
+			ConnMaxLifetime: time.Duration(c.cfg.Redis.MaxConnLifetime) * time.Second,
+		})
+	}
+	return c.client[db]
+}
+
+// DB0 is a convenience method to return the Redis client for database 0.
+func (c *RedisClientConfig) DB0() *redis.Client {
+	return c.Client(0)
+}
+
+// Obtain attempts to acquire a distributed lock.
+func (c *RedisClientConfig) Obtain(ctx context.Context, key string, ttl time.Duration, opt *redislock.Options) (*redislock.Lock, error) {
+	return c.locker.Obtain(ctx, key, ttl, opt)
+}

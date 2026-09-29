@@ -1,0 +1,61 @@
+package abstraction
+
+import (
+	"context"
+	"time"
+	"uuid"
+
+	"github.com/gofiber/fiber/v2"
+	"gorm.io/gorm"
+)
+
+// TrxContext wraps a transactional *gorm.DB.
+type TrxContext struct {
+	Db *gorm.DB
+}
+
+// Context wraps *fiber.Ctx with application-specific fields.
+type Context struct {
+	*fiber.Ctx
+
+	// Auth holds the authenticated user claims extracted from JWT.
+	Auth *AuthContext
+
+	// Trx holds an active database transaction.
+	Trx *TrxContext
+
+	// OtherContext is an alternative context.Context for non-fiber code paths.
+	OtherContext *context.Context
+
+	// Now returns the frozen request time.
+	Now func() time.Time
+
+	// PartnerID is the service partner identifier.
+	PartnerID string
+
+	// CountryCode is the service country code.
+	CountryCode *string
+}
+
+// AuthContext holds the decoded JWT payload.
+type AuthContext struct {
+	ID     uuid.UUID `json:"id"`
+	UserID string    `json:"user_id"`
+	Email  string    `json:"email"`
+	Role   string    `json:"role"`
+}
+
+// NewContext wraps a *fiber.Ctx with application context.
+func NewContext(c *fiber.Ctx) *Context {
+	return &Context{Ctx: c}
+}
+
+// GetContext retrieves the *Context from fiber.Ctx locals or creates a new one.
+func GetContext(c *fiber.Ctx) *Context {
+	if val := c.Locals("context"); val != nil {
+		if ctx, ok := val.(*Context); ok {
+			return ctx
+		}
+	}
+	return NewContext(c)
+}

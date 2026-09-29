@@ -1,0 +1,40 @@
+package repositorysample
+
+import (
+	"time"
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) Update(ctx *abstraction.Context, f *dto.SampleFilter, e *model.Sample) *gorm.DB {
+	if f == nil {
+		return &gorm.DB{
+			Error: gorm.ErrMissingWhereClause,
+		}
+	}
+	now := time.Now().UnixNano()
+	e.UpdatedAt = &now
+	if ctx != nil && ctx.Auth != nil {
+		if ctx.Auth.ID != uuid.Nil() {
+			e.UpdatedBy = &ctx.Auth.ID
+		} else if ctx.Auth.UserID != "" {
+			if uid, err := uuid.Parse(ctx.Auth.UserID); err == nil {
+				e.UpdatedBy = &uid
+			}
+		}
+	}
+	return r.CheckTrx(ctx).Model(&model.Sample{}).
+		Scopes(func(tx *gorm.DB) *gorm.DB {
+			if f != nil {
+				f.ForUpdate = true
+				return f.Apply(tx)
+			}
+			return tx
+		}).
+		Updates(e)
+}

@@ -1,0 +1,56 @@
+package delivery
+
+import (
+	"fmt"
+	"os"
+
+	"github.com/labstack/echo/v4"
+	echoSwagger "github.com/swaggo/echo-swagger"
+
+	// Import the generated swagger docs — created by `make swag`.
+	// Run `make swag` first to generate this package.
+	_ "{{.ModuleName}}/docs/swagger"
+
+	"{{.ModuleName}}/internal/app/auth"
+	"{{.ModuleName}}/internal/app/health"
+	"{{.ModuleName}}/internal/app/sample"
+	"{{.ModuleName}}/internal/app/user"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/internal/factory"
+	"{{.ModuleName}}/internal/middleware"
+)
+
+const (
+	APP     = "{{.ProjectTitle}}"
+	VERSION = "v1"
+	SCHEME  = "http"
+)
+
+// HTTP registers all routes onto the Echo instance.
+// Call this once after factory and middleware initialization in main.go.
+func HTTP(e *echo.Echo, f *factory.Factory) {
+	cfg := config.Get()
+
+	// — Swagger UI
+	host := fmt.Sprintf("localhost:%d", cfg.App.Port)
+	if h := os.Getenv("APP_HOST"); h != "" {
+		host = h
+	}
+	// SwaggerInfo is auto-populated by `swag init` from the main.go annotations.
+	// The values below override the generated defaults.
+	_ = host // used when setting swaggerInfo manually
+	e.GET("/swagger/*", echoSwagger.WrapHandler)
+
+	// — v1 routes
+	v1 := e.Group("/v1")
+
+	// Public routes
+	health.NewHandler(f).Route(v1.Group("/health"))
+	auth.NewHandler(f).Route(v1.Group("/auth"))
+
+	// Protected routes
+	v1.Use(middleware.Authentication)
+	user.NewHandler(f).Route(v1.Group("/users"))
+	sample.NewHandler(f).Route(v1.Group("/samples"))
+}
+

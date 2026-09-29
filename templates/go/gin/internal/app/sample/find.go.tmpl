@@ -1,0 +1,45 @@
+package sample
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Find lists samples with pagination.
+// @Summary     List samples
+// @Tags        sample
+// @Produce     json
+// @Param       page       query  int  false  "Page number"
+// @Param       page_size  query  int  false  "Items per page"
+// @Success     200        {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/samples [get]
+func (h *Handler) Find(c *gin.Context) {
+	var (
+		ctx  = abstraction.GetContext(c)
+		data []*dto.SampleResponse
+		info *abstraction.PaginationInfo
+		err  error
+	)
+
+	f := new(dto.SampleFilter)
+	if err = c.ShouldBindQuery(f); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+
+	f.Pagination = new(abstraction.Pagination)
+	if err = c.ShouldBindQuery(f.Pagination); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+
+	if data, info, err = h.SampleService.Find(ctx, f); err != nil {
+		response.ErrorResponse(err).Send(c)
+		return
+	}
+	response.SuccessListResponse(data, info).Send(c)
+}

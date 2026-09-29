@@ -1,0 +1,36 @@
+package repositoryuser
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+// Repository defines the data access contract for users.
+type Repository interface {
+	Find(ctx *abstraction.Context, f *dto.UserFilter) (data []*model.User, err error)
+	FindOne(ctx *abstraction.Context, f *dto.UserFilter) (data *model.User, err error)
+	Count(ctx *abstraction.Context, f *dto.UserFilter) (data *int64, err error)
+	Create(ctx *abstraction.Context, e interface{}) (db *gorm.DB)
+	Update(ctx *abstraction.Context, f *dto.UserFilter, e *model.User) *gorm.DB
+	Updates(ctx *abstraction.Context, f *dto.UserFilter, e *model.User) *gorm.DB
+	UpdateOrInsert(ctx *abstraction.Context, e []*model.User) *gorm.DB
+	FirstOrCreate(ctx *abstraction.Context, data *model.User) (err error)
+	Exists(ctx *abstraction.Context, f *dto.UserFilter) (bool, error)
+	Delete(ctx *abstraction.Context, f *dto.UserFilter) *gorm.DB
+	SoftDelete(ctx *abstraction.Context, f *dto.UserFilter) *gorm.DB
+	IDs(ctx *abstraction.Context, f *dto.UserFilter) (data []string, err error)
+}
+
+type repository struct {
+	abstraction.Repository
+}
+
+// New creates a new user Repository.
+func New(db *gorm.DB) Repository {
+	return &repository{
+		Repository: abstraction.Repository{Db: db},
+	}
+}

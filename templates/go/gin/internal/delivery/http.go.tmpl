@@ -1,0 +1,39 @@
+package delivery
+
+import (
+	"{{.ModuleName}}/internal/app/auth"
+	"{{.ModuleName}}/internal/app/health"
+	"{{.ModuleName}}/internal/app/sample"
+	"{{.ModuleName}}/internal/app/user"
+	"{{.ModuleName}}/internal/factory"
+	"{{.ModuleName}}/internal/middleware"
+
+	// Import the generated swagger docs — created by `make swag`.
+	_ "{{.ModuleName}}/docs/swagger"
+
+	"github.com/gin-gonic/gin"
+	swaggerFiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
+)
+
+// HTTP registers all routes onto the Gin router.
+func HTTP(r *gin.Engine, f *factory.Factory) {
+	// Swagger UI
+	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+
+	v1 := r.Group("/v1")
+
+	// Public routes
+	health.NewHandler(f).Route(v1.Group("/health"))
+	auth.NewHandler(f).Route(v1.Group("/auth"))
+
+	// Protected routes
+	v1.Use(middleware.Authentication())
+	user.NewHandler(f).Route(v1.Group("/users"))
+	sample.NewHandler(f).Route(v1.Group("/samples"))
+}
+
+// Register is an alias for HTTP for backwards compatibility.
+func Register(r *gin.Engine, f *factory.Factory) {
+	HTTP(r, f)
+}

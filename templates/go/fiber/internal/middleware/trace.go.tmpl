@@ -1,0 +1,317 @@
+package middleware
+
+import (
+	"bytes"
+	"encoding/json"
+	"fmt"
+	"mime"
+	"mime/multipart"
+	"net/url"
+	"strings"
+
+	"github.com/gofiber/fiber/v2"
+	"github.com/phuslu/log"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+var tracer = otel.Tracer("{{.ModuleName}}/http")
+
+const maxTraceBodyLen = 8192
+
+// Trace is an OpenTelemetry-based request tracing middleware.
+// It creates an OTel span per request, captures request/response headers,
+// query parameters, and bodies (JSON / form-data / urlencoded, with sensitive fields masked),
+// and records errors and HTTP status codes onto the span.
+func Trace() fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		spanName := c.Method() + " " + c.Path()
+		
+		ctx, span := tracer.Start(
+			c.UserContext(),
+			spanName,
+			trace.WithSpanKind(trace.SpanKindServer),
+		)
+		defer span.End()
+
+		span.SetAttributes(
+			attribute.String("http.method", c.Method()),
+			attribute.String("http.url", c.OriginalURL()),
+			attribute.String("http.client_ip", c.IP()),
+			attribute.String("http.route", c.Route().Path),
+		)
+
+		// 1. Request Query Parameters
+		rawQuery := string(c.Request().URI().QueryString())
+		if rawQuery != "" {
+			span.SetAttributes(attribute.String("http.request.query", rawQuery))
+		}
+		c.Context().QueryArgs().VisitAll(func(key, value []byte) {
+			if len(value) > 0 {
+				span.SetAttributes(attribute.String(fmt.Sprintf("http.request.query.%s", string(key)), string(value)))
+			}
+		})
+
+		// 2. Request Headers (sanitized)
+		reqHeaders := make(map[string]interface{})
+		c.Request().Header.VisitAll(func(key, val []byte) {
+			k := string(key)
+			lowerK := strings.ToLower(k)
+			if isSensitiveKey(lowerK) || lowerK == "cookie" || lowerK == "set-cookie" {
+				reqHeaders[k] = "********"
+			} else {
+				reqHeaders[k] = string(val)
+			}
+		})
+		if len(reqHeaders) > 0 {
+			if b, err := json.Marshal(reqHeaders); err == nil {
+				span.SetAttributes(attribute.String("http.request.headers", string(b)))
+			}
+			for k, v := range reqHeaders {
+				span.SetAttributes(attribute.String(fmt.Sprintf("http.request.header.%s", strings.ToLower(k)), fmt.Sprint(v)))
+			}
+		}
+
+		c.SetUserContext(ctx)
+
+		// 3. Request Body (JSON / form-data / urlencoded)
+		reqBody := c.Body()
+		contentType := string(c.Request().Header.ContentType())
+		reqParsed, reqBodyStr := parseRequestBody(contentType, reqBody)
+		if reqBodyStr != "" {
+			span.SetAttributes(attribute.String("http.request.body", reqBodyStr))
+		}
+
+		defer func() {
+			if actxVal := c.Locals("auth"); actxVal != nil {
+				if actx, ok := actxVal.(*abstraction.AuthContext); ok {
+					span.SetAttributes(
+						attribute.String("user.id", actx.UserID),
+						attribute.String("user.email", actx.Email),
+						attribute.String("user.role", actx.Role),
+					)
+				}
+			}
+
+			// 4. Response Status Code
+			statusCode := c.Response().StatusCode()
+			span.SetAttributes(attribute.Int("http.status_code", statusCode))
+
+			// 5. Response Headers (sanitized)
+			respHeaders := make(map[string]interface{})
+			c.Response().Header.VisitAll(func(key, val []byte) {
+				k := string(key)
+				lowerK := strings.ToLower(k)
+				if isSensitiveKey(lowerK) || lowerK == "cookie" || lowerK == "set-cookie" {
+					respHeaders[k] = "********"
+				} else {
+					respHeaders[k] = string(val)
+				}
+			})
+			if len(respHeaders) > 0 {
+				if b, err := json.Marshal(respHeaders); err == nil {
+					span.SetAttributes(attribute.String("http.response.headers", string(b)))
+				}
+				for k, v := range respHeaders {
+					span.SetAttributes(attribute.String(fmt.Sprintf("http.response.header.%s", strings.ToLower(k)), fmt.Sprint(v)))
+				}
+			}
+
+			// 6. Response Body (sanitized)
+			resParsed, resBodyStr := parseResponseBody(c.Response().Body())
+			if resBodyStr != "" {
+				span.SetAttributes(attribute.String("http.response.body", resBodyStr))
+			}
+
+			// Log request/response with trace correlation
+			logEvent := log.Info().
+				Str("trace_id", span.SpanContext().TraceID().String()).
+				Str("span_id", span.SpanContext().SpanID().String()).
+				Str("method", c.Method()).
+				Str("path", c.Path()).
+				Int("status", statusCode).
+				Str("client_ip", c.IP())
+
+			if rawQuery != "" {
+				logEvent = logEvent.Str("query", rawQuery)
+			}
+			if len(reqHeaders) > 0 {
+				logEvent = logEvent.Interface("request_headers", reqHeaders)
+			}
+			if reqParsed != nil {
+				logEvent = logEvent.Interface("request", reqParsed)
+			}
+			if len(respHeaders) > 0 {
+				logEvent = logEvent.Interface("response_headers", respHeaders)
+			}
+			if resParsed != nil {
+				logEvent = logEvent.Interface("response", resParsed)
+			}
+
+			logEvent.Msg("trace")
+
+			if v := recover(); v != nil {
+				panicErr := fmt.Errorf("panic: %v", v)
+				span.RecordError(panicErr)
+				span.SetStatus(codes.Error, panicErr.Error())
+				panic(v) // re-panic for global fiber error handler
+			}
+		}()
+
+		handlerErr := c.Next()
+		if handlerErr != nil {
+			span.RecordError(handlerErr)
+			span.SetStatus(codes.Error, handlerErr.Error())
+		} else if c.Response().StatusCode() >= fiber.StatusInternalServerError {
+			span.SetStatus(codes.Error, fmt.Sprintf("HTTP %d", c.Response().StatusCode()))
+		} else {
+			span.SetStatus(codes.Ok, "")
+		}
+
+		return handlerErr
+	}
+}
+
+// isSensitiveKey checks if a field or header name is sensitive.
+func isSensitiveKey(k string) bool {
+	lower := strings.ToLower(k)
+	for _, s := range []string{
+		"password", "pass", "pin", "token", "secret", "access_token",
+		"refresh_token", "api_key", "apikey", "authorization",
+		"proxy-authorization", "cvv", "card_number",
+	} {
+		if strings.Contains(lower, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// parseRequestBody parses JSON, multipart form-data, or urlencoded bodies and masks sensitive fields.
+func parseRequestBody(contentType string, body []byte) (interface{}, string) {
+	if len(body) == 0 {
+		return nil, ""
+	}
+
+	if strings.Contains(contentType, "json") || (len(body) > 0 && (body[0] == '{' || body[0] == '[')) {
+		var result interface{}
+		if err := json.Unmarshal(body, &result); err == nil {
+			maskJSON(result)
+			if b, err := json.Marshal(result); err == nil {
+				s := string(b)
+				if len(s) > maxTraceBodyLen {
+					s = s[:maxTraceBodyLen] + "... [truncated]"
+				}
+				return result, s
+			}
+		}
+	}
+
+	if strings.HasPrefix(contentType, "multipart/form-data") {
+		_, params, err := mime.ParseMediaType(contentType)
+		if err == nil {
+			if boundary, ok := params["boundary"]; ok {
+				mr := multipart.NewReader(bytes.NewReader(body), boundary)
+				if form, err := mr.ReadForm(32 << 20); err == nil {
+					defer form.RemoveAll()
+					m := make(map[string]interface{})
+					for k, v := range form.Value {
+						if isSensitiveKey(k) {
+							m[k] = "********"
+						} else if len(v) == 1 {
+							m[k] = v[0]
+						} else {
+							m[k] = v
+						}
+					}
+					for k, files := range form.File {
+						fileInfos := make([]string, 0, len(files))
+						for _, f := range files {
+							fileInfos = append(fileInfos, fmt.Sprintf("%s (%d bytes, %s)", f.Filename, f.Size, f.Header.Get("Content-Type")))
+						}
+						m[k] = fileInfos
+					}
+					if b, err := json.Marshal(m); err == nil {
+						s := string(b)
+						if len(s) > maxTraceBodyLen {
+							s = s[:maxTraceBodyLen] + "... [truncated]"
+						}
+						return m, s
+					}
+				}
+			}
+		}
+	}
+
+	if strings.HasPrefix(contentType, "application/x-www-form-urlencoded") {
+		if vals, err := url.ParseQuery(string(body)); err == nil {
+			m := make(map[string]interface{}, len(vals))
+			for k, v := range vals {
+				if isSensitiveKey(k) {
+					m[k] = "********"
+				} else if len(v) == 1 {
+					m[k] = v[0]
+				} else {
+					m[k] = v
+				}
+			}
+			if b, err := json.Marshal(m); err == nil {
+				s := string(b)
+				if len(s) > maxTraceBodyLen {
+					s = s[:maxTraceBodyLen] + "... [truncated]"
+				}
+				return m, s
+			}
+		}
+	}
+
+	s := string(body)
+	if len(s) > maxTraceBodyLen {
+		s = s[:maxTraceBodyLen] + "... [truncated]"
+	}
+	return s, s
+}
+
+// parseResponseBody masks sensitive fields in response JSON and returns string for span.
+func parseResponseBody(body []byte) (interface{}, string) {
+	if len(body) == 0 {
+		return nil, ""
+	}
+	var result interface{}
+	if err := json.Unmarshal(body, &result); err == nil {
+		maskJSON(result)
+		if b, err := json.Marshal(result); err == nil {
+			s := string(b)
+			if len(s) > maxTraceBodyLen {
+				s = s[:maxTraceBodyLen] + "... [truncated]"
+			}
+			return result, s
+		}
+	}
+	s := string(body)
+	if len(s) > maxTraceBodyLen {
+		s = s[:maxTraceBodyLen] + "... [truncated]"
+	}
+	return s, s
+}
+
+func maskJSON(val interface{}) {
+	switch v := val.(type) {
+	case map[string]interface{}:
+		for k, item := range v {
+			if isSensitiveKey(k) {
+				v[k] = "********"
+			} else {
+				maskJSON(item)
+			}
+		}
+	case []interface{}:
+		for _, item := range v {
+			maskJSON(item)
+		}
+	}
+}

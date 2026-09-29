@@ -1,0 +1,36 @@
+package sample
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Create creates a new sample.
+// @Summary     Create sample
+// @Tags        sample
+// @Accept      json
+// @Produce     json
+// @Param       body  body  dto.SampleCreateRequest  true  "Create payload"
+// @Success     201   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/samples [post]
+func (h *Handler) Create(c echo.Context) (err error) {
+	var (
+		ctx     = c.(*abstraction.Context)
+		payload = new(dto.SampleCreateRequest)
+		data    *dto.SampleResponse
+	)
+	if err = c.Bind(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = c.Validate(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.SampleService.Create(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.CreatedResponse(data).Send(c)
+}

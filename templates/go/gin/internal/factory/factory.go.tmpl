@@ -1,0 +1,69 @@
+package factory
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/pkg/database"
+	"{{.ModuleName}}/pkg/trxmanager"
+	samplerepo "{{.ModuleName}}/internal/repository/sample"
+	userrepo   "{{.ModuleName}}/internal/repository/user"
+	redisrepo  "{{.ModuleName}}/internal/repository/redis"
+	"{{.ModuleName}}/internal/config"
+)
+
+// Factory is the application composition root.
+// It wires together all dependencies (DB, clients, repositories).
+// Add new repositories and clients here as the project grows.
+type Factory struct {
+	// DB is the primary write database connection.
+	DB *gorm.DB
+
+	// DBRead is the read replica. Falls back to DB if no replica is configured.
+	DBRead *gorm.DB
+
+	// TrxManager provides atomic database transactions.
+	TrxManager *trxmanager.TrxManager
+
+	// ── Repositories ─────────────────────────────────────────────────────────
+	SampleRepository samplerepo.Repository
+	UserRepository   userrepo.Repository
+	RedisRepository  redisrepo.Repository
+
+	// ── Third-party clients ───────────────────────────────────────────────────
+	// Uncomment and register third-party clients here.
+	// Example:
+	// ThirdpartySampleClient thirdpartysample.Service
+}
+
+// NewFactory initializes and returns a fully wired Factory.
+// Call once at application startup.
+func NewFactory() *Factory {
+	f := new(Factory)
+	f.SetupDB()
+	f.SetupRepository()
+	// f.SetupClient()
+	return f
+}
+
+// SetupDB wires the database connections.
+func (f *Factory) SetupDB() {
+	f.DB = database.PSQL()
+	f.DBRead = database.PSQLReplica()
+}
+
+// SetupRepository wires all repositories to the DB connection.
+func (f *Factory) SetupRepository() {
+	if f.DB == nil {
+		panic("factory: DB is nil — call SetupDB before SetupRepository")
+	}
+	f.TrxManager = trxmanager.New(f.DB)
+	f.SampleRepository = samplerepo.New(f.DB)
+	f.UserRepository = userrepo.New(f.DB)
+	f.RedisRepository = redisrepo.New(config.Redis().DB0())
+}
+
+// SetupClient initializes third-party API clients.
+// Uncomment and add your clients here.
+// func (f *Factory) SetupClient() {
+// 	f.ThirdpartySampleClient = thirdpartysampleservice.New()
+// }

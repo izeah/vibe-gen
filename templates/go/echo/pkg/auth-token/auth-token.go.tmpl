@@ -1,0 +1,89 @@
+package authtoken
+
+import (
+	"crypto/rsa"
+	"errors"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
+	pkgerr "github.com/pkg/errors"
+)
+
+func New(additionalInfo *AddtionalClaims) *AuthToken {
+	claims := &CustomClaims{
+		PartnerId: additionalInfo.PartnerId,
+		Email:     additionalInfo.Email,
+		Role:      additionalInfo.Role,
+		RegisteredClaims: jwt.RegisteredClaims{
+			ExpiresAt: jwt.NewNumericDate(additionalInfo.ExpiredAt),
+			IssuedAt:  jwt.NewNumericDate(additionalInfo.IssuedAt),
+			Issuer:    additionalInfo.Issuer,
+			Subject:   additionalInfo.UserId,
+			ID:        additionalInfo.TokenId,
+		},
+	}
+	return &AuthToken{
+		token: jwt.NewWithClaims(jwt.SigningMethodRS256, claims),
+	}
+}
+
+func (t *AuthToken) AccessToken(privateKeyPEM []byte) (token string, err error) {
+	token = ""
+	//Parse PEM keys into operational RSA structural formats
+	var privateKey *rsa.PrivateKey
+	if privateKey, err = jwt.ParseRSAPrivateKeyFromPEM(privateKeyPEM); err != nil {
+		return token, pkgerr.WithStack(err)
+	}
+
+	token, err = t.token.SignedString(privateKey)
+	if err != nil {
+		return "", pkgerr.WithStack(err)
+	}
+	return
+}
+
+func (t *AuthToken) RefreshToken(expiredAt time.Time, privateKeyPEM []byte) (token string, err error) {
+	token = ""
+	//Parse PEM keys into operational RSA structural formats
+	var privateKey *rsa.PrivateKey
+	if privateKey, err = jwt.ParseRSAPrivateKeyFromPEM(privateKeyPEM); err != nil {
+		return token, pkgerr.WithStack(err)
+	}
+
+	claims, ok := t.token.Claims.(*CustomClaims)
+	if !ok || claims == nil {
+		return "", pkgerr.WithStack(errors.New("auth token: claims are missing or wrong type"))
+	}
+	claims.ExpiresAt = jwt.NewNumericDate(expiredAt)
+
+	method := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
+	token, err = method.SignedString(privateKey)
+	if err != nil {
+		return "", pkgerr.WithStack(err)
+	}
+	return
+}
+
+func Verify(tokenStr string, publicKeyPEM []byte) (*CustomClaims, error) {
+	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(publicKeyPEM)
+	if err != nil {
+		return nil, pkgerr.WithStack(err)
+	}
+
+	token, err := jwt.ParseWithClaims(tokenStr, &CustomClaims{}, func(t *jwt.Token) (interface{}, error) {
+		// Strictly validate that the signing method used matches RS256
+		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
+			return nil, pkgerr.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return publicKey, nil
+	}, jwt.WithLeeway(5*time.Second))
+	if err != nil {
+		return nil, pkgerr.WithStack(err)
+	}
+
+	if claims, ok := token.Claims.(*CustomClaims); ok && token.Valid {
+		return claims, nil
+	}
+
+	return nil, pkgerr.New("invalid token claims")
+}

@@ -1,0 +1,128 @@
+package config
+
+import (
+	"sync"
+
+	"github.com/spf13/viper"
+)
+
+var (
+	once     sync.Once
+	instance *Config
+)
+
+// Get returns the singleton Config, loading it on first call.
+func Get() *Config {
+	once.Do(func() {
+		instance = load()
+	})
+	return instance
+}
+
+func load() *Config {
+	e := newEnvReader()
+	loadDotEnv(e)
+
+	fang := newViperReader()
+	loadYAML(fang)
+
+	return buildConfig(e, fang)
+}
+
+func newEnvReader() *viper.Viper {
+	v := viper.New()
+	v.AutomaticEnv()
+	return v
+}
+
+func newViperReader() *viper.Viper {
+	v := viper.New()
+	v.SetConfigName("config")
+	v.SetConfigType("yaml")
+	v.AddConfigPath(".")
+	v.AddConfigPath("./secret")
+	return v
+}
+
+func loadDotEnv(v *viper.Viper) {
+	v.SetConfigName(".env")
+	v.SetConfigType("env")
+	v.AddConfigPath(".")
+	v.AddConfigPath("./secret")
+	// Ignore error if .env is absent; values in config.yml take precedence, with .env as fallback.
+	_ = v.ReadInConfig()
+}
+
+func loadYAML(v *viper.Viper) {
+	// Ignore error if config.yml is absent; rely on env vars.
+	_ = v.ReadInConfig()
+}
+
+func buildConfig(e, fang *viper.Viper) *Config {
+	return &Config{
+		App: AppConfig{
+			Name:            priorityString(fang.GetString("app.name"), e.GetString("APP_NAME"), "{{.ProjectSlug}}"),
+			Port:            priorityInt(fang.GetInt("app.port"), e.GetInt("PORT"), 3000),
+			PrometheusPort:  priorityInt(fang.GetInt("app.prometheus_port"), e.GetInt("PROMETHEUS_PORT"), 9090),
+			LogLevel:        priorityString(fang.GetString("app.log_level"), e.GetString("LOG_LEVEL"), "info"),
+			ServiceAPIURL:   priorityString(fang.GetString("app.service_api_url"), e.GetString("SERVICE_API_URL"), ""),
+			CorsAllowOrigin: fang.GetStringSlice("app.cors_allow_origin"),
+			TimeoutTest:     fang.GetBool("app.timeout_test"),
+			PartnerID:       priorityString(fang.GetString("app.partner_id"), e.GetString("PARTNER_ID"), ""),
+			CountryCode:     priorityString(fang.GetString("app.country_code"), e.GetString("COUNTRY_CODE"), "ID"),
+		},
+		DB: DBConfig{
+			Host:         priorityString(fang.GetString("db.host"), e.GetString("DB_HOST"), "localhost"),
+			Username:     priorityString(fang.GetString("db.username"), e.GetString("DB_USER"), "postgres"),
+			Password:     priorityString(fang.GetString("db.password"), e.GetString("DB_PASS"), ""),
+			Port:         priorityString(fang.GetString("db.port"), e.GetString("DB_PORT"), "5432"),
+			NameDb:       priorityString(fang.GetString("db.name_db"), e.GetString("DB_NAME"), "postgres"),
+			SSLMode:      priorityString(fang.GetString("db.sslmode"), e.GetString("DB_SSLMODE"), "disable"),
+			TimeZone:     priorityString(fang.GetString("db.timezone"), e.GetString("DB_TIMEZONE"), "UTC"),
+			MaxIdleConns: priorityInt(fang.GetInt("db.max_idle_conns"), e.GetInt("DB_MAX_IDLE_CONNS"), 10),
+			MaxOpenConns: priorityInt(fang.GetInt("db.max_open_conns"), e.GetInt("DB_MAX_OPEN_CONNS"), 25),
+			LogLevel:     priorityString(fang.GetString("db.log_level"), e.GetString("DB_LOG_LEVEL"), "warn"),
+		},
+		Redis: RedisConfig{
+			Address:         priorityString(fang.GetString("redis.address"), e.GetString("REDIS_ADDRESS"), "localhost:6379"),
+			Password:        priorityString(fang.GetString("redis.password"), e.GetString("REDIS_PASSWORD"), ""),
+			MaxIdle:         priorityInt(fang.GetInt("redis.max_idle"), e.GetInt("REDIS_MAX_IDLE"), 10),
+			MaxActive:       priorityInt(fang.GetInt("redis.max_active"), e.GetInt("REDIS_MAX_ACTIVE"), 50),
+			IdleTimeout:     priorityInt(fang.GetInt("redis.idle_timeout"), e.GetInt("REDIS_IDLE_TIMEOUT"), 240),
+			MaxConnLifetime: priorityInt(fang.GetInt("redis.max_conn_lifetime"), e.GetInt("REDIS_MAX_CONN_LIFETIME"), 0),
+		},
+		Crypto: CryptoConfig{
+			PrivateKey:              priorityString(fang.GetString("crypto.private_key"), e.GetString("CRYPTO_PRIVATE_KEY"), ""),
+			PublicKey:               priorityString(fang.GetString("crypto.public_key"), e.GetString("CRYPTO_PUBLIC_KEY"), ""),
+			AccessTokenLifetime:     priorityInt(fang.GetInt("crypto.access_token_lifetime"), e.GetInt("CRYPTO_ACCESS_TOKEN_LIFETIME"), 60),
+			RefreshTokenLifetime:    priorityInt(fang.GetInt("crypto.refresh_token_lifetime"), e.GetInt("CRYPTO_REFRESH_TOKEN_LIFETIME"), 10080),
+			KeyEncryptionKey:        priorityString(fang.GetString("crypto.key_encryption_key"), e.GetString("CRYPTO_KEY_ENCRYPTION_KEY"), ""),
+		},
+		OpenTelemetry: OpenTelemetryConfig{
+			HostGrpc: priorityString(fang.GetString("opentelemetry.host_grpc"), e.GetString("OTEL_HOST_GRPC"), ""),
+		},
+		CircuitBreaker: CircuitBreakerConfig{
+			MaxRequest:          priorityInt(fang.GetInt("circuit_breaker.max_request"), e.GetInt("CB_MAX_REQUEST"), 5),
+			Interval:            priorityInt(fang.GetInt("circuit_breaker.interval"), e.GetInt("CB_INTERVAL"), 60),
+			Timeout:             priorityInt(fang.GetInt("circuit_breaker.timeout"), e.GetInt("CB_TIMEOUT"), 60),
+			ConsecutiveFailures: priorityInt(fang.GetInt("circuit_breaker.consecutive_failures"), e.GetInt("CB_CONSECUTIVE_FAILURES"), 5),
+		},
+		RateLimit: RateLimitConfig{
+			Enabled:   priorityBool(fang.GetBool("rate_limit.enabled"), e.GetBool("RATE_LIMIT_ENABLED")),
+			Limit:     priorityInt(fang.GetInt("rate_limit.limit"), e.GetInt("RATE_LIMIT"), 100),
+			WindowSec: priorityInt(fang.GetInt("rate_limit.window_sec"), e.GetInt("RATE_LIMIT_WINDOW_SEC"), 60),
+			KeyPrefix: priorityString(fang.GetString("rate_limit.key_prefix"), e.GetString("RATE_LIMIT_KEY_PREFIX"), "ratelimit"),
+		},
+		Midtrans: MidtransConfig{
+			ServerKey:    priorityString(fang.GetString("midtrans.server_key"), e.GetString("MIDTRANS_SERVER_KEY"), "SB-Mid-server-dummy-key"),
+			ClientKey:    priorityString(fang.GetString("midtrans.client_key"), e.GetString("MIDTRANS_CLIENT_KEY"), "SB-Mid-client-dummy-key"),
+			IsProduction: priorityBool(fang.GetBool("midtrans.is_production"), e.GetBool("MIDTRANS_IS_PRODUCTION")),
+			APIURL:       priorityString(fang.GetString("midtrans.api_url"), e.GetString("MIDTRANS_API_URL"), "https://api.sandbox.midtrans.com"),
+		},
+		ThirdpartySample: ThirdpartySampleConfig{
+			Host:   priorityString(fang.GetString("thirdparty_sample.host"), e.GetString("THIRDPARTY_SAMPLE_HOST"), "https://api.sandbox.sample.com"),
+			APIKey: priorityString(fang.GetString("thirdparty_sample.api_key"), e.GetString("THIRDPARTY_SAMPLE_API_KEY"), "dummy-api-key"),
+		},
+		BindingUrl: priorityString(fang.GetString("binding_url"), e.GetString("BINDING_URL"), ""),
+	}
+}

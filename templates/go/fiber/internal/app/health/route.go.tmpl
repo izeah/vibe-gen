@@ -1,0 +1,8 @@
+package health
+
+import "github.com/gofiber/fiber/v2"
+
+// Route registers health endpoints on the given fiber router.
+func (h *Handler) Route(g fiber.Router) {
+	g.Get("", h.Check)
+}

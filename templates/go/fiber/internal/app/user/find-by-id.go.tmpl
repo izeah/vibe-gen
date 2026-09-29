@@ -1,0 +1,32 @@
+package user
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// FindByID returns a single user by ID.
+// @Summary     Get user by ID
+// @Tags        user
+// @Produce     json
+// @Param       id   path      string  true  "User ID"
+// @Success     200  {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/users/{id} [get]
+func (h *Handler) FindByID(c *fiber.Ctx) (err error) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.UserFindByIDRequest)
+		data    *dto.UserResponse
+	)
+	if err = c.ParamsParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.UserService.FindByID(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(data).Send(c)
+}

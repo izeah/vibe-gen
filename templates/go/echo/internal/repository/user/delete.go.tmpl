@@ -1,0 +1,24 @@
+package repositoryuser
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) Delete(ctx *abstraction.Context, f *dto.UserFilter) *gorm.DB {
+	if f == nil {
+		return &gorm.DB{
+			Error: gorm.ErrMissingWhereClause,
+		}
+	}
+	return r.CheckTrx(ctx).Scopes(func(tx *gorm.DB) *gorm.DB {
+		if f != nil {
+			f.ForUpdate = true
+			return f.Apply(tx)
+		}
+		return tx
+	}).Delete(&model.User{})
+}

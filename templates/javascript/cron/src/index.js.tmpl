@@ -1,0 +1,17 @@
+import cron from 'node-cron';
+import { logger } from './config/logger.js';
+import { connectDB } from './config/database.js';
+import { registerJobs } from './schedulers/cron.js';
+
+async function main() {
+  await connectDB();
+
+  registerJobs(cron);
+
+  logger.info('{{.ProjectTitle}} scheduler started');
+}
+
+main().catch((err) => {
+  logger.error('Scheduler failed to start', { error: err.message });
+  process.exit(1);
+});

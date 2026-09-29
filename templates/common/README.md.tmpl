@@ -1,0 +1,65 @@
+# {{.ProjectTitle}}
+
+> Generated on {{.Date}} with [Vibe Coding Boilerplate Generator](https://github.com/izeah01/vibe-gen)
+
+## Stack
+
+- **Language**: {{.Language}}
+- **Framework**: {{.Framework}}
+
+## Prerequisites
+
+- Go 1.21+ (or Node.js 20+ for JS projects)
+- Docker (for local database/Redis)
+- Make
+
+## Local Setup
+
+```bash
+cp .env.example .env
+# Edit .env with your local values
+
+go mod tidy          # or: npm install
+make swag            # generate Swagger docs into docs/swagger (for Go API projects)
+make run             # or: npm run dev
+```
+
+## Swagger / OpenAPI Documentation
+
+For Go API projects (Echo, Gin, Fiber), Swagger docs are generated into `docs/swagger`:
+
+```bash
+# Using Makefile
+make swag
+
+# Or using swag CLI directly:
+swag init -g main.go -o ./docs/swagger
+```
+
+Access Swagger UI in your browser:
+- `http://localhost:8080/swagger/index.html` (or your configured `APP_PORT`)
+
+## Environment Variables
+
+See `.env.example` for all required variables. Never commit real credentials to Git.
+
+## Documentation
+
+| Topic | Path |
+|---|---|
+| Architecture | `docs/architecture.md` |
+| API | `docs/api.md` |
+| Database | `docs/database.md` |
+| Security | `docs/security.md` |
+| Testing | `docs/testing.md` |
+| Progress | `docs/progress.md` |
+
+## AI Agent Workflow
+
+Read `CLAUDE.md` and `docs/vibe-workflow.md` before starting any task.
+
+## Security Notes
+
+- All secrets are environment-variable driven.
+- `.env` is git-ignored. Only `.env.example` (with placeholders) is committed.
+- See `docs/security.md` for full security guidelines.

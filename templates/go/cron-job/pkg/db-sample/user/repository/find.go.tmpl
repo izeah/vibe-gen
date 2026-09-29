@@ -1,0 +1,17 @@
+package repository
+
+import (
+	"context"
+
+	"{{.ModuleName}}/pkg/db-sample/user"
+)
+
+func (r *repo) Find(ctx context.Context, f *user.Filter) ([]*user.Model, error) {
+	var data []*user.Model
+	q := r.db.WithContext(ctx).Model(&user.Model{})
+	q = f.Apply(q)
+	if err := q.Find(&data).Error; err != nil {
+		return nil, err
+	}
+	return data, nil
+}

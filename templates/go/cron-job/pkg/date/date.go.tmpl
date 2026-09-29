@@ -1,0 +1,78 @@
+package date
+
+import "time"
+
+// Now ...
+func Now() time.Time {
+	return time.Now().In(Location())
+}
+
+// NowLocal ...
+func NowLocal() time.Time {
+	return time.Now().UTC().Add(time.Hour * 7)
+}
+
+// Location ...
+func Location() *time.Location {
+	return time.FixedZone("Asia/Jakarta", 7*60*60)
+}
+
+func Parse(layout, value string) (time.Time, error) {
+	return time.ParseInLocation(layout, value, Location())
+}
+
+// LastWeek ...
+func LastWeek(now time.Time) (start time.Time, end time.Time) {
+	end = StartOfWeek(now).Add(-1)
+
+	oneWeek := (24 * 6) * time.Hour
+	start = StartOfDay(end.Add(-oneWeek))
+	return
+}
+
+// LastMonth ...
+func LastMonth(now time.Time) (time.Time, time.Time) {
+	end := StartOfMonth(now).Add(-time.Nanosecond)
+	return StartOfMonth(end), end
+}
+
+// StartOfMonth ...
+func StartOfMonth(now time.Time) time.Time {
+	return time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, now.Location())
+}
+
+// EndOfMonth ...
+func EndOfMonth(now time.Time) time.Time {
+	return StartOfMonth(now).AddDate(0, 1, 0).Add(-time.Nanosecond)
+}
+
+// StartOfWeek ...
+func StartOfWeek(now time.Time) time.Time {
+	wd := now.Weekday()
+	if wd == time.Sunday {
+		now = now.AddDate(0, 0, -6)
+	} else {
+		now = now.AddDate(0, 0, -int(wd)+1)
+	}
+	return StartOfDay(now)
+}
+
+// StartOfDay ...
+func StartOfDay(now time.Time) time.Time {
+	return time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+}
+
+// EndOfDay ...
+func EndOfDay(now time.Time) time.Time {
+	return time.Date(now.Year(), now.Month(), now.Day(), 23, 59, 59, int(time.Second-1), now.Location())
+}
+
+// StartOfYear ...
+func StartOfYear(now time.Time) time.Time {
+	return time.Date(now.Year(), 1, 1, 0, 0, 0, 0, now.Location())
+}
+
+// StartOfMinute ...
+func StartOfMinute(now time.Time) time.Time {
+	return time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, now.Location())
+}

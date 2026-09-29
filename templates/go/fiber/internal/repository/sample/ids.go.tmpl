@@ -1,0 +1,19 @@
+package repositorysample
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) IDs(ctx *abstraction.Context, f *dto.SampleFilter) (data []string, err error) {
+	err = r.CheckTrx(ctx).Model(&model.Sample{}).Scopes(func(tx *gorm.DB) *gorm.DB {
+		if f != nil {
+			return f.Apply(tx).Select("samples.id")
+		}
+		return tx.Select("samples.id")
+	}).Pluck("samples.id", &data).Error
+	return
+}

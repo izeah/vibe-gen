@@ -1,0 +1,69 @@
+# -------------------------------------------------------------------
+# Test
+# -------------------------------------------------------------------
+COVERAGE_THRESHOLD ?= 88
+EXCLUDE_PACKAGES := models|query|mocks|tools|docs|{{.ModuleName}}
+
+.PHONY: test
+test:
+	go test -v ./...
+
+.PHONY: test-race
+test-race:
+	go test -race -v ./...
+
+.PHONY: test-cover
+test-cover:
+	go test -race -cover $(shell go list ./... | grep -Ev "$(EXCLUDE_PACKAGES)") -coverprofile=coverage.out
+	@TOTAL=$$(go tool cover -func=coverage.out | awk '/^total:/ {print substr($$3,1,length($$3)-1)}'); \
+	echo "Total coverage: $$TOTAL%";
+
+.PHONY: test-ci
+test-ci:
+	go test -race -coverprofile=coverage.out ./...
+
+# Add a threshold check — useful for CI enforcement later
+.PHONY: cover-check
+cover-check:
+	@TOTAL=$$(go tool cover -func=coverage.out | awk '/^total:/ {print substr($$3,1,length($$3)-1)}'); \
+	echo "Total coverage: $$TOTAL%"; \
+	awk 'BEGIN { exit !('"$$TOTAL"' >= $(COVERAGE_THRESHOLD)) }' || \
+	( echo "FAIL: coverage $$TOTAL% is below $(COVERAGE_THRESHOLD)% threshold"; exit 1 )
+
+.PHONY: low-cover
+low-cover:
+	go tool cover -func=coverage.out | grep -v "^total" | awk '$$NF+0 < $(COVERAGE_THRESHOLD) {print}'
+
+.PHONY: test-integration
+test-integration:
+	go test -v -tags=integration ./...
+
+.PHONY: cover-html
+cover-html:
+	go tool cover -html=coverage.out -o coverage.html
+	@which xdg-open >/dev/null 2>&1 && xdg-open coverage.html || which open >/dev/null 2>&1 && open coverage.html || true
+	@echo "Coverage report: coverage.html"
+
+.PHONY: cover-func
+cover-func:
+	go tool cover -func=coverage.out
+
+.PHONY: test-failed
+test-failed:
+	@go test -race -v ./... 2>&1 | tee test.log | grep -A 20 "FAIL\|panic\|Error\|---FAIL"
+	@echo "Full log: test.log"
+
+.PHONY: test-fresh
+test-fresh:
+	go clean -testcache
+
+.PHONY: test-clean
+test-clean:
+	go test -coverprofile=coverage.out \
+		$(shell go list ./... | grep -v "/query")
+	go tool cover -func=coverage.out
+
+.PHONY: cover-clean
+cover-clean:
+	find . -type f \( -name "coverage.out" -o -name "coverage.html" \) -delete
+	@echo "Coverage files removed"

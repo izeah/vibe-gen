@@ -1,0 +1,29 @@
+package middleware
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Authorization returns a middleware that enforces role-based access.
+// Must be used after Authentication.
+func Authorization(roles ...string) echo.MiddlewareFunc {
+	allowed := make(map[string]bool, len(roles))
+	for _, r := range roles {
+		allowed[r] = true
+	}
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx, ok := c.(*abstraction.Context)
+			if !ok || ctx.Auth == nil {
+				return response.ErrorConstant.Unauthorized.Send(c)
+			}
+			if !allowed[ctx.Auth.Role] {
+				return response.ErrorConstant.Forbidden.Send(c)
+			}
+			return next(c)
+		}
+	}
+}

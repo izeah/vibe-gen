@@ -1,0 +1,251 @@
+# Database — {{.ProjectTitle}}
+
+## Technology
+
+- **Primary**: PostgreSQL 18 (native `uuidv7()` support) / MySQL 8.0+
+- **ORM**: GORM (Go 1.27 with native `uuid` standard library) / Sequelize (JavaScript)
+- **Migrations**: managed manually or via `migrate` CLI (`migrations/` directory)
+
+## Primary Key Strategy: Sortable UUID v7
+
+This project standardizes on **UUID v7 (RFC 9562)** for all entity primary keys to achieve globally unique, cryptographically random, yet **time-ordered (sortable)** identifiers.
+
+### Why UUID v7?
+- **Sequential / Time-Ordered**: The leading 48 bits encode a Unix epoch timestamp in milliseconds (big-endian). Subsequent bits contain sub-millisecond precision/counters and random entropy.
+- **B-Tree & Index Friendly**: Sequential insertion preserves clustered index locality, eliminating index fragmentation and reducing WAL/I-O pressure.
+- **Natural Chronological Sorting**: Sorting by `id` (`ORDER BY id ASC`) naturally orders records by creation time without requiring a secondary index on `created_at`.
+
+### Database Implementations
+
+#### 1. PostgreSQL 18 (Native `uuidv7()`)
+- **Column Type**: `UUID`
+- **Default Expression**: `DEFAULT uuidv7()` (native in PostgreSQL 18, no extension required).
+- **Sortability**: PostgreSQL compares `UUID` values byte-by-byte from most to least significant. Because the timestamp sits in bytes 0–5 in big-endian order, PostgreSQL sorts UUID v7 chronologically.
+- **DDL Syntax**:
+  ```sql
+  CREATE TABLE users (
+      id UUID PRIMARY KEY DEFAULT uuidv7(),
+      name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'user',
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT,
+      deleted_at BIGINT,
+      created_by UUID,
+      updated_by UUID,
+      deleted_by UUID
+  );
+  ```
+
+#### 2. MySQL 8.0+ (`BINARY(16)`)
+- **Column Type**: `BINARY(16)` (16 bytes compact storage vs 36 bytes for `VARCHAR(36)`).
+- **Sortability**: MySQL evaluates `BINARY(16)` as raw byte comparison. Because the big-endian 48-bit timestamp is at bytes 0–5, `ORDER BY id` directly and efficiently sorts records chronologically in InnoDB.
+- **SQL Conversion**:
+  - Insert string UUID: `UUID_TO_BIN('018e3a2b-...', 0)` (or direct binary payload from Go driver).
+  - Select string UUID: `BIN_TO_UUID(id, 0) AS id`.
+- **DDL Syntax**:
+  ```sql
+  CREATE TABLE users (
+      id BINARY(16) PRIMARY KEY,
+      name VARCHAR(255) NOT NULL,
+      email VARCHAR(255) UNIQUE NOT NULL,
+      password VARCHAR(255) NOT NULL,
+      role VARCHAR(50) NOT NULL DEFAULT 'user',
+      created_at BIGINT UNSIGNED NOT NULL,
+      updated_at BIGINT UNSIGNED NULL DEFAULT NULL,
+      deleted_at BIGINT UNSIGNED NULL DEFAULT NULL,
+      created_by BINARY(16) NULL,
+      updated_by BINARY(16) NULL,
+      deleted_by BINARY(16) NULL,
+      INDEX idx_users_deleted_at (deleted_at)
+  ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+  ```
+
+### Timestamps & Audit Column Standard (Unix Nano)
+
+All models and entities across all Go frameworks (API and cron job) adhere to the Unix nano and audit field standards:
+- **`created_at int64`**: Unix nano timestamp (`BIGINT`). Set on insert (`autoCreateTime:nano`).
+- **`updated_at *int64`**: Unix nano timestamp (`BIGINT`). Updated on insert and update.
+- **`deleted_at *int64`**: Unix nano timestamp (`BIGINT`, nullable index). Set on soft-delete.
+- **`created_by uuid.UUID`**: UUID of actor who created record (no foreign key constraint).
+- **`updated_by *uuid.UUID`**: UUID of actor who updated record (no foreign key constraint).
+- **`deleted_by *uuid.UUID`**: UUID of actor who soft-deleted record (no foreign key constraint).
+
+### Golang Application & Model Integration
+
+1. **`abstraction.Entity` Standard (`internal/abstraction/entity.go`)**:
+   ```go
+   // DefaultSystemUserID is used as default creator when no specific user context is provided.
+   var DefaultSystemUserID = uuid.MustParse("018b1234-5678-7abc-8def-123456789a01")
+
+   type Entity struct {
+       ID        uuid.UUID  `gorm:"column:id;type:uuid;primaryKey;default:uuidv7()" json:"id"`
+       CreatedAt int64      `gorm:"column:created_at;autoCreateTime:nano;not null"  json:"created_at"`
+       CreatedBy uuid.UUID  `gorm:"column:created_by;type:uuid;not null"            json:"created_by"`
+       UpdatedAt *int64     `gorm:"column:updated_at;autoUpdateTime:false"          json:"updated_at,omitempty"`
+       UpdatedBy *uuid.UUID `gorm:"column:updated_by;type:uuid"                     json:"updated_by,omitempty"`
+       DeletedAt *int64     `gorm:"column:deleted_at;index"                         json:"deleted_at,omitempty"`
+       DeletedBy *uuid.UUID `gorm:"column:deleted_by;type:uuid"                     json:"deleted_by,omitempty"`
+   }
+
+   func (a *Entity) SetupBeforeCreate() {
+       if a.ID == uuid.Nil() {
+           a.ID = uuid.NewV7()
+       }
+       if a.CreatedAt == 0 {
+           a.CreatedAt = time.Now().UnixNano()
+       }
+       if a.CreatedBy == uuid.Nil() {
+           a.CreatedBy = DefaultSystemUserID
+       }
+   }
+
+   func (a *Entity) SetupBeforeUpdate() {
+       if a.UpdatedAt == nil {
+           now := time.Now().UnixNano()
+           a.UpdatedAt = &now
+       }
+       if a.UpdatedBy == nil {
+           a.UpdatedBy = &DefaultSystemUserID
+       }
+   }
+   ```
+
+2. **Model Separation (`<model>Entity` & `<model>`)**:
+   - Domain-specific fields are isolated in `<model>Entity`.
+   - The `<model>` struct embeds `abstraction.Entity` and `<model>Entity`, and holds the request context:
+   ```go
+   type UserEntity struct {
+       Name     string `gorm:"column:name;not null"              json:"name"`
+       Email    string `gorm:"column:email;uniqueIndex;not null" json:"email"`
+       Password string `gorm:"column:password;not null"          json:"-"`
+       Role     string `gorm:"column:role;not null;default:'user'" json:"role"`
+   }
+
+   type User struct {
+       abstraction.Entity
+       UserEntity
+
+       // context
+       Context *abstraction.Context `json:"-" gorm:"-"`
+   }
+   ```
+
+3. **Lifecycle Hooks**:
+   ```go
+   func (u *User) BeforeCreate(_ *gorm.DB) error {
+       u.SetupBeforeCreate()
+       if u.Context != nil {
+           if u.Context.Auth != nil {
+               u.CreatedBy = u.Context.Auth.ID
+           }
+       }
+       return nil
+   }
+
+   func (u *User) BeforeUpdate(_ *gorm.DB) error {
+       u.SetupBeforeUpdate()
+       if u.Context != nil {
+           if u.Context.Auth != nil {
+               u.UpdatedBy = &u.Context.Auth.ID
+           }
+       }
+       return nil
+   }
+   ```
+- **Dual-Layer Guarantee**:
+  - At Go layer: `uuid.NewV7()` assigns a sortable UUID v7 before insert.
+  - At DB layer (PostgreSQL 18): `DEFAULT uuidv7()` guarantees sortable UUID v7 even for direct SQL inserts.
+
+
+## Naming Conventions
+
+- Tables: `snake_case`, plural (e.g., `users`, `user_sessions`)
+- Columns: `snake_case` (e.g., `created_at`, `user_id`)
+- Indexes: `idx_<table>_<columns>` (e.g., `idx_users_email`)
+- Foreign keys: `fk_<table>_<referenced_table>`
+- Primary key: `id` (PostgreSQL: `UUID`, MySQL: `BINARY(16)`)
+
+## Migration Rules
+
+- Migrations are **explicit** and **sequential**.
+- Never modify an existing migration — create a new one.
+- Every migration must have a rollback plan.
+- Test migrations against a staging database before production.
+- Never put credentials or secrets into migration files.
+
+## Vibe-Coding DB Design & Migration Workflow
+
+When designing new features or entities during vibe-coding sessions:
+1. **Inspect `migrations/` Folder**: Always check if a migration file for the entity/schema already exists before writing code.
+2. **Mandatory Creation via Makefile (`make migrate-create`)**:
+   - Always run `make migrate-create NAME=<migration_name>` to generate sequential SQL migration files in `migrations/`:
+     - `migrations/<seq>_<name>.up.sql`
+     - `migrations/<seq>_<name>.down.sql`
+   - Use `id UUID PRIMARY KEY DEFAULT uuidv7()` for PostgreSQL 18 or `id BINARY(16) PRIMARY KEY` for MySQL.
+   - Include complete table definitions, foreign keys, unique constraints, and indexes in `.up.sql`.
+   - Include safe, clean drop commands in `.down.sql` (`DROP TABLE IF EXISTS ... CASCADE;`).
+3. **Mandatory Execution via Makefile (`make migrate-up`)**:
+   - Always run `make migrate-up` to apply schema migrations to the database.
+   - **Why this is mandatory**: Running `make migrate-up` records the migration version and state in the database's `schema_migrations` table so migration progress is strictly tracked across environments and developers.
+   - For rollback, run `make migrate-down` (1 step) or `make migrate-down-all`.
+   - To inspect current version: `make migrate-version`.
+   - To force a specific version (if marked dirty): `make migrate-force VERSION=<version>`.
+4. **Strict Prohibitions**:
+   - **NEVER** apply table modifications directly using raw SQL scripts or database GUI tools without running through migrations.
+   - **NEVER** rely solely on GORM `AutoMigrate` or Sequelize `sync()` without corresponding migration files applied via `make migrate-up`.
+5. **Align Models**: Map table columns directly to application models/structs using `ID uuid.UUID` and implement `BeforeCreate` hook with `uuid.NewV7()`.
+6. **Update This File**: Document table structures, fields, and relationships in the **Current Schema** section below.
+
+
+
+## Transaction Rules (`pkg/trxmanager`)
+
+- **Always Use `pkg/trxmanager`**: When a service needs an atomic database transaction across multiple operations, always wrap it using `s.trxManager.WithTrx(ctx, func(ctx *abstraction.Context) error { ... })`.
+  - Pass `ctx` to all repository methods called within the closure so they automatically operate on `ctx.Trx.Db`.
+  - Commit is executed automatically on success; rollback is triggered automatically on error or panic.
+- **Strict Prohibition of For-Looping Database Operations (Anti-N+1)**:
+  - **NEVER** use `for` loops to execute individual `SELECT`, `UPDATE`, or `CREATE` operations inside transactions or services.
+  - Iterative database calls hold transactional table locks, cause connection pool exhaustion, and severely degrade performance.
+- **Standard Bulk / Batch Workflow**:
+  1. **Bulk Query Upfront**: Fetch all necessary records in a single query before mutation (e.g. `Find` with `WHERE id IN (...)` using DTO filter).
+  2. **In-Memory Mapping**: Map retrieved records in memory (e.g. `map[uuid.UUID]*model`), perform business calculations, validations, and state transitions in memory.
+  3. **Bulk Execution**:
+     - **For Batch Insert**: Perform batch create (e.g. `Create(ctx, itemsSlice)` or `CreateInBatches(slice, 100)`).
+     - **For Bulk Update**: Execute bulk update (e.g. batch updates with conditional clauses or mapped batch execution) rather than per-record loops.
+- Keep transactions as short as possible; never perform external network I/O inside a database transaction.
+
+## Query Guidelines
+
+- Avoid N+1 queries — use `Preload` (GORM) or `include` (Sequelize).
+- Use pagination for all list queries.
+- Never select `SELECT *` in production — specify required columns.
+- Write readable queries — avoid overly clever SQL.
+
+## Indexing
+
+- Add indexes based on **actual query patterns**, not speculation.
+- Understand the write/read tradeoff before adding a new index.
+- Composite indexes follow query predicate order.
+- Monitor slow query logs to identify missing indexes.
+
+## Connection Pooling
+
+- Configure `MaxIdleConns`, `MaxOpenConns`, and `ConnMaxLifetime`.
+- Recommended starting values:
+  - `MaxIdleConns`: 10
+  - `MaxOpenConns`: 25
+  - `ConnMaxLifetime`: 5 minutes
+- Adjust based on actual load measurements.
+
+## Data Integrity
+
+- Use database-level constraints (NOT NULL, UNIQUE, FK) where appropriate.
+- Validate data at the application layer before hitting the database.
+- Use soft deletes (`deleted_at`) where data history is important.
+
+## Rollback Strategy
+
+- Every destructive migration (DROP, ALTER, DELETE) must document a rollback.
+- Test rollback procedures in staging before executing in production.

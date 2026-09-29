@@ -1,0 +1,122 @@
+# chat_history.md — {{.ProjectTitle}}
+
+## 1. ARCHITECTURE & TECH STACK
+
+**Project**: `{{.Destination}}`
+**Module**: `{{.ModuleName}}`
+**Framework**: {{.Framework}} (Go {{.GoVersion}})
+**Generated**: {{.Date}} via [vibe-gen](https://github.com/izeah01/vibe-gen)
+
+### Stack
+- **Go {{.GoVersion}}** — stdlib `"uuid"` (`uuid.NewV7()`, `uuid.Nil()`)
+- **{{.Framework}}** — HTTP framework
+- **GORM** — ORM (PostgreSQL via `lib/pq` / MySQL via `go-mysql-driver`)
+- **phuslu/log** — structured logging, strictly JSON, OTel `trace_id` correlation
+- **OpenTelemetry** — tracing via `go.opentelemetry.io/otel` → SigNoz (OTLP gRPC `:4317`)
+- **viper** — config from `config.yml` + `.env` fallback
+- **golang-jwt/jwt/v5** — JWT (RS256, RSA PEM keys in `./secret-auth/`)
+- **go-playground/validator/v10** — request validation
+- **pkg/errors** — error wrapping
+- **bcrypt** (`golang.org/x/crypto`) — password hashing in `model.User.BeforeCreate`
+- **SigNoz** via Foundry CLI (`foundryctl`) — self-hosted observability (`SIGNOZ_DIR=deploy/signoz`)
+
+### Key internal packages
+```
+internal/abstraction/         — Entity, Context, Pagination, Repository base
+internal/config/              — type.go, config.go, auth-key.go, getter.go, helper.go
+internal/factory/             — Factory DI: SetupDB, SetupRepository, SetupClient
+internal/middleware/          — Context, Trace(OTel), Authentication, ErrorHandler, Recover
+internal/delivery/            — HTTP route registration (http.go)
+internal/app/{domain}/        — Handler + Route (per-file per-handler pattern)
+internal/service/{domain}/    — Service interface + per-file impl
+internal/repository/{domain}/ — Full interface (12 methods) + per-file impl
+internal/model/               — GORM models with BeforeCreate/BeforeUpdate hooks
+internal/dto/                 — Filter (with Apply(tx)), request/response types
+pkg/response/                 — SuccessResponse, SuccessListResponse, CreatedResponse, ErrorConstant
+pkg/ptr/                      — String/Bool/Int/Int64/Float64 pointer helpers
+pkg/auth-token/               — JWT RS256 sign/verify
+pkg/database/                 — GORM DB init (PostgreSQL + MySQL)
+pkg/telemetry/                — OTel tracer + phuslu/log bridge
+pkg/validator/                — CustomValidator wrapping go-playground
+scripts/gen_keys.go           — Pure Go RSA keygen → ./secret-auth/
+```
+
+---
+
+## 2. CURRENT CODE STATE
+
+### Baseline
+- Project scaffolded from `vibe-gen` on {{.Date}}
+- `go build ./...` → ✅ verified at generation time
+- `make gen-keys` → generates `./secret-auth/{privateKey,pubKey}.pem`
+- Database: not yet migrated (run `make migrate-up` after configuring `config.yml`)
+
+### Files changed since init
+_AI Partner: update this table after each coding session._
+
+| File | Change | Status |
+|---|---|---|
+| _(none yet)_ | | |
+
+---
+
+## 3. ARCHITECTURAL DECISIONS (ADR)
+
+| Decision | Rationale |
+|---|---|
+| **stdlib `"uuid"` (Go {{.GoVersion}})** | Native, no external dep. `uuid.NewV7()` time-sortable. |
+| **`SetupBeforeCreate(ctx *Context)`** | Audit (`created_by`) pulled from JWT claims — not duplicated per model. |
+| **`scripts/gen_keys.go` (pure Go)** | Portable cross-platform, no openssl. PKCS#8 private + PKIX public → `./secret-auth/`. |
+| **SigNoz via `SIGNOZ_DIR=deploy/signoz`** | Isolated folder inside project. Not global. `signoz-init` is idempotent. |
+| **`v1.Use(middleware.Authentication)`** | Auth at group level. Auth/health endpoints excluded by being outside protected group. |
+| **Per-file per-handler pattern** | Each HTTP handler in its own file (`find.go`, `find-by-id.go`, etc.). |
+| **`Filter.Apply(tx *gorm.DB)`** | Composable GORM scopes. `ForCount`/`ForUpdate` flags skip pagination/select. |
+| **`Factory` DI pattern** | Single `factory.Factory` wired in `main.go`. No global vars, testable. |
+| **`abstraction.Context` wraps {{.Framework}} context** | Carries `Auth`, `Trx`, `Now()`, `PartnerID`, `CountryCode`. |
+| **`phuslu/log` strictly JSON** | OTel `trace_id` + `span_id` on every log line. No mixed formats. |
+| **`config.AuthKey()` lazy singleton** | `sync.Once` — PEM files read once at first call. `ResetAuthKeyForTesting()` for test suites. |
+| **UnixNano timestamps (not `time.Time`)** | `created_at`, `updated_at`, `deleted_at` as `int64` BIGINT. |
+
+---
+
+## 4. EXISTING BUGS & BLOCKED ISSUES
+
+- _(none yet — fill in as issues are discovered)_
+
+---
+
+## 5. NEXT IMMEDIATE STEPS
+
+_AI Partner: replace this section at the start of every session with the actual next steps._
+
+1. **Setup environment**:
+   ```bash
+   cp .env.example .env
+   cp config.example.yml config.yml
+   # Edit config.yml: set DB_HOST, DB_USER, DB_PASS, DB_NAME
+   make gen-keys   # generates ./secret-auth/privateKey.pem + pubKey.pem
+   ```
+
+2. **Run database migrations**:
+   ```bash
+   make pg-start        # start local Docker Postgres (if applicable)
+   make migrate-up      # apply all migrations
+   ```
+
+3. **Start the server**:
+   ```bash
+   make run
+   # verify: curl http://localhost:8080/v1/health
+   ```
+
+4. **Next feature to build**: _(describe the first domain/feature here)_
+
+---
+
+## 6. SESSION LOG
+
+_AI Partner: append a brief log entry after each session._
+
+| Date | Session Summary | Files Changed |
+|---|---|---|
+| {{.Date}} | Project initialized via vibe-gen | All (scaffold) |

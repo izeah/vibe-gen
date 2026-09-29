@@ -1,0 +1,62 @@
+app:
+  name: "{{.ProjectSlug}}"
+  port: 3000
+  prometheus_port: 9090
+  log_level: "debug"
+  service_api_url: "http://localhost:3000"
+  cors_allow_origin:
+    - "http://localhost:3000"
+  timeout_test: false
+
+db:
+  host: "localhost"
+  username: "postgres"
+  password: ""         # use DB_PASS env var in production
+  port: "5432"
+  name_db: "postgres"
+  sslmode: "disable"
+  timezone: "UTC"
+  max_idle_conns: 10
+  max_open_conns: 25
+  log_level: "warn"
+
+redis:
+  address: "localhost:6379"
+  password: ""         # use REDIS_PASSWORD env var in production
+  max_idle: 10
+  max_active: 50
+  idle_timeout: 240
+  max_conn_lifetime: 0
+
+crypto:
+  private_key: "./secret-auth/privateKey.pem"
+  public_key: "./secret-auth/pubKey.pem"
+  access_token_lifetime: 60
+  refresh_token_lifetime: 10080
+  key_encryption_key: "" # use CRYPTO_KEY_ENCRYPTION_KEY env var
+
+opentelemetry:
+  host_grpc: ""
+
+circuit_breaker:
+  max_request: 5
+  interval: 60
+  timeout: 60
+  consecutive_failures: 5
+
+rate_limit:
+  enabled: false
+  limit: 100
+  window_sec: 60
+  key_prefix: "ratelimit"
+
+midtrans:
+  server_key: "SB-Mid-server-dummy-key"
+  client_key: "SB-Mid-client-dummy-key"
+  is_production: false
+  api_url: "https://api.sandbox.midtrans.com"
+
+thirdparty_sample:
+  host: "https://api.sandbox.sample.com"
+  api_key: "dummy-api-key"
+

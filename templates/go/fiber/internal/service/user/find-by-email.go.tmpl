@@ -1,0 +1,12 @@
+package serviceuser
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (s *service) FindByEmail(ctx *abstraction.Context, email string) (*model.User, error) {
+	f := &dto.UserFilter{Email: email}
+	return s.userRepository.FindOne(ctx, f)
+}

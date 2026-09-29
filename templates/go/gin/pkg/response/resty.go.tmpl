@@ -1,0 +1,47 @@
+package response
+
+import (
+	"encoding/json"
+	"net/http"
+
+	"github.com/go-resty/resty/v2"
+	pkgerrors "github.com/pkg/errors"
+)
+
+type restyErrorResponse struct {
+	Meta        Meta        `json:"meta"`
+	Data        interface{} `json:"data"`
+	Description interface{} `json:"description,omitempty"`
+}
+
+func FromRestyResponse(res *resty.Response, err error) *Error {
+	if err != nil {
+		return ErrorResponse(err)
+	}
+
+	if res.IsSuccess() {
+		return nil
+	}
+
+	rawErr := pkgerrors.Errorf("upstream returned status %d: %s", res.StatusCode(), res.String())
+
+	var body restyErrorResponse
+	if parseErr := json.Unmarshal(res.Body(), &body); parseErr == nil && body.Meta.Message != "" {
+		return ErrorBuilder(res.StatusCode(), rawErr, body.Meta.Message).
+			WithData(body.Data).
+			WithDescription(body.Description)
+	}
+
+	switch res.StatusCode() {
+	case http.StatusNotFound:
+		return ErrorConstant.NotFound.WithError(rawErr)
+	case http.StatusConflict:
+		return ErrorConstant.Duplicate.WithError(rawErr)
+	case http.StatusUnauthorized:
+		return ErrorConstant.Unauthorized.WithError(rawErr)
+	case http.StatusBadRequest:
+		return ErrorConstant.BadRequest.WithError(rawErr)
+	default:
+		return ErrorConstant.UnprocessableEntity.WithError(rawErr)
+	}
+}

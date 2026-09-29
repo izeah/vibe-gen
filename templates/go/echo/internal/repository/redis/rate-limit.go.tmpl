@@ -1,0 +1,154 @@
+package redis
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"strconv"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+const (
+	RedisRateLimitKey = "ratelimit:%s"
+)
+
+type RateLimitRepository interface {
+	IncCounter(ctx context.Context, key string, duration int) (int64, error)
+	DelCounter(ctx context.Context, key string) error
+	AddAttemptCounter(ctx context.Context, key string, ttlSecond int) (int64, error)
+	GetAttemptCounter(ctx context.Context, key string) (int64, int, error)
+	RateLimiterAllow(ctx context.Context, key string, limit int, windowSec int) (bool, int64, int, error)
+	DelAttemptCounter(ctx context.Context, key string) error
+}
+
+type rateLimit struct {
+	client *redis.Client
+}
+
+func NewRateLimit(client *redis.Client) RateLimitRepository {
+	return &rateLimit{
+		client: client,
+	}
+}
+
+func (r *rateLimit) IncCounter(ctx context.Context, key string, duration int) (int64, error) {
+	prefixKey := fmt.Sprintf(RedisRateLimitKey, key)
+	counter, err := r.client.Incr(ctx, prefixKey).Result()
+	if err != nil {
+		return 0, err
+	}
+
+	if counter == 1 {
+		err = r.client.Expire(ctx, prefixKey, time.Duration(duration)*time.Second).Err()
+		if err != nil {
+			return 0, err
+		}
+	} else {
+		ttl, err := r.client.TTL(ctx, prefixKey).Result()
+		if err != nil {
+			return 0, err
+		}
+
+		if ttl <= 0 {
+			err = r.client.Expire(ctx, prefixKey, time.Duration(duration)*time.Second).Err()
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	return counter, nil
+}
+
+func (r *rateLimit) DelCounter(ctx context.Context, key string) error {
+	prefixKey := fmt.Sprintf(RedisRateLimitKey, key)
+	_, err := r.client.Del(ctx, prefixKey).Result()
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func (r *rateLimit) AddAttemptCounter(ctx context.Context, key string, ttlSecond int) (int64, error) {
+	attempts, err := r.client.Incr(ctx, key).Result()
+	if err != nil {
+		return 0, err
+	}
+
+	// add duration
+	if attempts == 1 {
+		if err = r.client.Expire(ctx, key, time.Duration(ttlSecond)*time.Second).Err(); err != nil {
+			return 0, err
+		}
+	}
+
+	return attempts, nil
+}
+
+func (r *rateLimit) GetAttemptCounter(ctx context.Context, key string) (int64, int, error) {
+	getValue, err := r.client.Get(ctx, key).Result()
+	if err != nil {
+		if errors.Is(err, redis.Nil) {
+			return 0, 0, nil
+		}
+		return 0, 0, err
+	}
+
+	result, err := strconv.ParseInt(getValue, 10, 64)
+	if err != nil {
+		return result, 0, err
+	}
+
+	ttl, err := r.client.TTL(ctx, key).Result()
+	if err != nil {
+		return result, 0, err
+	}
+	
+	return result, int(ttl.Seconds()), nil
+}
+
+// RateLimiterAllow atomically increments the request counter for the given key
+// and sets an expiry on first use. Returns whether the request is allowed,
+// the current count, the remaining TTL in seconds, and any error.
+func (r *rateLimit) RateLimiterAllow(ctx context.Context, key string, limit int, windowSec int) (bool, int64, int, error) {
+	// Lua script: atomically INCR and set EXPIRE on first increment.
+	// Returns {count, ttl}.
+	luaScript := redis.NewScript(`
+		local count = redis.call('INCR', KEYS[1])
+		if count == 1 then
+			redis.call('EXPIRE', KEYS[1], ARGV[1])
+		end
+		local ttl = redis.call('TTL', KEYS[1])
+		return {count, ttl}
+	`)
+
+	res, err := luaScript.Run(ctx, r.client, []string{key}, windowSec).Result()
+	if err != nil {
+		return false, 0, 0, err
+	}
+
+	vals, ok := res.([]interface{})
+	if !ok || len(vals) < 2 {
+		return false, 0, 0, errors.New("unexpected lua script result")
+	}
+
+	count, _ := vals[0].(int64)
+	ttlInt64, _ := vals[1].(int64)
+	ttl := int(ttlInt64)
+	if ttl < 0 {
+		ttl = windowSec
+	}
+
+	allowed := count <= int64(limit)
+	return allowed, count, ttl, nil
+}
+
+func (r *rateLimit) DelAttemptCounter(ctx context.Context, key string) error {
+	_, err := r.client.Del(ctx, key).Result()
+	if err != nil {
+		return err
+	}
+	return nil
+}

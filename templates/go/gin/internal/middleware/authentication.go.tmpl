@@ -1,0 +1,50 @@
+package middleware
+
+import (
+	"strings"
+	"uuid"
+
+	"github.com/gin-gonic/gin"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Authentication returns a Gin middleware that validates Bearer JWT tokens.
+func Authentication() gin.HandlerFunc {
+	return func(c *gin.Context) {
+		authHeader := c.GetHeader("Authorization")
+		if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+			response.ErrorConstant.Unauthorized.Send(c)
+			c.Abort()
+			return
+		}
+
+		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+		claims, err := authtoken.Verify(tokenStr, config.AuthKey().PemDataPublic)
+		if err != nil {
+			response.ErrorConstant.Unauthorized.WithError(err).Send(c)
+			c.Abort()
+			return
+		}
+
+		uidStr := claims.Subject
+		var uid uuid.UUID
+		if uidStr != "" {
+			uid, _ = uuid.Parse(uidStr)
+		}
+		email := claims.Email
+		role := claims.Role
+
+		c.Set("auth", &abstraction.AuthContext{
+			ID:     uid,
+			UserID: uidStr,
+			Email:  email,
+			Role:   role,
+		})
+		c.Next()
+	}
+}
+

@@ -1,0 +1,35 @@
+package servicesample
+
+import (
+	"time"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) FindByID(ctx *abstraction.Context, req *dto.SampleFindByIDRequest) (*dto.SampleResponse, error) {
+	sample, err := s.sampleRepository.FindOne(ctx, &dto.SampleFilter{IDs: []string{req.ID}})
+	if err != nil {
+		return nil, response.ErrorConstant.NotFound.WithMessage("sample not found")
+	}
+	r := &dto.SampleResponse{
+		ID:          sample.ID.String(),
+		Name:        sample.Name,
+		Description: sample.Description,
+		Status:      sample.Status,
+		CreatedAt:   time.Unix(0, int64(sample.CreatedAt)).UTC().Format(time.RFC3339),
+	}
+	if sample.UpdatedAt != nil {
+		r.UpdatedAt = time.Unix(0, int64(*sample.UpdatedAt)).UTC().Format(time.RFC3339)
+	}
+	if sample.CreatedBy.String() != "00000000-0000-0000-0000-000000000000" {
+		r.CreatedBy = sample.CreatedBy.String()
+	}
+	if sample.UpdatedBy != nil {
+		updStr := sample.UpdatedBy.String()
+		r.UpdatedBy = &updStr
+	}
+	return r, nil
+}
+

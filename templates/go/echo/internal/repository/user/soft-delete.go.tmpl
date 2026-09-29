@@ -1,0 +1,42 @@
+package repositoryuser
+
+import (
+	"time"
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) SoftDelete(ctx *abstraction.Context, f *dto.UserFilter) *gorm.DB {
+	if f == nil {
+		return &gorm.DB{
+			Error: gorm.ErrMissingWhereClause,
+		}
+	}
+	now := time.Now().UnixNano()
+	updates := map[string]interface{}{
+		"deleted_at": now,
+	}
+	if ctx != nil && ctx.Auth != nil {
+		if ctx.Auth.ID != uuid.Nil() {
+			updates["deleted_by"] = &ctx.Auth.ID
+		} else if ctx.Auth.UserID != "" {
+			if uid, err := uuid.Parse(ctx.Auth.UserID); err == nil {
+				updates["deleted_by"] = &uid
+			}
+		}
+	}
+	return r.CheckTrx(ctx).Model(&model.User{}).
+		Scopes(func(tx *gorm.DB) *gorm.DB {
+			if f != nil {
+				f.ForUpdate = true
+				return f.Apply(tx)
+			}
+			return tx
+		}).
+		Updates(updates)
+}

@@ -1,0 +1,23 @@
+package pad
+
+import (
+	"math"
+	"strings"
+)
+
+func Left(input string, padLength int, padString string) string {
+	var output string
+	inputLength := len(input)
+	padStringLength := len(padString)
+
+	if inputLength >= padLength {
+		return input
+	}
+
+	repeat := math.Ceil(float64(1) + (float64(padLength-padStringLength))/float64(padStringLength))
+
+	output = strings.Repeat(padString, int(repeat)) + input
+	output = output[len(output)-padLength:]
+
+	return output
+}

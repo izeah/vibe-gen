@@ -1,0 +1,13 @@
+package sample
+
+import "github.com/labstack/echo/v4"
+
+// Route registers sample CRUD endpoints on the given echo.Group.
+func (h *Handler) Route(g *echo.Group) {
+	g.GET("", h.Find)
+	g.GET("/:id", h.FindByID)
+	g.POST("", h.Create)
+	g.PUT("/:id", h.Update)
+	g.DELETE("/:id", h.Delete)
+}
+

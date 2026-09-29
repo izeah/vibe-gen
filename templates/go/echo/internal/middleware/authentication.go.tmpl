@@ -1,0 +1,45 @@
+package middleware
+
+import (
+	"strings"
+	"uuid"
+
+	authtoken "{{.ModuleName}}/pkg/auth-token"
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Authentication validates Bearer JWT tokens.
+// On success, sets the authenticated *abstraction.Context with claims.
+func Authentication(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+			authHeader := c.Request().Header.Get("Authorization")
+			if authHeader == "" || !strings.HasPrefix(authHeader, "Bearer ") {
+				return response.ErrorConstant.Unauthorized.Send(c)
+			}
+
+			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
+			claims, err := authtoken.Verify(tokenStr, config.AuthKey().PemDataPublic)
+			if err != nil {
+				return response.ErrorConstant.Unauthorized.WithMessage("invalid or expired token").Send(c)
+			}
+
+			userIDStr := claims.Subject
+			var uid uuid.UUID
+			if userIDStr != "" {
+				uid, _ = uuid.Parse(userIDStr)
+			}
+			ctx := abstraction.NewContext(c)
+			ctx.Auth = &abstraction.AuthContext{
+				ID:     uid,
+				UserID: userIDStr,
+				Email:  claims.Email,
+				Role:   claims.Role,
+			}
+
+		return next(ctx)
+	}
+}

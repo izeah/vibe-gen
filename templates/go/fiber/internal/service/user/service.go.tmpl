@@ -1,0 +1,26 @@
+package serviceuser
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/factory"
+	"{{.ModuleName}}/internal/model"
+	repositoryuser "{{.ModuleName}}/internal/repository/user"
+)
+
+// Service defines user management business logic.
+type Service interface {
+	FindByID(ctx *abstraction.Context, req *dto.UserFindByIDRequest) (*dto.UserResponse, error)
+	FindByEmail(ctx *abstraction.Context, email string) (*model.User, error)
+	Create(ctx *abstraction.Context, req *dto.UserCreateRequest) (*dto.UserResponse, error)
+	Update(ctx *abstraction.Context, req *dto.UserUpdateRequest) (*dto.UserResponse, error)
+}
+
+type service struct {
+	userRepository repositoryuser.Repository
+}
+
+// New creates a new user Service.
+func New(f *factory.Factory) Service {
+	return &service{userRepository: f.UserRepository}
+}

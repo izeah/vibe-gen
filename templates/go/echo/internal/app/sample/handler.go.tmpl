@@ -1,0 +1,19 @@
+package sample
+
+import (
+	"{{.ModuleName}}/internal/factory"
+	servicesample "{{.ModuleName}}/internal/service/sample"
+)
+
+// Handler handles sample CRUD requests.
+// This is a full-pattern example — copy and adapt for your own domains.
+type Handler struct {
+	SampleService servicesample.Service
+}
+
+// NewHandler creates a new sample Handler.
+func NewHandler(f *factory.Factory) *Handler {
+	return &Handler{
+		SampleService: servicesample.New(f),
+	}
+}

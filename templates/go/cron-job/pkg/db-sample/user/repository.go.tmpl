@@ -1,0 +1,160 @@
+package user
+
+import (
+	"context"
+	"fmt"
+	"time"
+	"uuid"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+)
+
+
+// DefaultSystemUserID is used as default creator when no specific user context is provided.
+var DefaultSystemUserID = uuid.MustParse("018b1234-5678-7abc-8def-123456789a01")
+
+// Entity provides standard primary key and audit columns across all database entities.
+// Timestamp standard: time.Now().UnixNano() (BIGINT in UTC).
+// Soft delete semantics: deleted_at IS NULL means active (not deleted).
+type Entity struct {
+	ID        uuid.UUID  `gorm:"column:id;type:uuid;primaryKey;default:uuidv7()" json:"id"`
+	CreatedAt int64      `gorm:"column:created_at;autoCreateTime:nano;not null"  json:"created_at"`
+	CreatedBy uuid.UUID  `gorm:"column:created_by;type:uuid;not null"            json:"created_by"`
+	UpdatedAt *int64     `gorm:"column:updated_at;autoUpdateTime:false"          json:"updated_at,omitempty"`
+	UpdatedBy *uuid.UUID `gorm:"column:updated_by;type:uuid"                     json:"updated_by,omitempty"`
+	DeletedAt *int64     `gorm:"column:deleted_at;index"                         json:"deleted_at,omitempty"`
+	DeletedBy *uuid.UUID `gorm:"column:deleted_by;type:uuid"                     json:"deleted_by,omitempty"`
+}
+
+// SetupBeforeCreate initializes ID (UUIDv7), created_at (UnixNano) and created_by.
+func (a *Entity) SetupBeforeCreate() {
+	if a.ID == uuid.Nil() {
+		a.ID = uuid.NewV7()
+	}
+	if a.CreatedAt == 0 {
+		a.CreatedAt = time.Now().UnixNano()
+	}
+	if a.CreatedBy == uuid.Nil() {
+		a.CreatedBy = DefaultSystemUserID
+	}
+}
+
+// SetupBeforeUpdate sets updated_at (UnixNano) and fallback updated_by.
+func (a *Entity) SetupBeforeUpdate() {
+	if a.UpdatedAt == nil {
+		now := time.Now().UnixNano()
+		a.UpdatedAt = &now
+	}
+	if a.UpdatedBy == nil {
+		a.UpdatedBy = &DefaultSystemUserID
+	}
+}
+
+// ModelEntity contains domain attributes for the user model.
+type ModelEntity struct {
+	Name   string `gorm:"column:name;not null"                    json:"name"`
+	Email  string `gorm:"column:email;uniqueIndex;not null"       json:"email"`
+	Status string `gorm:"column:status;not null;default:'active'" json:"status"`
+}
+
+// Model is the user entity for db-sample bounded context.
+type Model struct {
+	Entity
+	ModelEntity
+}
+
+// TableName returns the database table name.
+func (Model) TableName() string {
+	return "users"
+}
+
+// BeforeCreate sets up UUIDv7, timestamps, and audit creator.
+func (m *Model) BeforeCreate(_ *gorm.DB) error {
+	m.SetupBeforeCreate()
+	return nil
+}
+
+// BeforeUpdate sets updated_at to unix nano.
+func (m *Model) BeforeUpdate(_ *gorm.DB) error {
+	m.SetupBeforeUpdate()
+	return nil
+}
+
+
+// SortItem defines a field and direction for query sorting.
+type SortItem struct {
+	Field string `json:"field" query:"field"`
+	Order string `json:"order" query:"order"` // asc, desc
+}
+
+// Filter is the query filter for users.
+type Filter struct {
+	IDs     []string `json:"ids"    query:"ids"`
+	Status  *string  `json:"status" query:"status"`
+	Sorts   []SortItem
+	clauses []clause.Expression
+	scopes  []func(*gorm.DB) *gorm.DB
+}
+
+// Clauses appends GORM clause expressions.
+func (f *Filter) Clauses(conds ...clause.Expression) *Filter {
+	if f != nil {
+		f.clauses = append(f.clauses, conds...)
+	}
+	return f
+}
+
+// Scopes appends custom GORM query scopes.
+func (f *Filter) Scopes(funcs ...func(*gorm.DB) *gorm.DB) *Filter {
+	if f != nil {
+		f.scopes = append(f.scopes, funcs...)
+	}
+	return f
+}
+
+// Order appends SortItem entries.
+func (f *Filter) Order(items ...SortItem) *Filter {
+	if f != nil {
+		f.Sorts = append(f.Sorts, items...)
+	}
+	return f
+}
+
+// Apply applies the filter conditions to a GORM query.
+func (f *Filter) Apply(tx *gorm.DB) *gorm.DB {
+	tx = tx.Where("users.deleted_at IS NULL")
+	if f == nil {
+		return tx
+	}
+	if len(f.IDs) > 0 {
+		tx = tx.Where("users.id IN ?", f.IDs)
+	}
+	if f.Status != nil {
+		tx = tx.Where("users.status = ?", *f.Status)
+	}
+	for _, c := range f.clauses {
+		tx = tx.Clauses(c)
+	}
+	for _, s := range f.scopes {
+		tx = tx.Scopes(s)
+	}
+	for _, s := range f.Sorts {
+		if s.Field != "" {
+			order := s.Order
+			if order == "" {
+				order = "asc"
+			}
+			tx = tx.Order(fmt.Sprintf("%s %s", s.Field, order))
+		}
+	}
+	return tx
+}
+
+
+// Repository defines the data access contract for the user entity.
+type Repository interface {
+	Find(ctx context.Context, f *Filter) ([]*Model, error)
+	FindOne(ctx context.Context, f *Filter) (*Model, error)
+	WithTx(tx *gorm.DB) Repository
+}

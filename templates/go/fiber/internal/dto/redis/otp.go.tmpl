@@ -1,0 +1,11 @@
+package dtoredis
+
+type OtpNumber struct {
+	Otp       string `json:"otp"`
+	ExpiresIn int    `json:"expires_in"`
+}
+
+type OtpToken struct {
+	Token     string `json:"token"`
+	ExpiresIn int    `json:"expires_in"`
+}

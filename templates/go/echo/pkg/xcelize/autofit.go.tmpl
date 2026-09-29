@@ -1,0 +1,75 @@
+package xcelize
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"unicode/utf8"
+
+	"github.com/xuri/excelize/v2"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+)
+
+var tracer = otel.Tracer("{{.ModuleName}}/pkg/xcelize")
+
+// AutoFit auto-adjusts column widths based on the longest cell value in each column.
+// Safe to call on any sheet that has been fully written.
+func AutoFit(ctx context.Context, f *excelize.File, sheet string) {
+	_, span := tracer.Start(ctx, "xcelize.AutoFit")
+	defer span.End()
+
+	cols, err := f.GetCols(sheet)
+	if err != nil {
+		span.RecordError(err)
+		return
+	}
+
+	for idx, col := range cols {
+		largestWidth := 0
+		for _, rowCell := range col {
+			if cellWidth := utf8.RuneCountInString(rowCell) + 1; cellWidth > largestWidth {
+				largestWidth = cellWidth
+			}
+		}
+		name, err := excelize.ColumnNumberToName(idx + 1)
+		if err != nil {
+			span.RecordError(err)
+			continue
+		}
+		if err = f.SetColWidth(sheet, name, name, float64(largestWidth)); err != nil {
+			span.RecordError(err)
+			span.SetAttributes(attribute.String("col", name))
+		}
+	}
+}
+
+// ColumnWidth measures the maximum display width of each cell in a row
+// and updates mapColumnWidthByColNumber (keyed by 1-based column index).
+// Call this for each data row before calling AutoFitColumns.
+func ColumnWidth(mapColumnWidthByColNumber map[int]float64, col []interface{}) {
+	for i, cell := range col {
+		cellStr := fmt.Sprintf("%v", cell)
+		// If a cell contains newlines, use the widest line.
+		for _, line := range strings.Split(cellStr, "\n") {
+			w := float64(utf8.RuneCountInString(line))
+			if w > mapColumnWidthByColNumber[i+1] {
+				mapColumnWidthByColNumber[i+1] = w
+			}
+		}
+	}
+}
+
+// AutoFitColumns sets column widths on a StreamWriter from the pre-calculated
+// mapColumnWidthByColNumber. Call this before the first SetRow call.
+func AutoFitColumns(ctx context.Context, sw *excelize.StreamWriter, mapColumnWidthByColNumber map[int]float64) {
+	_, span := tracer.Start(ctx, "xcelize.AutoFitColumns")
+	defer span.End()
+
+	const padding = 2.0
+	for colNumber, width := range mapColumnWidthByColNumber {
+		if err := sw.SetColWidth(colNumber, colNumber, width+padding); err != nil {
+			span.RecordError(err)
+		}
+	}
+}

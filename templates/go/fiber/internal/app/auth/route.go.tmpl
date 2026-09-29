@@ -1,0 +1,9 @@
+package auth
+
+import "github.com/gofiber/fiber/v2"
+
+// Route registers auth endpoints on the given fiber router.
+func (h *Handler) Route(g fiber.Router) {
+	g.Post("/login", h.Login)
+	g.Post("/refresh", h.Refresh)
+}

@@ -1,0 +1,60 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"github.com/robfig/cron/v3"
+
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/internal/factory"
+	sampleapp "{{.ModuleName}}/internal/app/sample"
+	"{{.ModuleName}}/pkg/database"
+)
+
+func main() {
+	// 1. Load config.
+	cfg := config.Get()
+
+	// 2. Initialize database.
+	if err := database.Init(cfg); err != nil {
+		fmt.Fprintf(os.Stderr, "database init failed: %v\n", err)
+		os.Exit(1)
+	}
+	defer database.Close()
+
+	// 3. Create factory (dependency wiring).
+	f := factory.New(cfg)
+
+	// 4. Create cron scheduler.
+	c := cron.New(cron.WithSeconds())
+
+	// 5. Create application services and register cron entries.
+	sampleSvc := sampleapp.NewServer(f)
+
+	// Register cron jobs here.
+	// Example: run every minute.
+	c.AddFunc("0 * * * * *", func() {
+		ctx := context.Background()
+		if err := sampleSvc.Run(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "sample job error: %v\n", err)
+		}
+	})
+
+	// 6. Start scheduler.
+	c.Start()
+	fmt.Printf("%s started\n", cfg.App.Name)
+
+	// 7. Graceful shutdown.
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt, syscall.SIGTERM)
+	<-quit
+
+	fmt.Println("shutting down...")
+	ctx := c.Stop()
+	<-ctx.Done()
+	fmt.Println("stopped")
+}

@@ -1,0 +1,54 @@
+package middleware
+
+import (
+	"net/http"
+	"time"
+
+	"github.com/labstack/echo/v4"
+	echomw "github.com/labstack/echo/v4/middleware"
+
+	"{{.ModuleName}}/internal/factory"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// Init ...
+func Init(e *echo.Echo, f *factory.Factory) {
+	e.Use(Context, Trace)
+	e.Use(
+		echomw.CORSWithConfig(echomw.CORSConfig{
+			AllowOrigins:     []string{"*"},
+			AllowCredentials: true,
+			AllowHeaders: []string{
+				echo.HeaderOrigin,
+				echo.HeaderContentLength,
+				echo.HeaderContentType,
+				echo.HeaderAccept,
+				echo.HeaderAuthorization,
+				echo.HeaderAccessControlAllowOrigin,
+				echo.HeaderAccessControlAllowHeaders,
+			},
+			ExposeHeaders: []string{"Content-Length"},
+			AllowMethods: []string{
+				http.MethodGet,
+				http.MethodPut,
+				http.MethodPost,
+				http.MethodDelete,
+				http.MethodOptions,
+				http.MethodHead,
+				http.MethodPatch,
+				http.MethodOptions,
+			},
+		}),
+		echomw.TimeoutWithConfig(echomw.TimeoutConfig{
+			Skipper:      echomw.DefaultSkipper,
+			ErrorMessage: http.StatusText(http.StatusRequestTimeout),
+			OnTimeoutRouteErrorHandler: func(err error, c echo.Context) {
+				c.Error(err)
+			},
+			Timeout: 2 * time.Minute,
+		}),
+	)
+	e.HTTPErrorHandler = ErrorHandler
+	e.Validator = &validator.CustomValidator{Validator: validator.NewValidator()}
+}
+

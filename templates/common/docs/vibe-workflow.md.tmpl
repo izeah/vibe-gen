@@ -1,0 +1,164 @@
+# Vibe Coding Workflow — {{.ProjectTitle}}
+
+## The Workflow
+
+```
+Populate docs/task.md (Implementation Plan)
+  ↓
+STOP — Wait for developer to type 'deal'
+  ↓
+Intake & Alignment (PRD Breakdown OR Clarifying Challenge)
+  ↓
+Discuss & Agree on Task List ("Deal")
+  ↓
+Impact Analysis
+  ↓
+Inspect Relevant Files Only
+  ↓
+Plan Minimal Change
+  ↓
+Implement (DB Migrations → Models → Business Logic → Handlers)
+  ↓
+Targeted Test
+  ↓
+Review Diff
+  ↓
+Update docs/progress.md
+  ↓
+Commit (when appropriate)
+```
+
+## Step-by-Step
+
+### 0. MANDATORY PLANNING GATE — Populate `docs/task.md` First
+
+> [!IMPORTANT]
+> **This gate has zero exceptions. No code may be written before `deal` is received.**
+
+At the start of **every** new feature, bug fix, or non-trivial change:
+
+1. **Open `docs/task.md`** — this is the mandatory planning document.
+2. **Fill every required section** (do not leave any blank):
+   - Scope Size: `S` (1-2 files) | `M` (3-6 files) | `L` (7-15 files) | `XL` (16+ files)
+   - Files to Create (table: path, layer, purpose)
+   - Files to Modify (table: path, what changes)
+   - DB Schema Changes (SQL DDL, migration command)
+   - API Contracts (method, path, auth, request, response)
+   - Business Rules & Validations (checklist)
+   - Dependencies (new libraries required)
+   - Testing Plan (unit + integration tests to write)
+   - Security Considerations (risks per feature)
+3. **Set Status to `AWAITING REVIEW`.**
+4. **STOP.** Present the plan:
+   > *"I have prepared a complete implementation plan in `docs/task.md`. Please review and type `deal` to proceed."*
+5. **Do NOT write any code, create any file, or run any command** until the developer types **`deal`**.
+6. **On `deal`:** Execute phase-by-phase. Check off items in the `docs/task.md` Execution Checklist as you go.
+7. **On completion:** Archive the task summary to `docs/progress.md`. Reset `docs/task.md` for the next task.
+
+**Handling underspecified prompts:**
+- If requirements are vague, list all clarifying questions in `docs/task.md` under "Clarifying Questions".
+- STOP and ask the developer before even writing the plan sections.
+
+---
+
+
+When starting project initialization or beginning a new feature during vibe coding, developer requests typically arrive in one of two ways:
+
+#### Scenario A: Developer Provides a PRD (Product Requirements Document)
+When a comprehensive PRD or detailed specification is provided:
+1. **Analyze the PRD Thoroughly**: Review the business objective, scope, domain entities, user journeys, edge cases, and technical constraints.
+2. **Break Down Feature Specifications**: Decompose the PRD into modular, technical feature specs (API contracts, database schema, domain models, business logic services, external integrations).
+3. **Formulate an Actionable Task List**: Create a sequenced, trackable checklist of implementation steps (staged in `docs/progress.md` or `docs/roadmap.md`).
+4. **Offer for Developer Review**: Present the breakdown and task list to the developer:
+   > *"I have analyzed your PRD and prepared the following feature breakdown and task list. Does this match your architectural expectations and priorities?"*
+5. **Discuss & Iterate**: Discuss any assumptions, trade-offs, or open questions until mutual alignment is reached.
+6. **Execute on Deal**: Once the developer confirms ("deal"), immediately begin phased execution without delay.
+
+#### Scenario B: Developer Provides High-Level / Brief / Underspecified Prompts
+When the developer provides a short, vague, or underspecified prompt (e.g., *"buatkan fitur payment"*, *"tambahkan auth"*):
+1. **Challenge the Developer**: Do NOT make wild assumptions, guess business rules, or immediately write speculative code.
+2. **Present Targeted Clarifying Questions**: Ask structured, precise questions to establish the necessary context:
+   - **Scope & Flow**: What are the core user flows and required endpoints?
+   - **Data & Schema**: What fields and relationships are required? Which database (PostgreSQL 18 UUIDv7 vs MySQL BINARY(16))?
+   - **Business Rules**: What are the validation rules, roles, permissions, and error conditions?
+   - **Integrations**: Are there third-party gateways, notification services, or background tasks?
+3. **Formulate Spec & Task List**: Use the developer's answers to draft the feature specification and implementation task list.
+4. **Discuss & Refine**: Iterate the discussion with the developer.
+5. **Execute on Deal**: Proceed to implementation only after mutual agreement ("deal"). If not yet aligned, continue discussing until consensus is reached.
+
+
+### 2. Impact Analysis
+Identify **exactly** which files will be affected. Do not scan the entire repository.
+
+### 3. Inspect Relevant Files Only
+Read only the files identified in step 2. Use `docs/architecture.md` as the map — do not rediscover architecture on every task.
+
+### 4. Plan Minimal Change
+Determine the smallest correct change needed. If the scope is large, break it into incremental steps.
+
+### 5. Implement
+Follow existing patterns. Do not introduce new patterns without a clear reason.
+- **Database Schema Changes**: If the task introduces a database design, new entity, or schema change:
+  1. Check `migrations/` first to see if a migration file already exists.
+  2. Create migration files using `make migrate-create NAME=<name>`:
+     - Generates timestamped `.up.sql` and `.down.sql` files directly in `migrations/`.
+     - PostgreSQL 18: `id UUID PRIMARY KEY DEFAULT uuidv7()` (native, sortable).
+     - MySQL: `id BINARY(16) PRIMARY KEY` (compact 16 bytes, sortable).
+  3. Apply schema migration to the local database using `make migrate-up` so migration history and state are strictly tracked in `schema_migrations`.
+  4. Create/update application models in Go 1.27 matching the schema: `ID uuid.UUID` with `BeforeCreate` hook using `uuid.NewV7()`.
+  5. Update `docs/database.md`.
+  6. **PROHIBITION**: Never execute raw SQL DDL directly against the database, and never rely on ORM `AutoMigrate` without running `make migrate-up`.
+- **Third-Party API Integrations (Midtrans, Finpay, etc.)**:
+  1. Place clients under `pkg/<thirdparty-name>` or `pkg/thirdparty-sample`.
+  2. Update `config.example.yml` and `.env.example` with **dummy credentials** (e.g. `MIDTRANS_SERVER_KEY=SB-Mid-server-dummy-key`). Never hardcode real keys; let the developer supply real secrets.
+
+### 6. Targeted Test
+Run the smallest relevant set of tests first.
+- **Mock Third-Party APIs**: NEVER call real external APIs during unit tests. Always use mock servers (`httptest.Server`) or interface mocks.
+- **Local DB Isolation**: Only run database queries and tests against the **local Docker container** (`make pg-start`). NEVER point to dev or prod databases (risky — developer performs remote operations manually).
+
+```bash
+# Go
+go test ./internal/service/user/...
+
+# JavaScript
+npm test -- --testPathPattern=user
+```
+
+### 7. Review Diff
+```bash
+git diff
+```
+Ensure changes are scoped to what was intended. Do not commit unrelated changes.
+
+### 8. Update Progress
+Update `docs/progress.md` before a context transition or at the end of a work session.
+
+### 9. Commit
+Commit at logical task boundaries with meaningful messages.
+
+```bash
+git add -p   # review each hunk before staging
+git commit -m "feat(user): add pagination to user list endpoint"
+```
+
+## When Context Gets Large
+
+1. Stop unnecessary exploration.
+2. Update `docs/progress.md`.
+3. Commit at a logical boundary.
+4. Start a fresh context.
+
+When resuming:
+```bash
+cat docs/progress.md
+git status
+git log --oneline -10
+```
+
+## Principles
+
+- Optimize for small, reversible, understandable changes.
+- Never use a task as an excuse for a broad refactor.
+- Prefer existing patterns over new abstractions.
+- Report honestly — never claim "Done" without verification.

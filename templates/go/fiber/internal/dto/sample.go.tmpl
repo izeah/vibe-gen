@@ -1,0 +1,121 @@
+package dto
+
+import (
+	"fmt"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// SampleFilter is the query filter for listing samples.
+type SampleFilter struct {
+	*abstraction.Pagination
+	Sorts     []abstraction.SortItem `json:"sorts,omitempty" query:"sorts"`
+	IDs       []string               `json:"ids"             query:"ids"`
+	Name      string                 `json:"name"            query:"name"`
+	Status    string                 `json:"status"          query:"status"`
+	ForCount  bool                   `json:"-"`
+	ForUpdate bool                   `json:"-"`
+	clauses   []clause.Expression
+	scopes    []func(*gorm.DB) *gorm.DB
+}
+
+// Clauses appends GORM clause expressions (e.g. clause.Locking{Strength: "UPDATE"}).
+func (f *SampleFilter) Clauses(conds ...clause.Expression) *SampleFilter {
+	if f != nil {
+		f.clauses = append(f.clauses, conds...)
+	}
+	return f
+}
+
+// Scopes appends custom GORM query scopes.
+func (f *SampleFilter) Scopes(funcs ...func(*gorm.DB) *gorm.DB) *SampleFilter {
+	if f != nil {
+		f.scopes = append(f.scopes, funcs...)
+	}
+	return f
+}
+
+// Order appends SortItem entries.
+func (f *SampleFilter) Order(items ...abstraction.SortItem) *SampleFilter {
+	if f != nil {
+		f.Sorts = append(f.Sorts, items...)
+	}
+	return f
+}
+
+// Apply applies the filter conditions to a GORM query.
+func (f *SampleFilter) Apply(tx *gorm.DB) *gorm.DB {
+	if f == nil {
+		return tx
+	}
+	if len(f.IDs) > 0 {
+		tx = tx.Where("samples.id IN ?", f.IDs)
+	}
+	if f.Name != "" {
+		tx = tx.Where("samples.name ILIKE ?", "%"+f.Name+"%")
+	}
+	if f.Status != "" {
+		tx = tx.Where("samples.status = ?", f.Status)
+	}
+	for _, c := range f.clauses {
+		tx = tx.Clauses(c)
+	}
+	for _, s := range f.scopes {
+		tx = tx.Scopes(s)
+	}
+	for _, s := range f.Sorts {
+		if s.Field != "" {
+			order := s.Order
+			if order == "" {
+				order = "asc"
+			}
+			tx = tx.Order(fmt.Sprintf("%s %s", s.Field, order))
+		}
+	}
+	if !f.ForCount && !f.ForUpdate {
+		tx.Select("samples.*")
+		if f.Pagination != nil {
+			f.Pagination.Apply(tx)
+		}
+	}
+	return tx
+}
+
+
+// SampleFindByIDRequest is the payload for finding a sample by ID.
+type SampleFindByIDRequest struct {
+	ID string `params:"id" json:"id" validate:"required"`
+}
+
+// SampleDeleteRequest is the payload for deleting a sample by ID.
+type SampleDeleteRequest struct {
+	ID string `params:"id" json:"id" validate:"required"`
+}
+
+// SampleCreateRequest is the payload for creating a sample.
+type SampleCreateRequest struct {
+	Name        string `json:"name"        validate:"required,min=1,max=100"`
+	Description string `json:"description" validate:"max=500"`
+}
+
+// SampleUpdateRequest is the payload for updating a sample.
+type SampleUpdateRequest struct {
+	ID          string `params:"id" json:"id" validate:"required"`
+	Name        string `json:"name"        validate:"omitempty,min=1,max=100"`
+	Description string `json:"description" validate:"omitempty,max=500"`
+}
+
+// SampleResponse is the sample read representation.
+type SampleResponse struct {
+	ID          string  `json:"id"`
+	Name        string  `json:"name"`
+	Description string  `json:"description"`
+	Status      string  `json:"status"`
+	CreatedAt   string  `json:"created_at"`
+	UpdatedAt   string  `json:"updated_at,omitempty"`
+	CreatedBy   string  `json:"created_by,omitempty"`
+	UpdatedBy   *string `json:"updated_by,omitempty"`
+}

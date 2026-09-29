@@ -1,0 +1,8 @@
+package health
+
+import "github.com/gin-gonic/gin"
+
+// Route registers health endpoints on the given router group.
+func (h *Handler) Route(g *gin.RouterGroup) {
+	g.GET("", h.Check)
+}

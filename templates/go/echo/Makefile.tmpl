@@ -1,0 +1,381 @@
+include ./Makefile.Common
+
+SHELL := /bin/sh
+
+ENV         ?= local
+CONFIG_FILE ?= ./config.$(ENV).yml
+ENV_FILE    ?= .env.$(ENV)
+
+ifeq ($(wildcard $(CONFIG_FILE)),)
+  CONFIG_FILE := ./config.yml
+endif
+
+ifeq ($(wildcard $(ENV_FILE)),)
+  ENV_FILE := .env
+endif
+
+# — Local PostgreSQL container —
+POSTGRES_CONTAINER ?= {{.ProjectSlug}}-db
+POSTGRES_USER      ?= postgres
+POSTGRES_PASSWORD  ?= postgres
+POSTGRES_DB        ?= postgres
+POSTGRES_PORT      ?= 5432
+POSTGRES_VOLUME    ?= {{.ProjectSlug}}-db-data
+
+# — Local Redis container —
+REDIS_CONTAINER ?= {{.ProjectSlug}}-redis
+REDIS_PORT      ?= 6379
+REDIS_VOLUME    ?= {{.ProjectSlug}}-redis-data
+
+# — Migrations & CI —
+MIGRATE_BIN ?= migrate
+MIGRATE_DIR ?= migrations
+
+DOCKER_REGISTRY_HOST ?= local
+
+# -------------------------------------------------------------------
+# Tool versions — keep in sync with .gitlab-ci.yml variables block
+# -------------------------------------------------------------------
+GOLANGCI_LINT_VERSION ?= 2.12.2
+GOSEC_VERSION         ?= v2.26.1
+GOVULNCHECK_VERSION   ?= v1.3.0
+GOIMPORTS_VERSION     ?= v0.45.0
+
+CI_IMAGE ?= $(DOCKER_REGISTRY_HOST)/ci-tools:latest
+
+define load_db_env
+  _cfg="$(CONFIG_FILE)"; \
+  if [ ! -f "$$_cfg" ]; then echo "ERROR: config file '$$_cfg' not found"; exit 1; fi; \
+  _yv() { grep -A 20 "^$$1:" "$$_cfg" | grep "^[[:space:]]*$$2:" | head -1 | sed 's/.*:[[:space:]]*//' | tr -d '"' | sed 's/[[:space:]]*#.*//' | tr -d '\r'; }; \
+  DB_HOST=$$(_yv db host); \
+  DB_USER=$$(_yv db username); \
+  DB_PASS=$$(_yv db password); \
+  DB_PORT=$$(_yv db port); \
+  DB_NAME=$$(_yv db name_db); \
+  DB_SSLMODE=$$(_yv db sslmode); \
+  if [ -z "$$DB_HOST" ]; then echo "ERROR: db.host is empty in $$_cfg"; exit 1; fi; \
+  if [ -z "$$DB_NAME" ]; then echo "ERROR: db.name_db is empty in $$_cfg"; exit 1; fi; \
+  echo "Config: $$_cfg | host=$$DB_HOST port=$$DB_PORT db=$$DB_NAME sslmode=$$DB_SSLMODE";
+endef
+
+define load_env
+  if [ -f "$(ENV_FILE)" ]; then \
+    export $$(grep -v '^#' $(ENV_FILE) | grep -v '^[[:space:]]*$$' | xargs); \
+  fi; \
+  if [ -z "$$DATABASE_URL" ]; then \
+    $(load_db_env) \
+    if [ -n "$$DB_PASS" ]; then \
+      DATABASE_URL="postgres://$${DB_USER}:$${DB_PASS}@$${DB_HOST}:$${DB_PORT}/$${DB_NAME}?sslmode=$${DB_SSLMODE}"; \
+    else \
+      DATABASE_URL="postgres://$${DB_USER}@$${DB_HOST}:$${DB_PORT}/$${DB_NAME}?sslmode=$${DB_SSLMODE}"; \
+    fi; \
+  fi;
+endef
+
+.PHONY: help run build swag tidy \
+	check-tools install-tools build-ci-image lint fmt fmt-check imports-check gosec gosec-json precommit prepush \
+	migrate-create migrate-up migrate-down migrate-down-all migrate-version migrate-force \
+	pg-start pg-stop pg-clean pg-init-schema pg-copy-from redis-start redis-stop redis-clean \
+	gen-keys \
+	signoz-start signoz-stop signoz-clean
+
+help:
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "Application:"
+	@echo "  run              Run the application locally"
+	@echo "  build            Build the binary"
+	@echo "  tidy             Run go mod tidy"
+	@echo "  swag             Generate Swagger docs"
+	@echo "  gen-keys         Generate RSA PEM keys for JWT (./secret-auth/)"
+	@echo ""
+	@echo "Testing & Coverage (Makefile.Common):"
+	@echo "  test             Run unit tests"
+	@echo "  test-race        Run unit tests with race detector"
+	@echo "  test-cover       Run tests with coverage profile & threshold check"
+	@echo "  test-ci          Run tests for CI pipeline"
+	@echo "  cover-check      Enforce coverage threshold ($(COVERAGE_THRESHOLD)%)"
+	@echo "  low-cover        List files below coverage threshold"
+	@echo "  test-integration Run integration tests"
+	@echo "  cover-html       Generate HTML coverage report"
+	@echo "  cover-func       Show coverage per function"
+	@echo "  test-failed      Run tests and show failure traces"
+	@echo "  test-fresh       Clear test cache"
+	@echo "  test-clean       Run tests excluding query package"
+	@echo "  cover-clean      Remove coverage output files"
+	@echo ""
+	@echo "Lint & Quality:"
+	@echo "  lint             Run golangci-lint"
+	@echo "  fmt              Format code with gofmt and goimports"
+	@echo "  fmt-check        Check formatting without modifying files"
+	@echo "  imports-check    Check imports formatting"
+	@echo "  gosec            Run security scanner"
+	@echo "  gosec-json       Run security scanner (JSON output)"
+	@echo "  precommit        Run all fast checks (tools, tidy, fmt, lint, cover)"
+	@echo "  prepush          Run precommit + race tests + security scanner"
+	@echo ""
+	@echo "Tools & CI:"
+	@echo "  check-tools      Verify installed tool versions against pinned"
+	@echo "  install-tools    Install required CLI tools at pinned versions"
+	@echo "  build-ci-image   Build Docker CI image"
+	@echo ""
+	@echo "Database Migrations:"
+	@echo "  migrate-create   Create new migration: make migrate-create NAME=create_users_table"
+	@echo "  migrate-up       Run pending migrations"
+	@echo "  migrate-down     Roll back last migration"
+	@echo "  migrate-down-all Roll back all migrations"
+	@echo "  migrate-version  Show current migration version"
+	@echo "  migrate-force    Force set migration version: make migrate-force VERSION=1"
+	@echo ""
+	@echo "Local Services (Docker):"
+	@echo "  pg-start         Start local PostgreSQL container with volume"
+	@echo "  pg-stop          Stop local PostgreSQL container"
+	@echo "  pg-clean         Remove local PostgreSQL container and volume"
+	@echo "  pg-init-schema   Initialize schema and extensions in local PostgreSQL"
+	@echo "  pg-copy-from     Dump from remote DB and restore to local"
+	@echo "  redis-start      Start local Redis container with volume"
+	@echo "  redis-stop       Stop local Redis container"
+	@echo "  redis-clean      Remove local Redis container and volume"
+
+run:
+	go run main.go
+
+build:
+	@go build -v -o ./out/{{.ProjectSlug}} main.go
+
+swag:
+	swag init -g main.go -o docs/swagger
+
+# — SigNoz & OpenTelemetry stack (Foundry / Docker Compose) —
+SIGNOZ_DIR     ?= deploy/signoz
+FOUNDRYCTL    := $(SIGNOZ_DIR)/bin/foundryctl
+SIGNOZ_COMPOSE := $(SIGNOZ_DIR)/pours/deployment/compose.yaml
+
+.PHONY: signoz-init
+signoz-init:
+	@mkdir -p $(SIGNOZ_DIR)/bin
+	@if [ ! -f "$(FOUNDRYCTL)" ]; then \
+	  echo "Downloading foundryctl (official SigNoz CLI)..."; \
+	  curl -fsSL https://signoz.io/foundry.sh | FOUNDRY_INSTALL_DIR=$(SIGNOZ_DIR)/bin bash; \
+	fi
+	@if [ ! -f "$(SIGNOZ_DIR)/casting.yaml" ]; then \
+	  echo "Creating casting.yaml for SigNoz Docker Compose..."; \
+	  printf "apiVersion: v1alpha1\nkind: Installation\nmetadata:\n  name: signoz\nspec:\n  deployment:\n    flavor: compose\n    mode: docker\n  patches:\n    - target: \"deployment/compose.yaml\"\n      operations:\n        - op: replace\n          path: \"/services/signoz-signoz-0/ports/0\"\n          value: \"3301:8080\"\n" > $(SIGNOZ_DIR)/casting.yaml; \
+	fi
+	@if [ ! -f "$(SIGNOZ_COMPOSE)" ]; then \
+	  echo "Generating SigNoz Docker Compose deployment files..."; \
+	  $(FOUNDRYCTL) forge -f $(SIGNOZ_DIR)/casting.yaml -p $(SIGNOZ_DIR)/pours; \
+	fi
+
+.PHONY: signoz-start
+signoz-start: signoz-init
+	@echo "Starting SigNoz & OpenTelemetry Collector via Docker Compose..."
+	@docker compose -f $(SIGNOZ_COMPOSE) up -d
+	@echo "SigNoz UI is accessible at: http://localhost:3301"
+	@echo "OpenTelemetry OTLP gRPC endpoint is: localhost:4317"
+
+.PHONY: signoz-stop
+signoz-stop:
+	@if [ -f "$(SIGNOZ_COMPOSE)" ]; then \
+	  docker compose -f $(SIGNOZ_COMPOSE) stop; \
+	  echo "SigNoz containers stopped"; \
+	fi
+
+.PHONY: signoz-clean
+signoz-clean:
+	@if [ -f "$(SIGNOZ_COMPOSE)" ]; then \
+	  docker compose -f $(SIGNOZ_COMPOSE) down -v; \
+	  echo "SigNoz containers and volumes removed"; \
+	fi
+
+# -------------------------------------------------------------------
+# Check tools version match
+# -------------------------------------------------------------------
+check-tools:
+	@echo "Checking tool versions..."
+	@INSTALLED=$$(golangci-lint --version 2>&1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	EXPECTED=$(GOLANGCI_LINT_VERSION); \
+	if [ "$$INSTALLED" != "$$EXPECTED" ]; then \
+		echo "WARN: golangci-lint mismatch — expected $$EXPECTED, got $$INSTALLED"; \
+	else \
+		echo "✓ golangci-lint $$INSTALLED"; \
+	fi
+	@INSTALLED=$$(govulncheck -version 2>&1 | grep "Scanner:" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'); \
+	EXPECTED=$(GOVULNCHECK_VERSION); \
+	if [ "$$INSTALLED" != "$$EXPECTED" ]; then \
+		echo "WARN: govulncheck mismatch — expected $$EXPECTED, got $$INSTALLED"; \
+	else \
+		echo "✓ govulncheck $$INSTALLED"; \
+	fi
+	@INSTALLED=$$(gosec -version 2>&1 | grep "Version:" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+'); \
+	EXPECTED=$(GOSEC_VERSION); \
+	if [ -z "$$INSTALLED" ]; then \
+		echo "WARN: gosec version undetectable — likely installed from source (dev build), expected $$EXPECTED"; \
+	elif [ "$$INSTALLED" != "$$EXPECTED" ]; then \
+		echo "WARN: gosec mismatch — expected $$EXPECTED, got $$INSTALLED"; \
+	else \
+		echo "✓ gosec $$INSTALLED"; \
+	fi
+	@INSTALLED=$$(goimports -version 2>&1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	EXPECTED=$(GOIMPORTS_VERSION); \
+	if [ -z "$$INSTALLED" ]; then \
+		echo "WARN: goimports version undetectable"; \
+	elif [ "$$INSTALLED" != "$$EXPECTED" ]; then \
+		echo "WARN: goimports mismatch — expected $$EXPECTED, got $$INSTALLED"; \
+	else \
+		echo "✓ goimports $$INSTALLED"; \
+	fi
+
+# -------------------------------------------------------------------
+# Install tools at pinned versions
+# -------------------------------------------------------------------
+install-tools:
+	@echo "Installing tools at pinned versions..."
+	go install golang.org/x/vuln/cmd/govulncheck@$(GOVULNCHECK_VERSION)
+	go install github.com/securego/gosec/v2/cmd/gosec@$(GOSEC_VERSION)
+	go install golang.org/x/tools/cmd/goimports@$(GOIMPORTS_VERSION)
+	curl -sSfL https://github.com/golangci/golangci-lint/releases/download/v$(GOLANGCI_LINT_VERSION)/golangci-lint-$(GOLANGCI_LINT_VERSION)-linux-amd64.tar.gz \
+		-o /tmp/golangci-lint.tar.gz
+	tar -xzf /tmp/golangci-lint.tar.gz -C /tmp
+	mv /tmp/golangci-lint-$(GOLANGCI_LINT_VERSION)-linux-amd64/golangci-lint $$(go env GOPATH)/bin/
+	rm -rf /tmp/golangci-lint*
+	@echo "✓ All tools installed"
+
+# -------------------------------------------------------------------
+# CI Image
+# -------------------------------------------------------------------
+build-ci-image:
+	docker build -f Dockerfile.ci \
+		--build-arg GOLANGCI_LINT_VERSION=$(GOLANGCI_LINT_VERSION) \
+		--build-arg GOSEC_VERSION=$(GOSEC_VERSION) \
+		--build-arg GOVULNCHECK_VERSION=$(GOVULNCHECK_VERSION) \
+		--build-arg GOIMPORTS_VERSION=$(GOIMPORTS_VERSION) \
+		-t $(CI_IMAGE) .
+
+# -------------------------------------------------------------------
+# Lint & Format
+# -------------------------------------------------------------------
+lint:
+	golangci-lint run ./...
+
+fmt:
+	gofmt -w .
+	goimports -w .
+
+fmt-check:
+	@test -z "$$(gofmt -l $$(find . -name '*.go' -not -path './vendor/*'))" || (echo "Unformatted files:"; gofmt -l $$(find . -name '*.go' -not -path './vendor/*'); exit 1)
+
+imports-check:
+	@test -z "$$(goimports -l $$(find . -name '*.go' -not -path './vendor/*'))" || (echo "Bad imports:"; goimports -l $$(find . -name '*.go' -not -path './vendor/*'); exit 1)
+
+gosec-json:
+	gosec -exclude-dir=cryptoutil -exclude-generated -tests=false -fmt=json -out=gosec.json ./...
+
+gosec:
+	gosec -exclude-dir=cryptoutil -exclude-generated -tests=false -fmt=text ./...
+
+tidy:
+	go mod tidy
+
+# -------------------------------------------------------------------
+# Pre-commit & Pre-push
+# -------------------------------------------------------------------
+precommit: check-tools tidy fmt-check imports-check lint test-cover cover-check
+	@echo "✓ All checks passed — safe to commit"
+
+prepush: precommit test-race gosec
+	@echo "✓ Ready to push"
+
+# -------------------------------------------------------------------
+# Migration
+# -------------------------------------------------------------------
+migrate-create:
+	@if [ -z "$(NAME)" ]; then \
+		echo "Usage: make migrate-create NAME=create_users_table"; exit 1; \
+	fi
+	@mkdir -p $(MIGRATE_DIR)
+	$(MIGRATE_BIN) create -ext sql -dir $(MIGRATE_DIR) -seq $(NAME)
+
+migrate-up:
+	@$(load_env) \
+	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" up
+
+migrate-down:
+	@$(load_env) \
+	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" down 1
+
+migrate-down-all:
+	@$(load_env) \
+	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" down -all
+
+migrate-version:
+	@$(load_env) \
+	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" version
+
+migrate-force:
+	@if [ -z "$(VERSION)" ]; then \
+		echo "Usage: make migrate-force VERSION=<version>"; exit 1; \
+	fi
+	@$(load_env) \
+	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" force $(VERSION)
+
+# -------------------------------------------------------------------
+# Local Containers (Docker)
+# -------------------------------------------------------------------
+pg-start:
+	@if docker ps -a --format '{{"{{"}}{{".Names"}}{{"}}"}}' | grep -q '^$(POSTGRES_CONTAINER)$$'; then \
+	  docker start $(POSTGRES_CONTAINER); \
+	else \
+	  docker run -d --name $(POSTGRES_CONTAINER) -p $(POSTGRES_PORT):5432 \
+	    -e POSTGRES_USER=$(POSTGRES_USER) \
+	    -e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+	    -e POSTGRES_DB=$(POSTGRES_DB) \
+	    -v $(POSTGRES_VOLUME):/var/lib/postgresql/data \
+	    postgres:18; \
+	fi
+	@echo "PostgreSQL ready on port $(POSTGRES_PORT)"
+	@echo "User: $(POSTGRES_USER), DB: $(POSTGRES_DB)"
+
+pg-stop:
+	@docker stop $(POSTGRES_CONTAINER) 2>/dev/null && echo "Stopped $(POSTGRES_CONTAINER)" || echo "Container not running"
+
+pg-clean:
+	@docker rm -f $(POSTGRES_CONTAINER) 2>/dev/null || true
+	@docker volume rm $(POSTGRES_VOLUME) 2>/dev/null || true
+	@echo "Removed container + volume $(POSTGRES_CONTAINER)"
+
+pg-init-schema:
+	@until docker exec $(POSTGRES_CONTAINER) pg_isready -U $(POSTGRES_USER) -q 2>/dev/null; do printf "."; sleep 1; done; echo " ready."
+	@docker exec -i $(POSTGRES_CONTAINER) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -c "CREATE SCHEMA IF NOT EXISTS public;"
+	@docker exec -i $(POSTGRES_CONTAINER) psql -U $(POSTGRES_USER) -d $(POSTGRES_DB) -c "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";"
+
+pg-copy-from:
+	@$(load_db_env) \
+	echo "Dumping from: $$DB_USER@$$DB_HOST:$$DB_PORT/$$DB_NAME"; \
+	PGPASSWORD="$$DB_PASS" pg_dump -h "$$DB_HOST" -p "$$DB_PORT" -U "$$DB_USER" -d "$$DB_NAME" -n public --no-comments -Fc -f /tmp/{{.ProjectSlug}}_dump.dump; \
+	PGPASSWORD=$(POSTGRES_PASSWORD) psql -h localhost -p $(POSTGRES_PORT) -U $(POSTGRES_USER) -d $(POSTGRES_DB) -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";"; \
+	PGPASSWORD=$(POSTGRES_PASSWORD) pg_restore -h localhost -p $(POSTGRES_PORT) -U $(POSTGRES_USER) -d $(POSTGRES_DB) --no-owner --no-privileges --no-comments -n public /tmp/{{.ProjectSlug}}_dump.dump
+
+redis-start:
+	@if docker ps -a --format '{{"{{"}}{{".Names"}}{{"}}"}}' | grep -q '^$(REDIS_CONTAINER)$$'; then docker start $(REDIS_CONTAINER); else docker run -d --name $(REDIS_CONTAINER) -p $(REDIS_PORT):6379 -v $(REDIS_VOLUME):/data redis:7; fi
+	@echo "Redis ready on port $(REDIS_PORT)"
+
+redis-stop:
+	@docker stop $(REDIS_CONTAINER) 2>/dev/null && echo "Stopped $(REDIS_CONTAINER)" || echo "Container not running"
+
+redis-clean:
+	@docker rm -f $(REDIS_CONTAINER) 2>/dev/null || true
+	@docker volume rm $(REDIS_VOLUME) 2>/dev/null || true
+	@echo "Removed container + volume $(REDIS_CONTAINER)"
+
+# -------------------------------------------------------------------
+# JWT Key Generation (pure Go, no openssl required)
+# -------------------------------------------------------------------
+.PHONY: gen-keys
+gen-keys:
+	@go run scripts/gen_keys.go

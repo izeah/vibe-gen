@@ -1,0 +1,30 @@
+package sample
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Delete removes a sample by ID.
+// @Summary     Delete sample
+// @Tags        sample
+// @Param       id   path      string  true  "Sample ID"
+// @Success     200  {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/samples/{id} [delete]
+func (h *Handler) Delete(c *fiber.Ctx) (err error) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.SampleDeleteRequest)
+	)
+	if err = c.ParamsParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = h.SampleService.Delete(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(nil).Send(c)
+}

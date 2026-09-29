@@ -1,0 +1,17 @@
+import { Router } from 'express';
+import * as sampleController from '../controllers/sample.js';
+import { authenticate } from '../../../middleware/auth.js';
+import { validate } from '../../../middleware/validate.js';
+import { createSampleSchema, updateSampleSchema } from '../../../utils/schemas/sample.js';
+
+const router = Router();
+
+router.use(authenticate);
+
+router.get('/', sampleController.findAll);
+router.get('/:id', sampleController.findOne);
+router.post('/', validate(createSampleSchema), sampleController.create);
+router.put('/:id', validate(updateSampleSchema), sampleController.update);
+router.delete('/:id', sampleController.remove);
+
+export default router;

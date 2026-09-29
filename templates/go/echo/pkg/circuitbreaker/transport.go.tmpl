@@ -1,0 +1,46 @@
+package circuitbreaker
+
+import (
+	"fmt"
+	"net"
+	"net/http"
+	"time"
+)
+
+// Transport is an http.RoundTripper that routes requests through a circuit breaker.
+type Transport struct {
+	tripper http.RoundTripper
+	breaker Breaker
+}
+
+func newTransport(cb Breaker) *Transport {
+	t := &http.Transport{
+		DialContext: (&net.Dialer{
+			Timeout:   10 * time.Second,
+			KeepAlive: 90 * time.Second,
+		}).DialContext,
+	}
+	return &Transport{
+		tripper: t,
+		breaker: cb,
+	}
+}
+
+// RoundTrip executes the request through the circuit breaker.
+// HTTP 5xx responses are treated as failures and count toward the breaker threshold.
+func (t *Transport) RoundTrip(r *http.Request) (*http.Response, error) {
+	res, err := t.breaker.Execute(func() (interface{}, error) {
+		res, err := t.tripper.RoundTrip(r)
+		if err != nil {
+			return nil, err
+		}
+		if res != nil && res.StatusCode >= http.StatusInternalServerError {
+			return res, fmt.Errorf("http server error: %d", res.StatusCode)
+		}
+		return res, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return res.(*http.Response), nil
+}

@@ -1,0 +1,8 @@
+package sample
+
+import "context"
+
+// Service is the contract for the sample cron application.
+type Service interface {
+	Run(ctx context.Context) error
+}

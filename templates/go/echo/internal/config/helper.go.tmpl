@@ -1,0 +1,32 @@
+package config
+
+// priorityString returns the first non-empty string from the given values.
+func priorityString(values ...string) string {
+	for _, v := range values {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// priorityInt returns the first non-zero int from the given values.
+func priorityInt(values ...int) int {
+	for _, v := range values {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
+}
+
+// priorityBool returns the first boolean value that is true, or defaultVal if all false.
+func priorityBool(values ...bool) bool {
+	for _, v := range values {
+		if v {
+			return true
+		}
+	}
+	return false
+}
+

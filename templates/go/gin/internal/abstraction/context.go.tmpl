@@ -1,0 +1,61 @@
+package abstraction
+
+import (
+	"context"
+	"time"
+	"uuid"
+
+	"github.com/gin-gonic/gin"
+	"gorm.io/gorm"
+)
+
+// TrxContext wraps a transactional *gorm.DB.
+type TrxContext struct {
+	Db *gorm.DB
+}
+
+// Context wraps *gin.Context with application-specific fields.
+type Context struct {
+	*gin.Context
+
+	// Auth holds the authenticated user claims extracted from JWT.
+	Auth *AuthContext
+
+	// Trx holds an active database transaction.
+	Trx *TrxContext
+
+	// OtherContext is an alternative context.Context for non-gin code paths.
+	OtherContext *context.Context
+
+	// Now returns the frozen request time.
+	Now func() time.Time
+
+	// PartnerID is the service partner identifier.
+	PartnerID string
+
+	// CountryCode is the service country code.
+	CountryCode *string
+}
+
+// AuthContext holds the decoded JWT payload.
+type AuthContext struct {
+	ID     uuid.UUID `json:"id"`
+	UserID string    `json:"user_id"`
+	Email  string    `json:"email"`
+	Role   string    `json:"role"`
+}
+
+// NewContext wraps a *gin.Context with application context.
+func NewContext(c *gin.Context) *Context {
+	return &Context{Context: c}
+}
+
+// GetContext retrieves the *Context from gin.Context or creates a new one.
+func GetContext(c *gin.Context) *Context {
+	if val, ok := c.Get("context"); ok {
+		if ctx, ok := val.(*Context); ok {
+			return ctx
+		}
+	}
+	return NewContext(c)
+}

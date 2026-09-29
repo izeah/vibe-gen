@@ -1,0 +1,72 @@
+package trxmanager
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/phuslu/log"
+	"gorm.io/gorm"
+	"gorm.io/plugin/dbresolver"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// TrxManager manages database transactions using the abstraction.Context.
+type TrxManager struct {
+	db *gorm.DB
+}
+
+// trxFn is the function executed within a transaction.
+type trxFn func(ctx *abstraction.Context) error
+
+// New creates a new TrxManager using the given *gorm.DB (write connection).
+func New(db *gorm.DB) *TrxManager {
+	return &TrxManager{db: db}
+}
+
+// WithTrx executes fn within a database transaction.
+// If ctx.Trx is already set (nested call), fn is executed on the existing transaction.
+// On panic: rollback + re-panic as error.
+// On error: rollback.
+// On success: commit.
+func (g *TrxManager) WithTrx(ctx *abstraction.Context, fn trxFn) (err error) {
+	// Already inside a transaction — reuse it.
+	if ctx.Trx != nil {
+		return fn(ctx)
+	}
+
+	var c context.Context
+	if ctx.OtherContext != nil {
+		c = *ctx.OtherContext
+	} else if ctx.Request() != nil {
+		c = ctx.Request().Context()
+	} else {
+		c = context.Background()
+	}
+
+	// Begin a new write transaction.
+	ctx.Trx = &abstraction.TrxContext{
+		Db: g.db.WithContext(c).Clauses(dbresolver.Write).Begin(),
+	}
+
+	defer func() {
+		if ctx.Trx != nil {
+			if p := recover(); p != nil {
+				ctx.Trx.Db.Rollback()
+				err = errors.New("panic: " + fmt.Sprintf("%v", p))
+			} else if err != nil {
+				ctx.Trx.Db.Rollback()
+			} else {
+				err = ctx.Trx.Db.Commit().Error
+			}
+		}
+		if err != nil {
+			log.Error().Err(err).Msg("trxmanager: transaction failed")
+		}
+		ctx.Trx = nil
+	}()
+
+	err = fn(ctx)
+	return err
+}

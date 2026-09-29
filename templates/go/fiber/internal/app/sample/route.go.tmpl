@@ -1,0 +1,12 @@
+package sample
+
+import "github.com/gofiber/fiber/v2"
+
+// Route registers sample CRUD endpoints on the given fiber router.
+func (h *Handler) Route(g fiber.Router) {
+	g.Get("", h.Find)
+	g.Get("/:id", h.FindByID)
+	g.Post("", h.Create)
+	g.Put("/:id", h.Update)
+	g.Delete("/:id", h.Delete)
+}

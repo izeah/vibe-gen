@@ -1,0 +1,32 @@
+package middleware
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Authorization returns a Gin middleware that checks the authenticated user's role.
+// Must be used after Authentication.
+func Authorization(roles ...string) gin.HandlerFunc {
+	allowed := make(map[string]bool, len(roles))
+	for _, r := range roles {
+		allowed[r] = true
+	}
+	return func(c *gin.Context) {
+		val, exists := c.Get("auth")
+		if !exists {
+			response.ErrorConstant.Unauthorized.Send(c)
+			c.Abort()
+			return
+		}
+		claims, ok := val.(*abstraction.AuthContext)
+		if !ok || !allowed[claims.Role] {
+			response.ErrorConstant.Forbidden.WithMessage("insufficient permissions").Send(c)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}

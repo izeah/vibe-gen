@@ -1,0 +1,398 @@
+# Project Instructions
+
+## Project
+**{{.ProjectTitle}}** — generated with [Vibe Coding Boilerplate Generator](https://github.com/izeah01/vibe-gen) on {{.Date}}.
+
+- **Language**: {{.Language}}
+- **Framework**: {{.Framework}}
+
+## Stack
+See `docs/architecture.md` for the full architecture description.
+
+## Documentation
+| Topic | Path |
+|---|---|
+| **Task Plan (current)** | **`docs/task.md`** |
+| Architecture | `docs/architecture.md` |
+| Coding Standards | `docs/coding-standards.md` |
+| Security | `docs/security.md` |
+| Testing | `docs/testing.md` |
+| Database | `docs/database.md` |
+| API | `docs/api.md` |
+| Observability | `docs/observability.md` |
+| Performance | `docs/performance.md` |
+| Decisions (ADR) | `docs/decisions.md` |
+| Progress | `docs/progress.md` |
+| Roadmap | `docs/roadmap.md` |
+| Git Rules | `docs/git.md` |
+| Vibe Workflow | `docs/vibe-workflow.md` |
+| Design System (FE) | `docs/design_system.md` |
+
+## AI Development Rules
+
+### 0. MANDATORY PLANNING GATE — Task Plan Before Any Code
+
+> [!IMPORTANT]
+> This rule has **zero exceptions**. No code may be written before this gate is passed.
+
+At the **very start of every new feature, bug fix, or task**:
+1. **READ `docs/task.md`** first to understand if a plan already exists for this task.
+2. **POPULATE `docs/task.md`** with a complete implementation plan:
+   - Scope Size (S/M/L/XL)
+   - Files to Create
+   - Files to Modify
+   - DB Schema Changes (if any)
+   - API Contracts (if any)
+   - Business Rules & Validations
+   - Dependencies (new libraries)
+   - Testing Plan
+   - Security Considerations
+3. **STOP COMPLETELY** after writing the plan. Do not write any code.
+4. Present the plan to the developer: *"I have prepared a complete implementation plan in `docs/task.md`. Please review and type `deal` to proceed."*
+5. **Do NOT write any code, create any file, or run any command** until the developer explicitly types **`deal`**.
+6. **Execute** phase-by-phase once `deal` is received. Update the checklist in `docs/task.md` as you go.
+
+**If the prompt is vague or underspecified:**
+- Do NOT guess. List your clarifying questions in `docs/task.md` under "Clarifying Questions".
+- STOP and ask the developer to answer before proceeding with the plan.
+
+
+### 1. Requirements Intake & Alignment Protocol
+When initiating a project or beginning a new feature during vibe coding:
+- **Scenario A: Developer Provides a PRD**
+  1. Study the PRD thoroughly (scope, domain entities, user journeys, edge cases, technical constraints).
+  2. Decompose into modular feature specifications (API contracts, schema, models, services).
+  3. Formulate a sequenced, actionable task list (staged in `docs/progress.md`).
+  4. Offer the breakdown and task list to the developer for confirmation: *"Does this plan align with your expectations?"*
+  5. Discuss and iterate until mutual agreement (**"deal"**).
+  6. **Execute immediately once a deal is reached.**
+- **Scenario B: Developer Provides a High-Level / Brief / Underspecified Prompt**
+  1. Do NOT guess requirements, make wild assumptions, or write speculative code.
+  2. **Challenge the developer** with targeted, structured questions to establish the missing context (scope, data fields, PostgreSQL 18 UUIDv7 vs MySQL BINARY(16), business validation, external integrations).
+  3. Formulate the feature spec and task list from the developer's answers.
+  4. Discuss and refine until mutual agreement (**"deal"**).
+  5. **Execute once agreed; if not yet agreed, continue the discussion.**
+
+### 2. Impact Analysis First
+Before modifying any code:
+1. Understand what is requested.
+2. Identify exactly which files are impacted.
+3. Read only those files.
+4. Understand the existing pattern.
+5. Implement the smallest correct change.
+
+**Do NOT** scan the entire repository, modify unrelated files, or refactor unrelated code.
+
+### 3. Relevant Files Only
+Ask yourself: *"Which files actually need to change?"*
+
+If a file is not impacted, do not touch it. Preserve all unrelated developer changes.
+
+### 4. Context Efficiency
+- Do not re-read files that have not changed.
+- Do not repeat searches unnecessarily.
+- Use `docs/architecture.md` as the source of truth — do not rediscover architecture on every task.
+- Use `docs/progress.md` to resume work after a context transition.
+- Do not generate long explanations when a short status is sufficient.
+
+### 5. Context Handoff
+When context is getting large or before switching sessions:
+1. Update `docs/progress.md` with current state.
+2. Record: task, completed work, files changed, decisions, test results, next steps.
+3. Commit at a logical boundary when appropriate.
+
+When resuming:
+```
+cat docs/progress.md
+git status
+git log --oneline -10
+```
+Then inspect only files relevant to the next task.
+
+### 6. No Unnecessary Subagents or Tools
+- Use subagents only when tasks are genuinely independent and can run in parallel.
+- Use external tools only when they provide information not in the current project docs.
+- Do not invoke tools for facts already documented here.
+
+### 7. Security & Environment Isolation
+- Never hardcode credentials, tokens, API keys, passwords, or private keys.
+- All secrets must come from environment variables or a secret manager.
+- **Configuration Precedence & Fallback**:
+  - `config.yml` is the primary application configuration.
+  - `.env` in the root project (format: `DB_HOST=localhost`) is loaded automatically via `loadDotEnv()` as a **fallback** whenever a configuration value is absent or empty in `config.yml`.
+  - OS environment variables override `.env` values when provided in the runtime environment.
+  - Safe defaults defined in `internal/config/config.go` serve as the final fallback.
+- **Third-Party Credentials (Midtrans, Finpay, etc.)**: When adding integrations to `pkg/`, always initialize with **dummy values** in `config.yml` and `.env` (e.g. `MIDTRANS_SERVER_KEY=SB-Mid-server-dummy-key`). The developer will supply real keys manually.
+- **Strict DB Isolation**: Never run automated tests, migrations, or queries against **development (dev)**, **staging**, or **production (prod)** databases. It is extremely risky; developer must execute remote DB operations manually.
+- Do not log secret values.
+
+### 8. Quality & Testing Safety
+- **Mock Third-Party APIs**: Always use mock APIs (`httptest.Server`, `httptest.ResponseRecorder`, or interface mocks) in unit tests. **NEVER call real third-party APIs**.
+- **Local Docker DB Only**: Database query tests and integration tests must run **exclusively against the local Docker database** (`make pg-start`, localhost:5432).
+- Run targeted tests first (`go test ./internal/...` or `npm test -- --testPathPattern=...`).
+- Run the full suite only when appropriate.
+- Report test results honestly. Never remove tests to make them pass.
+- Review `git diff` before committing.
+
+### 9. Anti-Overengineering
+- Prefer the simplest correct design.
+- Avoid unnecessary abstractions, interfaces, dependencies, and design patterns.
+- Do not add features speculatively.
+- Do not refactor working code unless there is a direct reason.
+
+### 10. Database Design & Schema Migrations
+Whenever a task involves database design, data modeling, new entities, or table schema alterations:
+1. **Check Migrations First**: Always inspect the `migrations/` directory to check if a migration file for the entity/schema already exists.
+2. **Mandatory Creation via Makefile (`make migrate-create`)**:
+   - Always create new migrations using the Makefile target: `make migrate-create NAME=<migration_name>` (e.g. `make migrate-create NAME=create_users_table`).
+   - This automatically creates timestamped/sequential `.up.sql` and `.down.sql` files in `migrations/`.
+   - **PostgreSQL 18 Standard**: Use `id UUID PRIMARY KEY DEFAULT uuidv7()` (natively supported in PostgreSQL 18; sortable by timestamp).
+   - **MySQL Standard**: Use `id BINARY(16) PRIMARY KEY` (stores 16 raw bytes; sortable chronologically via binary comparison).
+   - Write comprehensive DDL in `.up.sql` (tables, column types, default values, primary keys, foreign keys, indexes, and constraints).
+   - Write reversible rollback DDL in `.down.sql` (e.g. `DROP TABLE IF EXISTS ... CASCADE;`).
+3. **Mandatory Execution via Makefile (`make migrate-up`)**:
+   - Always apply migrations to the database using: `make migrate-up`.
+   - **Why this is mandatory**: `make migrate-up` tracks the migration process, state, and version in the database (`schema_migrations` table), ensuring consistency across environments and developers.
+   - For rollback, use `make migrate-down` (1 step) or `make migrate-down-all`.
+   - To inspect current migration version: `make migrate-version`.
+   - To force-reset a dirty state: `make migrate-force VERSION=<version>`.
+4. **Strict Prohibitions**:
+   - **NEVER** execute raw SQL directly against the database (via psql, docker exec, DBeaver, or code) to alter table schemas without running through migrations.
+   - **NEVER** rely solely on ORM auto-migration (`AutoMigrate`) without writing and running migration files via `make migrate-up`.
+5. **Sync with Models**: In Go 1.27, use native standard library `import "uuid"`, declare `ID uuid.UUID` as primary key, and implement `BeforeCreate` hook with `uuid.NewV7()` (`if m.ID == uuid.Nil() { m.ID = uuid.NewV7() }`). DO NOT use external libraries such as `github.com/google/uuid`.
+6. **Keep Docs Updated**: Document the schema design, tables, relationships, and indexes in `docs/database.md`.
+
+### 11. Third-Party Integrations (`pkg/thirdparty-sample`, `pkg/midtrans`, etc.)
+- Organize external client code cleanly under `pkg/<integration-name>`.
+- Separate request/response DTOs from internal business DTOs.
+- Always initialize config fields in `internal/config`, `config.yml`, and `.env` with dummy values.
+- Design clients to be easily mocked in unit tests without invoking real HTTP networks.
+
+### 12. Model Lifecycle, Entity Standard, Timestamps (Unix Nano), and Audit Columns
+For every entity/model across all Go frameworks (API and cron job):
+1. **`abstraction.Entity` Standard (`internal/abstraction/entity.go`)**:
+   - All database models embed `abstraction.Entity` which provides `ID uuid.UUID` (primary key with `DEFAULT uuidv7()`), `CreatedAt int64` (`autoCreateTime:nano`), `CreatedBy uuid.UUID`, `UpdatedAt *int64`, `UpdatedBy *uuid.UUID`, `DeletedAt *int64` (`index`), and `DeletedBy *uuid.UUID`.
+   - Includes `DefaultSystemUserID = uuid.MustParse("018b1234-5678-7abc-8def-123456789a01")` used when no user context is available.
+   - **Native Go 1.27 UUID (`import "uuid"`)**: Always use native standard library `import "uuid"`. DILARANG mengimpor library eksternal seperti `github.com/google/uuid`. Fungsi-fungsi standar: `uuid.NewV7()`, `uuid.Nil()`, `uuid.MustParse(...)`, `uuid.Parse(...)`.
+   - Provides helper methods `SetupBeforeCreate()` and `SetupBeforeUpdate()` (which initializes `UpdatedAt` with current Unix nano if nil, and sets fallback `UpdatedBy = &DefaultSystemUserID` if nil).
+2. **Model Struct Separation (`<model>Entity` and `<model>`)**:
+   - All domain-specific columns (string, int, uuid.UUID, float64, bool, etc.) are isolated in a separate struct named `<model>Entity` (e.g. `UserEntity`, `SampleEntity`, `OrderEntity`).
+   - The main model struct `<model>` embeds `abstraction.Entity` and `<model>Entity`, and adds the request context field:
+     ```go
+     type <Model> struct {
+         abstraction.Entity
+         <Model>Entity
+
+         // context
+         Context *abstraction.Context `json:"-" gorm:"-"`
+     }
+     ```
+3. **Context & Lifecycle Hooks**:
+   - In `BeforeCreate`:
+     ```go
+     func (m *<Model>) BeforeCreate(_ *gorm.DB) error {
+         m.SetupBeforeCreate()
+         if m.Context != nil {
+             if m.Context.Auth != nil {
+                 m.CreatedBy = m.Context.Auth.ID
+             }
+         }
+         return nil
+     }
+     ```
+   - In `BeforeUpdate`:
+     ```go
+     func (m *<Model>) BeforeUpdate(_ *gorm.DB) error {
+         m.SetupBeforeUpdate()
+         if m.Context != nil {
+             if m.Context.Auth != nil {
+                 m.UpdatedBy = &m.Context.Auth.ID
+             }
+         }
+         return nil
+     }
+     ```
+4. **Repositories**:
+   - `Create`: writes model with `BeforeCreate` executing.
+   - `Update` / `Updates`: sets `now := time.Now().UnixNano()`, updates `UpdatedAt = &now` and `UpdatedBy = &authUserID`.
+   - `SoftDelete`: updates `deleted_at` to Unix nano (`now := time.Now().UnixNano()`) and sets `deleted_by = &authUserID`.
+   - `UpdateOrInsert`: sets `CreatedAt`, `UpdatedAt`, and `UpdatedBy` with Unix nano and includes them in conflict resolution assignment columns.
+   - `Find` / `FindOne` / `Count`: filter soft-deleted rows with `deleted_at IS NULL`.
+
+### 13. Repository Pattern & Vibe-Coding Standards
+1. **Setup Minimal Methods First**:
+   - When building a new repository for any domain/entity during vibe-coding, you MUST first implement all minimal methods matching the boilerplate pattern before introducing any specialized functions:
+     - `Find(ctx *abstraction.Context, f *dto.<Domain>Filter) ([]*model.<Domain>, error)`
+     - `FindOne(ctx *abstraction.Context, f *dto.<Domain>Filter) (*model.<Domain>, error)`
+     - `Count(ctx *abstraction.Context, f *dto.<Domain>Filter) (*int64, error)`
+     - `Create(ctx *abstraction.Context, e interface{}) *gorm.DB`
+     - `Update(ctx *abstraction.Context, f *dto.<Domain>Filter, e *model.<Domain>) *gorm.DB`
+     - `Updates(ctx *abstraction.Context, f *dto.<Domain>Filter, e *model.<Domain>) *gorm.DB`
+     - `UpdateOrInsert(ctx *abstraction.Context, e []*model.<Domain>) *gorm.DB`
+     - `SoftDelete(ctx *abstraction.Context, f *dto.<Domain>Filter) *gorm.DB`
+     - `FirstOrCreate(ctx *abstraction.Context, data *model.<Domain>) error`
+     - `Exists(ctx *abstraction.Context, f *dto.<Domain>Filter) (bool, error)`
+     - `Delete(ctx *abstraction.Context, f *dto.<Domain>Filter) *gorm.DB`
+     - `IDs(ctx *abstraction.Context, f *dto.<Domain>Filter) ([]string, error)`
+   - Only implement additional custom functions if genuinely needed.
+2. **One Function Per Separate File**:
+   - Every single repository function MUST reside in its own dedicated file using kebab-case naming:
+     - `repository.go`: Interface contract, struct declaration, `New(db *gorm.DB)` constructor.
+     - `find.go`, `find-one.go`, `count.go`, `create.go`, `update.go`, `updates.go`, `update-or-insert.go`, `soft-delete.go`, `first-or-create.go`, `exists.go`, `delete.go`, `ids.go`.
+3. **`FindOne` Strict Requirement**:
+   - `FindOne` MUST ALWAYS use `Take(&data)` (never use `First(&data)`, which injects an implicit primary key sort).
+4. **DTO Filter Conventions (Order, Limit/Offset, Clauses, Scopes)**:
+   - **Ordering**: Handled via `[]abstraction.SortItem` with `f.Order(items ...abstraction.SortItem)` or `f.Sorts`.
+   - **Pagination (Limit/Offset)**: Handled via `*abstraction.Pagination` and `f.Pagination.Apply(tx)`.
+   - **Clauses**: Add arbitrary GORM clauses (including `clause.Locking{Strength: "UPDATE"}` for `FOR UPDATE` queries) directly to the filter via `f.Clauses(conds ...clause.Expression)`.
+   - **Scopes**: Add custom query scopes via `f.Scopes(funcs ...func(*gorm.DB) *gorm.DB)`.
+   - `f.Apply(tx *gorm.DB) *gorm.DB` applies clauses, scopes, sorts, and pagination systematically.
+
+### 14. Service Pattern & Repository Dependency Naming
+When creating a new service for `<entity>` (e.g. `product`, `order`, `cart`, `payment`):
+1. **Repository Import Alias**: Always alias the repository import as `repository<entity>`:
+   ```go
+   import repository<entity> "{{.ModuleName}}/internal/repository/<entity>"
+   ```
+2. **Struct Field Convention**: In `type service struct`, the repository dependency field MUST ALWAYS be declared as `<entity>Repository repository<entity>.Repository`:
+   ```go
+   type service struct {
+       <entity>Repository repository<entity>.Repository
+   }
+   ```
+   *Concrete Examples:*
+   - `productRepository repositoryproduct.Repository`
+   - `orderRepository repositoryorder.Repository`
+   - `cartRepository repositorycart.Repository`
+   - `userRepository repositoryuser.Repository`
+   - `sampleRepository repositorysample.Repository`
+3. **Constructor Pattern**:
+   ```go
+   func New(f *factory.Factory) Service {
+       return &service{
+           <entity>Repository: f.<Entity>Repository,
+       }
+   }
+   ```
+
+### 15. Database Transactions & Bulk Operations (`pkg/trxmanager`)
+When a service requires atomic operations across multiple database mutations:
+1. **Always Use `pkg/trxmanager`**:
+   - Inject `TrxManager *trxmanager.TrxManager` into the service or use `f.TrxManager`:
+     ```go
+     type service struct {
+         trxManager     *trxmanager.TrxManager
+         itemRepository repositoryitem.Repository
+     }
+     ```
+   - Wrap transactional business logic using `s.trxManager.WithTrx(ctx, func(ctx *abstraction.Context) error { ... })`:
+     - Inside `WithTrx`, all repository calls passing `ctx` automatically participate in the transaction (via `ctx.Trx.Db`).
+     - Nested `WithTrx` calls safely reuse the active transaction.
+     - Automatically commits on success, and rolls back on error or panic.
+2. **STRICT PROHIBITION: No For-Looping Database Operations (Anti-N+1)**:
+   - **DO NOT** use `for` loops to execute individual `SELECT`, `UPDATE`, or `CREATE` statements inside transactions or services.
+   - Iterative database calls hold transactional locks, exhaust connection pools, and degrade performance.
+3. **Mandatory Bulk / Batch Workflow**:
+   - **Bulk Query Upfront**: Retrieve all necessary records in a single query before processing (e.g. `Find` with `WHERE id IN (...)` via DTO filter).
+   - **In-Memory Mapping & Calculation**: Map data into memory (`map[uuid.UUID]*model`), evaluate business logic, apply mutations, and prepare batch datasets.
+   - **Bulk Write**:
+     - **For Batch Insert**: Use batch create (`repository.Create(ctx, itemsSlice)` or `CreateInBatches(slice, 100)`).
+     - **For Bulk Update**: Map changes in memory and execute bulk update or batch update statements.
+
+### 16. App & HTTP Handler Routing Patterns
+When creating new apps/domains and handlers, strictly mirror the established boilerplate pattern so developers don't have to rewrite code:
+1. **Handler Package Structure (`internal/app/<domain>/`)**:
+   - `handler.go`:
+     ```go
+     type Handler struct {
+         <Domain>Service service<domain>.Service
+     }
+     func NewHandler(f *factory.Factory) *Handler {
+         return &Handler{
+             <Domain>Service: service<domain>.New(f),
+         }
+     }
+     ```
+   - `route.go`: Defines endpoint routes relative to the mounted path group. **Only set relative endpoints** (`""`, `"/:id"`, etc.):
+     ```go
+     // Echo:
+     func (h *Handler) Route(g *echo.Group) {
+         g.GET("", h.Find)
+         g.GET("/:id", h.FindByID)
+         g.POST("", h.Create)
+         g.PUT("/:id", h.Update)
+         g.DELETE("/:id", h.Delete)
+     }
+
+     // Gin:
+     func (h *Handler) Route(g *gin.RouterGroup) {
+         g.GET("", h.Find)
+         g.GET("/:id", h.FindByID)
+         g.POST("", h.Create)
+         g.PUT("/:id", h.Update)
+         g.DELETE("/:id", h.Delete)
+     }
+
+     // Fiber:
+     func (h *Handler) Route(g fiber.Router) {
+         g.Get("", h.Find)
+         g.Get("/:id", h.FindByID)
+         g.Post("", h.Create)
+         g.Put("/:id", h.Update)
+         g.Delete("/:id", h.Delete)
+     }
+     ```
+   - **One File Per Action**: Every action handler function resides in its own kebab-case file: `create.go`, `find.go`, `find-by-id.go`, `update.go`, `delete.go`.
+2. **Path Grouping in `internal/delivery/http.go`**:
+   - Always define domain path groups inside `internal/delivery/http.go`:
+     ```go
+     health.NewHandler(f).Route(v1.Group("/health"))
+     auth.NewHandler(f).Route(v1.Group("/auth"))
+     user.NewHandler(f).Route(v1.Group("/users"))
+     sample.NewHandler(f).Route(v1.Group("/samples"))
+     cart.NewHandler(f).Route(v1.Group("/carts"))
+     product.NewHandler(f).Route(v1.Group("/products"))
+     ```
+   - Handlers under `internal/app/<domain>` must never hardcode or re-declare the outer group path.
+3. **Pagination & Filter Binding Standard (`<entity>Filter.Pagination`)**:
+   - For all list/find handlers accepting an `<entity>Filter` with embedded `*abstraction.Pagination`, bind in two explicit stages:
+     ```go
+     func (h *Handler) Find(c echo.Context) (err error) {
+         var (
+             ctx  = c.(*abstraction.Context)
+             data []*dto.<Entity>Response
+             info *abstraction.PaginationInfo
+         )
+
+         f := new(dto.<Entity>Filter)
+         if err = c.Bind(f); err != nil {
+             return response.ErrorBadRequest(err).Send(c)
+         }
+
+         f.Pagination = new(abstraction.Pagination)
+         if err = c.Bind(f.Pagination); err != nil {
+             return response.ErrorBadRequest(err).Send(c)
+         }
+
+         if data, info, err = h.<Entity>Service.Find(ctx, f); err != nil {
+             return response.ErrorResponse(err).Send(c)
+         }
+         return response.SuccessListResponse(data, info).Send(c)
+     }
+     ```
+
+{{if eq .ProjectType "frontend"}}
+### 17. Frontend UI/UX Standard
+When working on Frontend user interfaces (React, Next, Vue, Svelte, Nuxt) during vibe-coding:
+- **Read `docs/design_system.md` FIRST**: Before writing any UI code, read the design system doc in full. It defines the design tokens, component library, animation presets, and anti-slop rules that MUST be followed.
+- **No AI SLOP**: Do NOT generate basic, generic, or ugly user interfaces. The UI must be beautiful, modern, and engaging.
+  - Use **Tailwind CSS** + **shadcn/ui** for all components.
+  - Use **Framer Motion** for all micro-interactions, hover states, page transitions, and list animations.
+  - Use **Geist Sans** as the primary font and **Geist Mono** for code/monospace.
+  - Use the **Slate/Zinc dark** color palette defined in `docs/design_system.md`.
+  - Always implement **dark mode** via CSS variables (`.dark` class strategy).
+- **Run Skill Command**: If available, execute the `/taste` skill slash command (from `Leonxlnx/taste-skill`) BEFORE starting any UI work to apply high-quality design standards, curated color palettes, and micro-animations.
+- **Fallback Design**: If the `taste` skill is not installed, follow `docs/design_system.md` exactly. Use the Anti-AI-Slop Checklist in that document before submitting any UI work.
+- **Atomic Design Structure**: Organize components as `components/atoms/` → `components/molecules/` → `components/organisms/` → `templates/`. See `docs/design_system.md` for naming conventions.
+- **State Management**: Use TanStack Query for server state, zustand for global UI state, react-hook-form + zod for all forms. Never use `useState` for API data or form fields.
+{{end}}

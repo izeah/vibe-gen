@@ -1,0 +1,109 @@
+# API Documentation — {{.ProjectTitle}}
+
+## Conventions
+
+- Base path: `/v1` (version prefix on all endpoints)
+- Content-Type: `application/json`
+- Authentication: Bearer token in `Authorization` header
+
+## HTTP Methods
+
+| Method | Usage |
+|---|---|
+| `GET` | Read/list resources |
+| `POST` | Create a resource |
+| `PUT` | Full update of a resource |
+| `PATCH` | Partial update of a resource |
+| `DELETE` | Delete a resource |
+
+## Standard Response Format
+
+### Success
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": { ... }
+}
+```
+
+### List / Paginated
+```json
+{
+  "success": true,
+  "message": "OK",
+  "data": [ ... ],
+  "meta": {
+    "page": 1,
+    "limit": 10,
+    "total": 100,
+    "total_pages": 10
+  }
+}
+```
+
+### Error
+```json
+{
+  "success": false,
+  "message": "Validation failed",
+  "errors": [
+    { "field": "email", "message": "invalid email format" }
+  ]
+}
+```
+
+## HTTP Status Codes
+
+| Code | Meaning |
+|---|---|
+| 200 | OK — successful GET, PUT, PATCH |
+| 201 | Created — successful POST |
+| 204 | No Content — successful DELETE |
+| 400 | Bad Request — validation error |
+| 401 | Unauthorized — missing or invalid token |
+| 403 | Forbidden — insufficient permissions |
+| 404 | Not Found |
+| 409 | Conflict — duplicate resource |
+| 422 | Unprocessable Entity — semantic validation failure |
+| 429 | Too Many Requests — rate limited |
+| 500 | Internal Server Error |
+
+## Authentication
+
+All protected endpoints require:
+```
+Authorization: Bearer <access_token>
+```
+
+Token obtained from `POST /v1/auth/login`.
+
+## Pagination
+
+Query params on list endpoints:
+```
+?page=1&limit=10
+```
+Default: `page=1`, `limit=10`, max: `limit=100`.
+
+## Filtering & Sorting
+
+Common pattern:
+```
+?search=keyword&sort=created_at&order=desc
+```
+
+## Rate Limiting
+
+- Default: 100 requests per minute per IP.
+- Rate limit headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`.
+
+## Timeout Behavior
+
+- Server-side request timeout: 30s.
+- Clients should set their own reasonable timeout.
+
+## API Versioning
+
+Breaking changes are released under a new version prefix (`/v2`).
+Non-breaking additions may be added to the current version.

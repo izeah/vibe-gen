@@ -1,0 +1,24 @@
+package abstraction
+
+import "gorm.io/gorm"
+
+// Repository is the base repository type that holds a DB connection.
+// Embed this in your concrete repository structs.
+type Repository struct {
+	Db *gorm.DB
+}
+
+// CheckTrx returns the appropriate *gorm.DB depending on the current context:
+//   - If ctx.OtherContext is set, use it as the request context.
+//   - If ctx.Trx is set (active transaction), use the transactional DB.
+//   - Otherwise, use the standard DB with the echo request context.
+func (r *Repository) CheckTrx(ctx *Context) *gorm.DB {
+	if ctx.OtherContext != nil {
+		return r.Db.WithContext(*ctx.OtherContext)
+	}
+
+	if ctx.Trx != nil {
+		return ctx.Trx.Db.WithContext(ctx.Request().Context())
+	}
+	return r.Db.WithContext(ctx.Request().Context())
+}
