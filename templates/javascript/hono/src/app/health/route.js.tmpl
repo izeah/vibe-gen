@@ -1,0 +1,9 @@
+import { Hono } from "hono";
+import { check } from "./check.js";
+
+// Routes are relative: the group path is set in delivery/http.ts.
+export function route(h) {
+  const r = new Hono();
+  r.get("/", check(h));
+  return r;
+}

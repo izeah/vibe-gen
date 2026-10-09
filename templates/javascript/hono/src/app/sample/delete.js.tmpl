@@ -1,0 +1,10 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { sampleIdParams } from "../../dto/sample.js";
+
+// DELETE /v1/samples/:id (soft delete)
+export const remove = (h) => async (c) => {
+  const { id } = parse(sampleIdParams, c.req.param());
+  await h.sampleService.delete(c.var.ctx, id);
+  return c.json(success());
+};

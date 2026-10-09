@@ -1,0 +1,82 @@
+import { randomUUID } from "node:crypto";
+import { BlockList, isIP } from "node:net";
+import { getConnInfo } from "@hono/node-server/conninfo";
+import { createMiddleware } from "hono/factory";
+
+const REQUEST_ID = /^[\w-]{1,64}$/;
+
+// context creates the request Context (request ID, client IP) in c.var.ctx.
+// An incoming X-Request-Id is kept only if it is a safe token, so it cannot inject into logs.
+export function context(trustProxy) {
+  const trust = trustPolicy(trustProxy);
+  return createMiddleware(async (c, next) => {
+    const incoming = c.req.header("x-request-id");
+    const requestId =
+      incoming && REQUEST_ID.test(incoming) ? incoming : randomUUID();
+    let socketIp;
+    try {
+      socketIp = getConnInfo(c).remote.address;
+    } catch {
+      // no socket (e.g. app.request in tests)
+    }
+    c.set("ctx", {
+      requestId,
+      clientIp: clientIp(socketIp, c.req.header("x-forwarded-for"), trust),
+    });
+    await next();
+    c.res.headers.set("X-Request-Id", requestId);
+  });
+}
+
+// Same names as Express "trust proxy" (proxy-addr).
+const NAMED = {
+  loopback: ["127.0.0.0/8", "::1/128"],
+  linklocal: ["169.254.0.0/16", "fe80::/10"],
+  uniquelocal: ["10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"],
+};
+
+const family = (ip) => (isIP(ip) === 6 ? "ipv6" : "ipv4");
+// "::ffff:10.0.0.1" (an IPv4 client on a dual-stack socket) is the IPv4 address.
+const unmap = (ip) =>
+  ip.startsWith("::ffff:") && isIP(ip.slice(7)) === 4 ? ip.slice(7) : ip;
+
+// trustPolicy parses APP_TRUST_PROXY like Express "trust proxy": "" ignores X-Forwarded-For,
+// "N" trusts N hops, otherwise a comma-separated list of proxy IPs, CIDRs or the names
+// loopback / linklocal / uniquelocal. An invalid entry throws at startup.
+export function trustPolicy(spec) {
+  if (!spec.trim()) return undefined;
+  if (/^\d+$/.test(spec.trim())) return Number(spec);
+  const list = new BlockList();
+  for (const raw of spec
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    for (const entry of NAMED[raw] ?? [raw]) {
+      const [addr = "", bits] = entry.split("/");
+      if (!isIP(addr)) throw new Error(`invalid APP_TRUST_PROXY entry: ${raw}`);
+      if (bits === undefined) list.addAddress(addr, family(addr));
+      else list.addSubnet(addr, Number(bits), family(addr));
+    }
+  }
+  return list;
+}
+
+const isTrusted = (list, ip) => {
+  const addr = unmap(ip);
+  return isIP(addr) !== 0 && list.check(addr, family(addr));
+};
+
+// clientIp walks X-Forwarded-For from the right, skipping trusted proxies.
+export function clientIp(socketIp, forwardedFor, trust) {
+  if (trust === undefined || !forwardedFor) return socketIp;
+  const chain = [
+    ...forwardedFor.split(",").map((s) => s.trim()),
+    socketIp ?? "",
+  ];
+  if (typeof trust === "number") {
+    return chain[Math.max(chain.length - 1 - trust, 0)];
+  }
+  let i = chain.length - 1;
+  while (i > 0 && isTrusted(trust, chain[i] ?? "")) i--;
+  return chain[i];
+}

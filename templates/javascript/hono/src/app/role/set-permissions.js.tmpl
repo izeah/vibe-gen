@@ -1,0 +1,13 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { roleIdParams, roleSetPermissionsRequest } from "../../dto/role.js";
+import { body as readBody } from "../../middleware/error.js";
+
+// PUT /v1/roles/:id/permissions (replaces the whole set)
+export const setPermissions = (h) => async (c) => {
+  const { id } = parse(roleIdParams, c.req.param());
+  const body = parse(roleSetPermissionsRequest, await readBody(c));
+  return c.json(
+    success(await h.roleService.setPermissions(c.var.ctx, id, body)),
+  );
+};

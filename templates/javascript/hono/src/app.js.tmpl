@@ -1,0 +1,52 @@
+import { Hono } from "hono";
+import { bodyLimit } from "hono/body-limit";
+import { cors } from "hono/cors";
+import { CSRF_HEADER } from "./abstraction/auth-cookie.js";
+import { errors } from "./abstraction/error.js";
+import { http } from "./delivery/http.js";
+import { context } from "./middleware/context.js";
+import { errorHandler, notFound } from "./middleware/error.js";
+import { requestLog } from "./middleware/request-log.js";
+import { securityHeaders } from "./middleware/security.js";
+
+// createApp builds the Hono app without listening; tests call app.request() directly.
+export function createApp(f) {
+  const app = new Hono();
+  app.use(
+    context(f.config.APP_TRUST_PROXY),
+    requestLog,
+    securityHeaders(`${f.config.APP_BASE_PATH}/swagger`),
+  );
+  // CORS allows only the configured origins. Browsers normally reach the API through the BFF,
+  // so it is off unless APP_CORS_ALLOW_ORIGIN is set. Credentials only in AUTH_COOKIE_MODE.
+  if (f.config.APP_CORS_ALLOW_ORIGIN.length > 0) {
+    app.use(
+      cors({
+        origin: f.config.APP_CORS_ALLOW_ORIGIN,
+        allowMethods: ["GET", "POST", "PUT", "PATCH", "DELETE"],
+        allowHeaders: [
+          "Content-Type",
+          "Authorization",
+          "X-Request-Id",
+          CSRF_HEADER,
+        ],
+        credentials: f.config.AUTH_COOKIE_MODE,
+        maxAge: 600,
+      }),
+    );
+  }
+  app.use(
+    bodyLimit({
+      maxSize: f.config.APP_BODY_LIMIT,
+      onError: () => {
+        throw errors.payloadTooLarge();
+      },
+    }),
+  );
+
+  http(app, f);
+
+  app.notFound(notFound);
+  app.onError(errorHandler);
+  return app;
+}

@@ -1,0 +1,5 @@
+import { success } from "../../abstraction/response.js";
+
+export const check = (_h) => (c) => {
+  return c.json(success({ status: "ok" }));
+};

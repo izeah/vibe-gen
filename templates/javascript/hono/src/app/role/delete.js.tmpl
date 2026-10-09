@@ -1,0 +1,10 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { roleIdParams } from "../../dto/role.js";
+
+// DELETE /v1/roles/:id (hard delete; refused while users hold the role)
+export const remove = (h) => async (c) => {
+  const { id } = parse(roleIdParams, c.req.param());
+  await h.roleService.delete(c.var.ctx, id);
+  return c.json(success());
+};

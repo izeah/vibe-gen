@@ -1,0 +1,28 @@
+import { serve } from "@hono/node-server";
+import { createApp } from "./app.js";
+import { config } from "./config/config.js";
+import { newFactory } from "./factory/factory.js";
+import { pool } from "./pkg/database/database.js";
+import { logger } from "./pkg/logger/logger.js";
+import { redis } from "./pkg/redis/redis.js";
+
+const f = newFactory();
+// Fail fast if a dependency is unreachable.
+await Promise.all([redis.connect(), pool.query("select 1")]);
+
+const server = serve({ fetch: createApp(f).fetch, port: config.APP_PORT }, () =>
+  logger.info({ port: config.APP_PORT }, `starting ${config.APP_NAME}`),
+);
+server.headersTimeout = 10_000; // slowloris protection
+server.requestTimeout = 30_000;
+
+function shutdown(signal) {
+  logger.info({ signal }, "shutting down");
+  server.close(async () => {
+    await Promise.allSettled([pool.end(), redis.close()]);
+    process.exit(0);
+  });
+  setTimeout(() => process.exit(1), 10_000).unref();
+}
+process.once("SIGTERM", shutdown);
+process.once("SIGINT", shutdown);

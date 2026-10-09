@@ -1,0 +1,14 @@
+import { clear, guard, refreshTokenOf } from "../../abstraction/auth-cookie.js";
+import { success } from "../../abstraction/response.js";
+import { body as readBody } from "../../middleware/error.js";
+import { cookieIO } from "./handler.js";
+
+// POST /v1/auth/logout
+export const logout = (h) => async (c) => {
+  const io = cookieIO(c);
+  guard(h.config, io);
+  clear(h.config, io); // always drop the cookie, even if the token is invalid
+  const body = await refreshTokenOf(h.config, io, () => readBody(c));
+  await h.authService.logout(c.var.ctx, body);
+  return c.json(success());
+};

@@ -1,0 +1,25 @@
+import { AppError, errors } from "../abstraction/error.js";
+import { failure } from "../abstraction/response.js";
+import { logger } from "../pkg/logger/logger.js";
+
+export const notFound = (c) =>
+  c.json(failure(errors.notFound("route not found")), 404);
+
+// errorHandler turns every error into the JSON envelope. Only AppError messages reach the
+// client; anything else is logged server-side and answered with a generic 500.
+export const errorHandler = (err, c) => {
+  const e = err instanceof AppError ? err : errors.internal(err);
+  if (e.status >= 500) {
+    logger.error({ err, request_id: c.var.ctx?.requestId }, "request failed");
+  }
+  return c.json(failure(e), e.status);
+};
+
+// body reads a JSON request body; a malformed body is a 400, not a 500.
+export async function body(c) {
+  try {
+    return await c.req.json();
+  } catch {
+    throw errors.badRequest("invalid JSON body");
+  }
+}

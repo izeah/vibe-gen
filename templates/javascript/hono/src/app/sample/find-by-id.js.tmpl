@@ -1,0 +1,9 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { sampleIdParams } from "../../dto/sample.js";
+
+// GET /v1/samples/:id
+export const findById = (h) => async (c) => {
+  const { id } = parse(sampleIdParams, c.req.param());
+  return c.json(success(await h.sampleService.findById(c.var.ctx, id)));
+};

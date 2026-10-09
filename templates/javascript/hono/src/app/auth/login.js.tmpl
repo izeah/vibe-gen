@@ -1,0 +1,15 @@
+import { deliver, guard } from "../../abstraction/auth-cookie.js";
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { loginRequest } from "../../dto/auth.js";
+import { body as readBody } from "../../middleware/error.js";
+import { cookieIO } from "./handler.js";
+
+// POST /v1/auth/login
+export const login = (h) => async (c) => {
+  const io = cookieIO(c);
+  guard(h.config, io);
+  const body = parse(loginRequest, await readBody(c));
+  const tokens = await h.authService.login(c.var.ctx, body);
+  return c.json(success(deliver(h.config, io, tokens)));
+};

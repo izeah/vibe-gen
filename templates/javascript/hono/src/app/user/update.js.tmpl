@@ -1,0 +1,11 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { userIdParams, userUpdateRequest } from "../../dto/user.js";
+import { body as readBody } from "../../middleware/error.js";
+
+// PUT /v1/users/:id (admin)
+export const update = (h) => async (c) => {
+  const { id } = parse(userIdParams, c.req.param());
+  const body = parse(userUpdateRequest, await readBody(c));
+  return c.json(success(await h.userService.update(c.var.ctx, id, body)));
+};

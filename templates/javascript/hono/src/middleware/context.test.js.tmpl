@@ -1,0 +1,26 @@
+import { expect, test } from "vitest";
+import { clientIp, trustPolicy } from "./context.js";
+
+const ip = (socket, xff, spec) => clientIp(socket, xff, trustPolicy(spec));
+
+test("X-Forwarded-For is ignored unless a proxy is trusted", () => {
+  expect(ip("10.0.0.1", "6.6.6.6", "")).toBe("10.0.0.1");
+});
+
+test("hop count trusts the right-most proxies only", () => {
+  expect(ip("10.0.0.1", "6.6.6.6, 203.0.113.9", "1")).toBe("203.0.113.9");
+  expect(ip("10.0.0.1", "6.6.6.6, 203.0.113.9", "2")).toBe("6.6.6.6");
+});
+
+test("a list skips only the listed proxies (IPs, CIDRs, names, IPv4-mapped)", () => {
+  expect(ip("10.0.0.1", "6.6.6.6, 203.0.113.9", "10.0.0.1")).toBe(
+    "203.0.113.9",
+  );
+  expect(ip("10.1.2.3", "6.6.6.6, 10.9.9.9", "10.0.0.0/8")).toBe("6.6.6.6");
+  expect(ip("::ffff:10.1.2.3", "6.6.6.6", "uniquelocal")).toBe("6.6.6.6");
+  expect(ip("192.0.2.1", "6.6.6.6", "10.0.0.0/8")).toBe("192.0.2.1");
+});
+
+test("an invalid entry fails at startup", () => {
+  expect(() => trustPolicy("10.0.0.0/8, not-an-ip")).toThrow(/APP_TRUST_PROXY/);
+});

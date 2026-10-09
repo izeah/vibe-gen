@@ -1,0 +1,9 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { roleIdParams } from "../../dto/role.js";
+
+// GET /v1/roles/:id
+export const findById = (h) => async (c) => {
+  const { id } = parse(roleIdParams, c.req.param());
+  return c.json(success(await h.roleService.findById(c.var.ctx, id)));
+};

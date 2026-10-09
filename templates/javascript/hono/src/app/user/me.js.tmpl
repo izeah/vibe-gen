@@ -1,0 +1,9 @@
+import { errors } from "../../abstraction/error.js";
+import { success } from "../../abstraction/response.js";
+
+// GET /v1/users/me: the caller's own profile.
+export const me = (h) => async (c) => {
+  const ctx = c.var.ctx;
+  if (!ctx.auth) throw errors.unauthorized();
+  return c.json(success(await h.userService.findById(ctx, ctx.auth.id)));
+};

@@ -1,0 +1,10 @@
+import { created } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { roleCreateRequest } from "../../dto/role.js";
+import { body as readBody } from "../../middleware/error.js";
+
+// POST /v1/roles
+export const create = (h) => async (c) => {
+  const body = parse(roleCreateRequest, await readBody(c));
+  return c.json(created(await h.roleService.create(c.var.ctx, body)), 201);
+};

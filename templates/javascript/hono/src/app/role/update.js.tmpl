@@ -1,0 +1,11 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { roleIdParams, roleUpdateRequest } from "../../dto/role.js";
+import { body as readBody } from "../../middleware/error.js";
+
+// PUT /v1/roles/:id
+export const update = (h) => async (c) => {
+  const { id } = parse(roleIdParams, c.req.param());
+  const body = parse(roleUpdateRequest, await readBody(c));
+  return c.json(success(await h.roleService.update(c.var.ctx, id, body)));
+};

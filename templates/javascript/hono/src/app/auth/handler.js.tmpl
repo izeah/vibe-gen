@@ -1,0 +1,15 @@
+import { CSRF_HEADER } from "../../abstraction/auth-cookie.js";
+import { newAuthService } from "../../service/auth/service.js";
+
+export const newHandler = (f) => ({
+  authService: newAuthService(f),
+  config: f.config,
+});
+
+// cookieIO exposes what the cookie-mode helpers need (abstraction/auth-cookie).
+export const cookieIO = (c) => ({
+  origin: c.req.header("origin"),
+  csrf: c.req.header(CSRF_HEADER),
+  cookieHeader: c.req.header("cookie"),
+  setCookie: (value) => c.header("Set-Cookie", value, { append: true }),
+});
