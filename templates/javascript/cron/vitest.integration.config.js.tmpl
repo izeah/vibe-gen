@@ -1,0 +1,11 @@
+import { defineConfig } from "vitest/config";
+
+// Integration tests run against the local Docker services only (make pg-start redis-start migrate-up).
+// Never point them at a dev, staging or production database.
+export default defineConfig({
+  test: {
+    include: ["src/**/*.integration.test.{ts,js}"],
+    env: { LOG_LEVEL: "silent" },
+    fileParallelism: false,
+  },
+});

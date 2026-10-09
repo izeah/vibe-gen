@@ -1,0 +1,9 @@
+# Node runs the source directly{{if .IsTypeScript}} (built-in type stripping){{end}}: no build step.
+FROM node:24-alpine
+ENV NODE_ENV=production
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts && npm cache clean --force
+COPY src ./src
+USER node
+CMD ["node", "src/index.{{if .IsTypeScript}}ts{{else}}js{{end}}"]

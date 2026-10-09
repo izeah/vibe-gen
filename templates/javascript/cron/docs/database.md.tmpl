@@ -1,0 +1,11 @@
+# Database — {{.ProjectTitle}}
+
+PostgreSQL 18, owned by the **API project**: its `migrations/` are the source of truth and only the API runs them
+(`make migrate-up` there, against the local Docker database during development).
+
+This worker mirrors the tables it needs in `src/models/*` (Drizzle). When the API migrates a table this worker uses,
+update the mirror in the same change.
+
+| Table | Used by | Access |
+|---|---|---|
+| samples | `sampleReportJob` | read (count active) |

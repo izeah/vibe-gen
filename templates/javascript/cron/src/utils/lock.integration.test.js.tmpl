@@ -1,0 +1,30 @@
+import { afterAll, beforeAll, expect, test } from "vitest";
+import { redis } from "../config/redis.js";
+import { withLock } from "./lock.js";
+
+// Needs the local Docker Redis: make redis-start.
+beforeAll(() => redis.connect());
+afterAll(() => redis.close());
+
+test("a second run is skipped while the first holds the lock", async () => {
+  const name = `test-${Date.now()}`;
+  let inner;
+  const outer = await withLock(redis, name, "a", 60_000, async () => {
+    inner = await withLock(redis, name, "b", 60_000, async () => "b ran");
+    return "a ran";
+  });
+  expect(outer).toEqual({ ran: true, result: "a ran" });
+  expect(inner).toEqual({ ran: false });
+  // kept for a short cooldown after the run (a late instance skips the same tick), then freed
+  expect(await withLock(redis, name, "c", 60_000, async () => 1)).toEqual({
+    ran: false,
+  });
+  const ttl = await redis.pTTL(`cron:lock:${name}`);
+  expect(ttl).toBeGreaterThan(0);
+  expect(ttl).toBeLessThanOrEqual(5_000);
+  await redis.del(`cron:lock:${name}`);
+  expect(await withLock(redis, name, "d", 60_000, async () => 1)).toEqual({
+    ran: true,
+    result: 1,
+  });
+});

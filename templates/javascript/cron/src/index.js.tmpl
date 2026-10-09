@@ -1,17 +1,37 @@
-import cron from 'node-cron';
-import { logger } from './config/logger.js';
-import { connectDB } from './config/database.js';
-import { registerJobs } from './schedulers/cron.js';
+import { config } from "./config/config.js";
+import { pool, testConnection } from "./config/database.js";
+import { logger } from "./config/logger.js";
+import { redis } from "./config/redis.js";
+import {
+  getAvailableJobs,
+  startScheduler,
+  stopScheduler,
+} from "./schedulers/cron.js";
 
-async function main() {
-  await connectDB();
+// Fail fast if a dependency is unreachable.
+await Promise.all([testConnection(), redis.connect()]);
 
-  registerJobs(cron);
+const crons = config.CRON_ENABLED ? startScheduler() : [];
+logger.info(
+  { jobs: getAvailableJobs(), enabled: config.CRON_ENABLED },
+  `${config.APP_NAME} started`,
+);
 
-  logger.info('{{.ProjectTitle}} scheduler started');
+async function shutdown(signal, code = 0) {
+  logger.info({ signal }, "shutting down");
+  // Running jobs get this long to finish; keep it below the orchestrator's kill grace period.
+  setTimeout(() => process.exit(1), 25_000).unref();
+  await stopScheduler(crons);
+  await Promise.allSettled([pool.end(), redis.close()]);
+  process.exit(code);
 }
-
-main().catch((err) => {
-  logger.error('Scheduler failed to start', { error: err.message });
-  process.exit(1);
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "uncaught exception");
+  void shutdown("uncaughtException", 1);
+});
+process.on("unhandledRejection", (err) => {
+  logger.fatal({ err }, "unhandled rejection");
+  void shutdown("unhandledRejection", 1);
 });

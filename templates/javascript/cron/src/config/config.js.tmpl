@@ -1,0 +1,47 @@
+import { z } from "zod";
+
+// Every setting comes from the environment (.env is loaded by `node --env-file-if-exists=.env`).
+// The process refuses to start on an invalid value: fail fast instead of running half-configured.
+const bool = (fallback) =>
+  z
+    .enum(["true", "false"])
+    .default(fallback)
+    .transform((v) => v === "true");
+
+const schema = z.object({
+  APP_NAME: z.string().min(1),
+  APP_ENV: z
+    .enum(["local", "development", "staging", "production"])
+    .default("local"),
+  LOG_LEVEL: z
+    .enum(["trace", "debug", "info", "warn", "error", "fatal", "silent"])
+    .default("info"),
+  CRON_TIMEZONE: z.string().min(1).default("UTC"),
+  CRON_ENABLED: bool("true"),
+
+  DB_HOST: z.string().min(1),
+  DB_PORT: z.coerce.number().int().min(1).max(65535).default(5432),
+  DB_USER: z.string().min(1),
+  DB_PASS: z.string().default(""),
+  DB_NAME: z.string().min(1),
+  DB_SSLMODE: z.enum(["disable", "require", "verify-full"]).default("disable"),
+  DB_MAX_CONNS: z.coerce.number().int().positive().default(5),
+
+  REDIS_ADDRESS: z.string().min(1).default("localhost:6379"),
+  REDIS_PASSWORD: z.string().default(""),
+  REDIS_TLS: bool("false"), // true for managed Redis (rediss://): never send REDIS_PASSWORD in clear
+});
+
+export function loadConfig(env = process.env) {
+  const res = schema.safeParse(env);
+  if (!res.success) {
+    // Names and rules only: the values may be secrets.
+    const issues = res.error.issues
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ");
+    throw new Error(`invalid configuration: ${issues}`);
+  }
+  return res.data;
+}
+
+export const config = loadConfig();

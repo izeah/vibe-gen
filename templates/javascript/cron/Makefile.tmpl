@@ -1,0 +1,82 @@
+SHELL := /bin/sh
+
+# — Local PostgreSQL / Redis containers (the API project owns the schema and migrations) —
+POSTGRES_CONTAINER ?= {{.ProjectSlug}}-db
+POSTGRES_PASSWORD  ?= postgres
+POSTGRES_PORT      ?= 5432
+POSTGRES_VOLUME    ?= {{.ProjectSlug}}-db-data
+REDIS_CONTAINER    ?= {{.ProjectSlug}}-redis
+REDIS_PORT         ?= 6379
+REDIS_VOLUME       ?= {{.ProjectSlug}}-redis-data
+
+.PHONY: help install run start run-job lint format{{if .IsTypeScript}} typecheck{{end}} test test-integration vuln sast check \
+	pg-start pg-stop redis-start redis-stop
+
+help:
+	@echo "Usage: make <target>"
+	@echo "  install          npm ci"
+	@echo "  run              Start the scheduler with watch mode (.env loaded)"
+	@echo "  start            Start the scheduler"
+	@echo "  run-job          Run one job now: make run-job JOB=sampleReport"
+	@echo "  lint / format{{if .IsTypeScript}} / typecheck{{end}} / test / vuln / sast / check"
+	@echo "  test-integration Redis lock against the local Docker Redis only"
+	@echo "  pg-start / pg-stop / redis-start / redis-stop   Local services (Docker)"
+
+install:
+	npm ci
+
+run:
+	npm run dev
+
+start:
+	npm start
+
+run-job:
+	@if [ -z "$(JOB)" ]; then npm run --silent run-job; exit 1; fi
+	npm run --silent run-job -- $(JOB)
+
+lint:
+	npm run lint
+
+format:
+	npm run format
+{{- if .IsTypeScript}}
+
+typecheck:
+	npm run typecheck
+{{- end}}
+
+test:
+	npm test
+
+test-integration:
+	npm run test:integration
+
+vuln:
+	npm audit --omit=dev --audit-level=high
+
+# Semgrep SAST with the public registry rules, no account needed (brew install semgrep, or pipx install semgrep).
+# ponytail: npm-missing-minimum-release-age is excluded because package.json pins
+# versions younger than 7 days. Once they are older, add min-release-age=7 to .npmrc and drop the exclude.
+sast:
+	semgrep scan --config p/default --error --metrics=off --exclude-rule package_managers.npm.npm-missing-minimum-release-age.npm-missing-minimum-release-age
+
+check: lint{{if .IsTypeScript}} typecheck{{end}} test vuln sast
+
+pg-start:
+	@if [ -n "$$(docker ps -aq --filter name=^/$(POSTGRES_CONTAINER)$$)" ]; then docker start $(POSTGRES_CONTAINER) >/dev/null; \
+	else docker run -d --name $(POSTGRES_CONTAINER) -p 127.0.0.1:$(POSTGRES_PORT):5432 -e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
+	  -v $(POSTGRES_VOLUME):/var/lib/postgresql postgres:18 >/dev/null; fi
+	@until docker exec $(POSTGRES_CONTAINER) pg_isready -U postgres -q 2>/dev/null; do sleep 1; done
+	@echo "PostgreSQL ready on port $(POSTGRES_PORT) (apply the API project's migrations: make migrate-up there)"
+
+pg-stop:
+	@docker stop $(POSTGRES_CONTAINER) >/dev/null 2>&1 && echo "Stopped $(POSTGRES_CONTAINER)" || echo "Container not running"
+
+redis-start:
+	@if [ -n "$$(docker ps -aq --filter name=^/$(REDIS_CONTAINER)$$)" ]; then docker start $(REDIS_CONTAINER) >/dev/null; \
+	else docker run -d --name $(REDIS_CONTAINER) -p 127.0.0.1:$(REDIS_PORT):6379 -v $(REDIS_VOLUME):/data redis:7 >/dev/null; fi
+	@echo "Redis ready on port $(REDIS_PORT)"
+
+redis-stop:
+	@docker stop $(REDIS_CONTAINER) >/dev/null 2>&1 && echo "Stopped $(REDIS_CONTAINER)" || echo "Container not running"

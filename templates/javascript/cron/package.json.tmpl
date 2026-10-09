@@ -1,31 +1,30 @@
 {
   "name": "{{.ProjectSlug}}",
-  "version": "1.0.0",
-  "description": "{{.ProjectTitle}} — Cron Scheduler",
+  "version": "0.1.0",
+  "private": true,
   "type": "module",
-  "main": "src/index.js",
-  "scripts": {
-    "dev": "node --env-file=.env --watch src/index.js",
-    "start": "node --env-file=.env src/index.js",
-    "job": "node --env-file=.env src/cli/run-job.js",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --detectOpenHandles --forceExit",
-    "lint": "eslint src/**/*.js"
-  },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch src/index.js",
+    "start": "node --env-file-if-exists=.env src/index.js",
+    "run-job": "node --env-file-if-exists=.env src/cli/run-job.js",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:integration": "node --env-file-if-exists=.env ./node_modules/vitest/vitest.mjs run --config vitest.integration.config.js"
   },
   "dependencies": {
-    "node-cron": "^3.0.3",
-    "sequelize": "^6.37.5",
-    "pg": "^8.14.0",
-    "pg-hstore": "^2.3.4",
-    "ioredis": "^5.4.2",
-    "winston": "^3.17.0",
-    "dotenv": "^16.4.7",
-    "uuid": "^11.0.5"
+    "croner": "10.0.1",
+    "drizzle-orm": "0.45.3",
+    "pg": "8.23.1",
+    "pino": "10.4.0",
+    "redis": "6.3.0",
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
-    "eslint": "^9.22.0"
+    "@biomejs/biome": "2.5.15",
+    "vitest": "5.0.3"
   }
 }
