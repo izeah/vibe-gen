@@ -6,6 +6,7 @@ import (
 	"{{.ModuleName}}/internal/abstraction"
 	"{{.ModuleName}}/internal/dto"
 	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
 )
 
 // Create creates a new sample.
@@ -24,6 +25,9 @@ func (h *Handler) Create(c *fiber.Ctx) (err error) {
 		data    *dto.SampleResponse
 	)
 	if err = c.BodyParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = validator.Struct(payload); err != nil {
 		return response.ErrorBadRequest(err).Send(c)
 	}
 	if data, err = h.SampleService.Create(ctx, payload); err != nil {

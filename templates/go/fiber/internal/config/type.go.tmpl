@@ -21,11 +21,15 @@ type Config struct {
 // AppConfig holds application-level settings.
 type AppConfig struct {
 	Name            string
+	Env             string // local | development | staging | production (default: production)
 	Port            int
 	PrometheusPort  int
 	LogLevel        string
 	ServiceAPIURL   string
 	CorsAllowOrigin []string
+	BasePath        string // optional prefix before /v1 (usually added by the reverse proxy instead)
+	AuthCookieMode  bool   // refresh token in an HttpOnly cookie, for SPAs without a BFF
+	TrustedProxies  []string // proxy IPs/CIDRs whose X-Forwarded-For is trusted; empty = socket IP only
 	TimeoutTest     bool
 	PartnerID       string
 	CountryCode     string
@@ -70,6 +74,9 @@ type CryptoConfig struct {
 // OpenTelemetryConfig holds OpenTelemetry exporter settings.
 type OpenTelemetryConfig struct {
 	HostGrpc string
+	// CapturePayload records query params and request/response bodies (masked) in spans and logs.
+	// Privacy-first default: false. Enable only for local debugging.
+	CapturePayload bool
 }
 
 // CircuitBreakerConfig holds circuit breaker thresholds.

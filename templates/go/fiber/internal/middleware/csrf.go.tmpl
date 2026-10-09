@@ -1,0 +1,21 @@
+package middleware
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/config"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// CookieCSRF guards the auth routes in cookie mode (allowlisted Origin + custom header); it is a
+// no-op when cookie mode is off, because nothing then relies on a cookie.
+func CookieCSRF() fiber.Handler {
+	cfg := config.App()
+	return func(c *fiber.Ctx) error {
+		if cfg.AuthCookieMode && !authcookie.CheckCSRF(c.Get("Origin"), c.Get(authcookie.CSRFHeader), cfg.CorsAllowOrigin) {
+			return response.ErrorConstant.Forbidden.WithMessage("csrf check failed").Send(c)
+		}
+		return c.Next()
+	}
+}

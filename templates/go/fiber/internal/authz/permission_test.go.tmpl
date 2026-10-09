@@ -1,0 +1,25 @@
+package authz
+
+import "testing"
+
+func TestResolve(t *testing.T) {
+	held := map[string]bool{"samples:update:own": true, "samples:create": true, "users:read:any": true}
+	for _, c := range []struct{ resource, action, want string }{
+		{"samples", "update", ScopeOwn},
+		{"samples", "create", ScopeAny},
+		{"users", "read", ScopeAny},
+		{"samples", "delete", ""},
+		{"roles", "manage", ""},
+	} {
+		if got := Resolve(held, c.resource, c.action); got != c.want {
+			t.Errorf("Resolve(%s:%s) = %q, want %q", c.resource, c.action, got, c.want)
+		}
+	}
+	held["samples:update:any"] = true
+	if got := Resolve(held, "samples", "update"); got != ScopeAny {
+		t.Errorf("any must win over own, got %q", got)
+	}
+	if Valid("samples:fly:any") || !Valid("roles:manage") {
+		t.Error("Valid must accept exactly the catalog")
+	}
+}

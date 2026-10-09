@@ -8,7 +8,6 @@ import (
 	authtoken "{{.ModuleName}}/pkg/auth-token"
 
 	"{{.ModuleName}}/internal/abstraction"
-	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/pkg/response"
 )
 
@@ -21,9 +20,9 @@ func Authentication() fiber.Handler {
 		}
 
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-		claims, err := authtoken.Verify(tokenStr, config.AuthKey().PemDataPublic)
+		claims, err := authtoken.ClaimsFromAccessToken(tokenStr)
 		if err != nil {
-			return response.ErrorConstant.Unauthorized.WithError(err).Send(c)
+			return response.ErrorConstant.Unauthorized.WithMessage("invalid or expired token").Send(c)
 		}
 
 		uidStr := claims.Subject
@@ -31,15 +30,14 @@ func Authentication() fiber.Handler {
 		if uidStr != "" {
 			uid, _ = uuid.Parse(uidStr)
 		}
-		email := claims.Email
-		role := claims.Role
 
-		c.Locals("auth", &abstraction.AuthContext{
+		auth := &abstraction.AuthContext{
 			ID:     uid,
 			UserID: uidStr,
-			Email:  email,
-			Role:   role,
-		})
+		}
+		c.Locals("auth", auth)
+		// Audit columns (created_by/updated_by/deleted_by) read ctx.Auth.
+		abstraction.GetContext(c).Auth = auth
 		return c.Next()
 	}
 }

@@ -1,0 +1,37 @@
+package role
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// Create creates a new role.
+// @Summary     Create role
+// @Tags        role
+// @Accept      json
+// @Produce     json
+// @Param       body  body  dto.RoleCreateRequest  true  "Create payload"
+// @Success     201   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles [post]
+func (h *Handler) Create(c *fiber.Ctx) (err error) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.RoleCreateRequest)
+		data    *dto.RoleResponse
+	)
+	if err = c.BodyParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = validator.Struct(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.RoleService.Create(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.CreatedResponse(data).Send(c)
+}

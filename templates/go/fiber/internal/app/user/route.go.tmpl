@@ -1,10 +1,22 @@
 package user
 
-import "github.com/gofiber/fiber/v2"
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/middleware"
+)
 
 // Route registers user endpoints on the given fiber router.
+// Any authenticated user may read their own profile; managing other users needs a permission
+// (users:*), which the seed grants to admin only. Changing a user's roles needs roles:manage:
+// users:update alone must not let anyone grant themselves admin.
 func (h *Handler) Route(g fiber.Router) {
-	g.Get("/:id", h.FindByID)
-	g.Post("", h.Create)
-	g.Put("/:id", h.Update)
+	can := func(action string) fiber.Handler {
+		return middleware.RequirePermission(h.AuthzService, "users", action)
+	}
+	g.Get("/me", h.Me)
+	g.Get("/:id", can("read"), h.FindByID)
+	g.Post("", can("create"), h.Create)
+	g.Put("/:id", can("update"), h.Update)
+	g.Put("/:id/roles", middleware.RequirePermission(h.AuthzService, "roles", "manage"), h.SetRoles)
 }

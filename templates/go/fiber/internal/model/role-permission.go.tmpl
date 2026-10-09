@@ -1,0 +1,44 @@
+package model
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// RolePermissionEntity contains the domain-specific attributes of RolePermission.
+type RolePermissionEntity struct {
+	RoleID     uuid.UUID `gorm:"column:role_id;type:uuid;not null" json:"role_id"`
+	Permission string    `gorm:"column:permission;not null"        json:"permission"`
+}
+
+// RolePermission grants one catalog permission (authz.Catalog) to a role.
+type RolePermission struct {
+	abstraction.Entity
+	RolePermissionEntity
+
+	// relation
+	Role *Role `json:"role,omitempty" gorm:"foreignKey:RoleID;references:ID"`
+
+	// context
+	Context *abstraction.Context `json:"-" gorm:"-"`
+}
+
+// TableName returns the database table name.
+func (RolePermission) TableName() string {
+	return "role_permissions"
+}
+
+// BeforeCreate sets UUIDv7, timestamps and the audit creator.
+func (m *RolePermission) BeforeCreate(_ *gorm.DB) error {
+	m.SetupBeforeCreate(m.Context)
+	return nil
+}
+
+// BeforeUpdate sets updated_at (UnixNano) and updated_by.
+func (m *RolePermission) BeforeUpdate(_ *gorm.DB) error {
+	m.SetupBeforeUpdate(m.Context)
+	return nil
+}

@@ -1,0 +1,41 @@
+package role
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// Update updates an existing role.
+// @Summary     Update role
+// @Tags        role
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string                   true  "Role ID"
+// @Param       body  body  dto.RoleUpdateRequest  true  "Update payload"
+// @Success     200   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles/{id} [put]
+func (h *Handler) Update(c *fiber.Ctx) (err error) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.RoleUpdateRequest)
+		data    *dto.RoleResponse
+	)
+	if err = c.BodyParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = c.ParamsParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = validator.Struct(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.RoleService.Update(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(data).Send(c)
+}

@@ -1,9 +1,15 @@
 package auth
 
-import "github.com/gofiber/fiber/v2"
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/middleware"
+)
 
 // Route registers auth endpoints on the given fiber router.
 func (h *Handler) Route(g fiber.Router) {
+	g.Use(middleware.CookieCSRF()) // no-op unless auth_cookie_mode
 	g.Post("/login", h.Login)
 	g.Post("/refresh", h.Refresh)
+	g.Post("/logout", h.Logout)
 }

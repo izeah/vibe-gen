@@ -1,0 +1,26 @@
+package repositoryrolepermission
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) Count(ctx *abstraction.Context, f *dto.RolePermissionFilter) (data *int64, err error) {
+	var count int64
+	err = r.CheckTrx(ctx).Model(&model.RolePermission{}).Where("deleted_at IS NULL").Scopes(func(tx *gorm.DB) *gorm.DB {
+		if f != nil {
+			// Count on a copy: setting ForCount on the caller's filter would make the
+			// following Find skip pagination.
+			fc := *f
+			fc.ForCount = true
+			return fc.Apply(tx)
+		}
+		return tx
+	}).Count(&count).Error
+	data = &count
+	return
+}
+

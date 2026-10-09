@@ -8,8 +8,9 @@
 //
 // @license.name    MIT
 //
-// @host            localhost:8080
 // @BasePath        /v1
+// (no @host: Swagger UI calls the host it was loaded from. @BasePath is static: with
+// app.base_path set, change it to <base_path>/v1 here and run `make swag`.)
 //
 // @securityDefinitions.apikey BearerAuth
 // @in header
@@ -22,11 +23,13 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/cors"
+	"github.com/gofiber/fiber/v2/middleware/helmet"
 	"github.com/gofiber/fiber/v2/middleware/recover"
 	"github.com/phuslu/log"
 
@@ -36,10 +39,22 @@ import (
 	"{{.ModuleName}}/internal/middleware"
 	"{{.ModuleName}}/pkg/database"
 	"{{.ModuleName}}/pkg/telemetry"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
 )
+
+// maxBodyBytes caps every request body (JSON APIs need far less); raise it per route for uploads.
+const maxBodyBytes = 1 << 20
 
 func main() {
 	cfg := config.Get()
+	// Cookie mode guards refresh/logout with an Origin allowlist: without one every request fails.
+	if cfg.App.AuthCookieMode && len(cfg.App.CorsAllowOrigin) == 0 {
+		log.Fatal().Msg("auth_cookie_mode requires cors_allow_origin (the exact SPA origin)")
+	}
+	// A role change or a deleted user only takes effect when the access token expires.
+	if cfg.Crypto.AccessTokenLifetime > 60 {
+		log.Fatal().Msg("crypto.access_token_lifetime must be at most 60 minutes")
+	}
 
 	// 2. Initialize Telemetry (OpenTelemetry tracer/logger + phuslu/log bridge)
 	teleCtx, teleCancel := context.WithCancel(context.Background())
@@ -59,11 +74,34 @@ func main() {
 	database.Init()
 	defer database.Close()
 
+	// Client IP for rate limits and logs: middleware.ClientIP, never c.IP() (see realip.go).
+	if err := middleware.SetTrustedProxies(cfg.App.TrustedProxies); err != nil {
+		log.Fatal().Err(err).Msg("invalid trusted_proxies")
+	}
 	app := fiber.New(fiber.Config{
-		AppName: cfg.App.Name,
+		AppName:     cfg.App.Name,
+		BodyLimit:   maxBodyBytes,
+		ReadTimeout: 10 * time.Second, // Slowloris protection
 	})
 	app.Use(recover.New())
-	app.Use(cors.New())
+	app.Use(helmet.New(helmet.Config{
+		// Swagger UI needs inline scripts; everything else is JSON and gets a deny-all CSP.
+		Next:                  func(c *fiber.Ctx) bool { return strings.HasPrefix(c.Path(), cfg.App.BasePath+"/swagger") },
+		XFrameOptions:         "DENY",
+		ReferrerPolicy:        "no-referrer",
+		HSTSMaxAge:            31536000,
+		ContentSecurityPolicy: "default-src 'none'; frame-ancestors 'none'",
+	}))
+	// CORS is off unless origins are configured: browsers reach the API through the BFF.
+	if origins := cfg.App.CorsAllowOrigin; len(origins) > 0 {
+		app.Use(cors.New(cors.Config{
+			AllowOrigins: strings.Join(origins, ","),
+			AllowMethods: "GET,POST,PUT,PATCH,DELETE",
+			AllowHeaders: "Origin,Content-Type,Accept,Authorization," + authcookie.CSRFHeader,
+			// Auth cookie mode: credentials for these exact origins only (the refresh cookie).
+			AllowCredentials: cfg.App.AuthCookieMode,
+		}))
+	}
 	app.Use(middleware.Trace())
 	app.Use(middleware.Context())
 

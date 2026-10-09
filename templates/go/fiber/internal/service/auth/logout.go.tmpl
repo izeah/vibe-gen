@@ -1,0 +1,22 @@
+package serviceauth
+
+import (
+	"net/http"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Logout revokes the session family of the given refresh token. Access tokens already
+// issued stay valid until they expire (short-lived by design).
+func (s *service) Logout(ctx *abstraction.Context, req *dto.RefreshRequest) error {
+	claims, err := s.verifyRefresh(req.RefreshToken)
+	if err != nil {
+		return err
+	}
+	if err := s.refreshTokenRepository.Revoke(ctx.RequestContext(), claims.FamilyId); err != nil {
+		return response.ErrorBuilder(http.StatusInternalServerError, err)
+	}
+	return nil
+}

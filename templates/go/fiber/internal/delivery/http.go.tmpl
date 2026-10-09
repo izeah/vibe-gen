@@ -3,8 +3,10 @@ package delivery
 import (
 	"{{.ModuleName}}/internal/app/auth"
 	"{{.ModuleName}}/internal/app/health"
+	"{{.ModuleName}}/internal/app/role"
 	"{{.ModuleName}}/internal/app/sample"
 	"{{.ModuleName}}/internal/app/user"
+	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/factory"
 	"{{.ModuleName}}/internal/middleware"
 
@@ -17,10 +19,12 @@ import (
 
 // HTTP registers all routes onto the Fiber app.
 func HTTP(app *fiber.App, f *factory.Factory) {
-	// Swagger UI
-	app.Get("/swagger/*", swagger.HandlerDefault)
+	// Swagger UI: never in production (it maps the whole API surface).
+	if config.App().Env != "production" {
+		app.Get(config.App().BasePath+"/swagger/*", swagger.HandlerDefault)
+	}
 
-	v1 := app.Group("/v1")
+	v1 := app.Group(config.App().BasePath + "/v1")
 
 	// Public routes
 	health.NewHandler(f).Route(v1.Group("/health"))
@@ -30,9 +34,5 @@ func HTTP(app *fiber.App, f *factory.Factory) {
 	v1.Use(middleware.Authentication())
 	user.NewHandler(f).Route(v1.Group("/users"))
 	sample.NewHandler(f).Route(v1.Group("/samples"))
-}
-
-// Register is an alias for HTTP for backwards compatibility.
-func Register(app *fiber.App, f *factory.Factory) {
-	HTTP(app, f)
+	role.NewHandler(f).Route(v1.Group("/roles"))
 }

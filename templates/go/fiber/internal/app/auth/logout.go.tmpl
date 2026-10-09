@@ -1,0 +1,44 @@
+package auth
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
+	"{{.ModuleName}}/internal/dto"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// Logout revokes the session (refresh token family) of the given refresh token.
+// @Summary     Logout
+// @Tags        auth
+// @Accept      json
+// @Produce     json
+// @Param       body  body      dto.RefreshRequest  true  "Refresh token"
+// @Success     200   {object}  response.Base
+// @Router      /v1/auth/logout [post]
+func (h *Handler) Logout(c *fiber.Ctx) (err error) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.RefreshRequest)
+	)
+	cfg := config.App()
+	// Cookie mode reads the refresh token from the HttpOnly cookie, never from the body.
+	if cfg.AuthCookieMode {
+		payload.RefreshToken = c.Cookies(authcookie.Name)
+	} else if err = c.BodyParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if cfg.AuthCookieMode {
+		c.Append(fiber.HeaderSetCookie, authcookie.Clear(cfg.BasePath).String()) // always drop the cookie, even if the token is invalid
+	}
+	if err = validator.Struct(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = h.AuthService.Logout(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(nil).Send(c)
+}

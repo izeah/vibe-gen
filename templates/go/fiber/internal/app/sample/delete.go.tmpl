@@ -6,6 +6,7 @@ import (
 	"{{.ModuleName}}/internal/abstraction"
 	"{{.ModuleName}}/internal/dto"
 	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
 )
 
 // Delete removes a sample by ID.
@@ -21,6 +22,9 @@ func (h *Handler) Delete(c *fiber.Ctx) (err error) {
 		payload = new(dto.SampleDeleteRequest)
 	)
 	if err = c.ParamsParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = validator.Struct(payload); err != nil {
 		return response.ErrorBadRequest(err).Send(c)
 	}
 	if err = h.SampleService.Delete(ctx, payload); err != nil {

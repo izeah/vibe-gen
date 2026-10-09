@@ -1,0 +1,61 @@
+package middleware
+
+import (
+	"net"
+	"strings"
+
+	"github.com/gofiber/fiber/v2"
+)
+
+var trustedProxies []*net.IPNet
+
+// SetTrustedProxies sets the proxy IPs/CIDRs whose X-Forwarded-For is believed. Call once at startup.
+func SetTrustedProxies(proxies []string) error {
+	trustedProxies = nil
+	for _, p := range proxies {
+		if !strings.Contains(p, "/") {
+			if strings.Contains(p, ":") {
+				p += "/128"
+			} else {
+				p += "/32"
+			}
+		}
+		_, ipnet, err := net.ParseCIDR(p)
+		if err != nil {
+			return err
+		}
+		trustedProxies = append(trustedProxies, ipnet)
+	}
+	return nil
+}
+
+func isTrustedProxy(ip net.IP) bool {
+	for _, n := range trustedProxies {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// ClientIP is the client address: the socket address unless it is a trusted proxy, in which
+// case X-Forwarded-For is read from the right, skipping only trusted proxies. Fiber's own
+// ProxyHeader returns the header's left-most entry, which any client can spoof.
+func ClientIP(c *fiber.Ctx) string {
+	ip := c.Context().RemoteIP()
+	if !isTrustedProxy(ip) {
+		return ip.String()
+	}
+	hops := strings.Split(c.Get(fiber.HeaderXForwardedFor), ",")
+	for i := len(hops) - 1; i >= 0; i-- {
+		hop := net.ParseIP(strings.TrimSpace(hops[i]))
+		if hop == nil {
+			break // garbage from the client side: stop at the last trusted hop
+		}
+		ip = hop
+		if !isTrustedProxy(hop) {
+			break
+		}
+	}
+	return ip.String()
+}

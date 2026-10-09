@@ -1,6 +1,8 @@
 package model
 
 import (
+	"errors"
+
 	"golang.org/x/crypto/bcrypt"
 	"gorm.io/gorm"
 
@@ -9,16 +11,19 @@ import (
 
 // UserEntity contains the domain-specific attributes of User.
 type UserEntity struct {
-	Name     string `gorm:"column:name;not null"                            json:"name"`
-	Email    string `gorm:"column:email;uniqueIndex;not null"               json:"email"`
-	Password string `gorm:"column:password;not null"                        json:"-"`
-	Role     string `gorm:"column:role;not null;default:'user'"             json:"role"`
+	Name     string `gorm:"column:name;not null"              json:"name"`
+	Email    string `gorm:"column:email;uniqueIndex;not null" json:"email"`
+	Password string `gorm:"column:password;not null"          json:"-"`
 }
 
 // User is the database entity for users.
 type User struct {
 	abstraction.Entity
 	UserEntity
+
+	// relation
+	// Roles is read-only (Preload("Roles")); change a user's roles through repositoryuserrole.
+	Roles []*Role `json:"roles,omitempty" gorm:"many2many:user_roles;joinForeignKey:UserID;joinReferences:RoleID"`
 
 	// context
 	Context *abstraction.Context `json:"-" gorm:"-"`
@@ -29,16 +34,19 @@ func (User) TableName() string {
 	return "users"
 }
 
-// BeforeCreate sets UUIDv7, timestamps, hashes password, and sets audit creator.
+// HashPassword bcrypt-hashes a plaintext password. Callers hash explicitly (never a hook that
+// guesses whether a value is already hashed: a hash-shaped password would be stored as is).
+func HashPassword(password string) (string, error) {
+	if len(password) > 72 { // bcrypt ignores bytes past 72; multi-byte chars hit this before 72 runes
+		return "", errors.New("password must be at most 72 bytes")
+	}
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	return string(hashed), err
+}
+
+// BeforeCreate sets UUIDv7, timestamps and the audit creator.
 func (m *User) BeforeCreate(_ *gorm.DB) error {
 	m.SetupBeforeCreate(m.Context)
-	if m.Password != "" && len(m.Password) < 60 {
-		hashed, err := bcrypt.GenerateFromPassword([]byte(m.Password), bcrypt.DefaultCost)
-		if err != nil {
-			return err
-		}
-		m.Password = string(hashed)
-	}
 	return nil
 }
 

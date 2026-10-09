@@ -2,6 +2,7 @@ package sample
 
 import (
 	"{{.ModuleName}}/internal/factory"
+	serviceauthz "{{.ModuleName}}/internal/service/authz"
 	servicesample "{{.ModuleName}}/internal/service/sample"
 )
 
@@ -9,11 +10,13 @@ import (
 // This is a full-pattern example — copy and adapt for your own domains.
 type Handler struct {
 	SampleService servicesample.Service
+	AuthzService serviceauthz.Service
 }
 
 // NewHandler creates a new sample Handler.
 func NewHandler(f *factory.Factory) *Handler {
 	return &Handler{
 		SampleService: servicesample.New(f),
+		AuthzService: serviceauthz.New(f),
 	}
 }

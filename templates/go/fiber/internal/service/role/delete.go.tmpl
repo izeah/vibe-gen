@@ -1,0 +1,29 @@
+package servicerole
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Delete(ctx *abstraction.Context, req *dto.RoleDeleteRequest) error {
+	m, err := s.roleRepository.FindOne(ctx, &dto.RoleFilter{IDs: []string{req.ID}})
+	if err != nil {
+		return response.ErrorConstant.NotFound.WithMessage("role not found")
+	}
+	if m.IsSystem {
+		return response.ErrorConstant.Forbidden.WithMessage("system roles cannot be deleted")
+	}
+	// user_roles.role_id is ON DELETE RESTRICT: report it instead of a DB error.
+	if used, err := s.userRoleRepository.Exists(ctx, &dto.UserRoleFilter{RoleIDs: []string{req.ID}}); err != nil {
+		return response.ErrorResponse(err)
+	} else if used {
+		return response.ErrorConstant.Duplicate.WithMessage("role is still assigned to users")
+	}
+	// Hard delete: role_permissions go with it (ON DELETE CASCADE).
+	if res := s.roleRepository.Delete(ctx, &dto.RoleFilter{IDs: []string{req.ID}}); res.Error != nil {
+		return response.ErrorResponse(res.Error)
+	}
+	s.authzService.InvalidateRoles(ctx, m.ID)
+	return nil
+}

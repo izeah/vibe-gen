@@ -1,0 +1,36 @@
+package role
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// FindByID returns a single role by ID.
+// @Summary     Get role by ID
+// @Tags        role
+// @Produce     json
+// @Param       id   path      string  true  "Role ID"
+// @Success     200  {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles/{id} [get]
+func (h *Handler) FindByID(c *fiber.Ctx) (err error) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.RoleFindByIDRequest)
+		data    *dto.RoleResponse
+	)
+	if err = c.ParamsParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = validator.Struct(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.RoleService.FindByID(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(data).Send(c)
+}

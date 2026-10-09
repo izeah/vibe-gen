@@ -1,0 +1,32 @@
+package middleware
+
+import (
+	"net/http"
+
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	serviceauthz "{{.ModuleName}}/internal/service/authz"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// RequirePermission allows the route only if one of the user's roles holds resource:action
+// (user_roles + role_permissions, cached in Redis) and records the granted scope ("any"/"own")
+// for the service (ctx.OwnerID). Must run after Authentication.
+func RequirePermission(authz serviceauthz.Service, resource, action string) fiber.Handler {
+	return func(c *fiber.Ctx) error {
+		ctx := abstraction.GetContext(c)
+		if ctx.Auth == nil {
+			return response.ErrorConstant.Unauthorized.Send(c)
+		}
+		scope, err := authz.Scope(ctx, ctx.Auth.ID, resource, action)
+		if err != nil {
+			return response.ErrorBuilder(http.StatusInternalServerError, err).Send(c)
+		}
+		if scope == "" {
+			return response.ErrorConstant.Forbidden.WithMessage("insufficient permissions").Send(c)
+		}
+		ctx.PermissionScope = scope
+		return c.Next()
+	}
+}

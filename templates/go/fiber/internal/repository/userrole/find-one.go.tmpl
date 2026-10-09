@@ -1,0 +1,22 @@
+package repositoryuserrole
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+
+	"gorm.io/gorm"
+)
+
+func (r *repository) FindOne(ctx *abstraction.Context, f *dto.UserRoleFilter) (data *model.UserRole, err error) {
+	err = r.CheckTrx(ctx).
+		Scopes(func(tx *gorm.DB) *gorm.DB {
+			tx = tx.Where("deleted_at IS NULL")
+			if f != nil {
+				return f.Apply(tx)
+			}
+			return tx
+		}).
+		Take(&data).Error
+	return
+}

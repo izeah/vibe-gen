@@ -4,8 +4,13 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/middleware"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
 	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
 )
 
 // Login authenticates a user and returns a token pair.
@@ -22,11 +27,21 @@ func (h *Handler) Login(c *fiber.Ctx) (err error) {
 		payload = new(dto.LoginRequest)
 		data    *dto.LoginResponse
 	)
+	cfg := config.App()
 	if err = c.BodyParser(payload); err != nil {
 		return response.ErrorBadRequest(err).Send(c)
 	}
+	if err = validator.Struct(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	payload.ClientIP = middleware.ClientIP(c) // set after binding so clients cannot supply it
 	if data, err = h.AuthService.Login(ctx, payload); err != nil {
 		return response.ErrorResponse(err).Send(c)
+	}
+	if cfg.AuthCookieMode {
+		_, refreshLifetime := authtoken.Lifetimes()
+		c.Append(fiber.HeaderSetCookie, authcookie.New(data.RefreshToken, refreshLifetime, cfg.BasePath).String())
+		data.RefreshToken = ""
 	}
 	return response.SuccessResponse(data).Send(c)
 }

@@ -17,6 +17,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
 )
 
 var tracer = otel.Tracer("{{.ModuleName}}/http")
@@ -25,7 +26,8 @@ const maxTraceBodyLen = 8192
 
 // Trace is an OpenTelemetry-based request tracing middleware.
 // It creates an OTel span per request, captures request/response headers,
-// query parameters, and bodies (JSON / form-data / urlencoded, with sensitive fields masked),
+// and — only when opentelemetry.capture_payload is enabled — query parameters and bodies
+// (JSON / form-data / urlencoded, with sensitive fields masked),
 // and records errors and HTTP status codes onto the span.
 func Trace() fiber.Handler {
 	return func(c *fiber.Ctx) error {
@@ -40,21 +42,28 @@ func Trace() fiber.Handler {
 
 		span.SetAttributes(
 			attribute.String("http.method", c.Method()),
-			attribute.String("http.url", c.OriginalURL()),
-			attribute.String("http.client_ip", c.IP()),
+			attribute.String("http.url", c.Path()),
+			attribute.String("http.client_ip", ClientIP(c)),
 			attribute.String("http.route", c.Route().Path),
 		)
 
+		// Payload (query + bodies) is captured only when opentelemetry.capture_payload is enabled
+		// (privacy-first: it may contain PII even after masking). Enable for local debugging only.
+		capture := config.Get().OpenTelemetry.CapturePayload
+
 		// 1. Request Query Parameters
-		rawQuery := string(c.Request().URI().QueryString())
-		if rawQuery != "" {
-			span.SetAttributes(attribute.String("http.request.query", rawQuery))
-		}
-		c.Context().QueryArgs().VisitAll(func(key, value []byte) {
-			if len(value) > 0 {
-				span.SetAttributes(attribute.String(fmt.Sprintf("http.request.query.%s", string(key)), string(value)))
+		var rawQuery string
+		if capture {
+			rawQuery = string(c.Request().URI().QueryString())
+			if rawQuery != "" {
+				span.SetAttributes(attribute.String("http.request.query", rawQuery))
 			}
-		})
+			c.Context().QueryArgs().VisitAll(func(key, value []byte) {
+				if len(value) > 0 {
+					span.SetAttributes(attribute.String(fmt.Sprintf("http.request.query.%s", string(key)), string(value)))
+				}
+			})
+		}
 
 		// 2. Request Headers (sanitized)
 		reqHeaders := make(map[string]interface{})
@@ -79,7 +88,10 @@ func Trace() fiber.Handler {
 		c.SetUserContext(ctx)
 
 		// 3. Request Body (JSON / form-data / urlencoded)
-		reqBody := c.Body()
+		var reqBody []byte
+		if capture {
+			reqBody = c.Body()
+		}
 		contentType := string(c.Request().Header.ContentType())
 		reqParsed, reqBodyStr := parseRequestBody(contentType, reqBody)
 		if reqBodyStr != "" {
@@ -89,11 +101,7 @@ func Trace() fiber.Handler {
 		defer func() {
 			if actxVal := c.Locals("auth"); actxVal != nil {
 				if actx, ok := actxVal.(*abstraction.AuthContext); ok {
-					span.SetAttributes(
-						attribute.String("user.id", actx.UserID),
-						attribute.String("user.email", actx.Email),
-						attribute.String("user.role", actx.Role),
-					)
+					span.SetAttributes(attribute.String("user.id", actx.UserID))
 				}
 			}
 
@@ -122,7 +130,11 @@ func Trace() fiber.Handler {
 			}
 
 			// 6. Response Body (sanitized)
-			resParsed, resBodyStr := parseResponseBody(c.Response().Body())
+			var resParsed interface{}
+			var resBodyStr string
+			if capture {
+				resParsed, resBodyStr = parseResponseBody(c.Response().Body())
+			}
 			if resBodyStr != "" {
 				span.SetAttributes(attribute.String("http.response.body", resBodyStr))
 			}
@@ -134,7 +146,7 @@ func Trace() fiber.Handler {
 				Str("method", c.Method()).
 				Str("path", c.Path()).
 				Int("status", statusCode).
-				Str("client_ip", c.IP())
+				Str("client_ip", ClientIP(c))
 
 			if rawQuery != "" {
 				logEvent = logEvent.Str("query", rawQuery)
@@ -198,6 +210,7 @@ func parseRequestBody(contentType string, body []byte) (interface{}, string) {
 	}
 
 	if strings.Contains(contentType, "json") || (len(body) > 0 && (body[0] == '{' || body[0] == '[')) {
+		// nosemgrep: go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface -- encoding/json into interface{} only builds maps/slices for masking; Go has no gadget deserialization
 		var result interface{}
 		if err := json.Unmarshal(body, &result); err == nil {
 			maskJSON(result)
@@ -281,6 +294,7 @@ func parseResponseBody(body []byte) (interface{}, string) {
 	if len(body) == 0 {
 		return nil, ""
 	}
+	// nosemgrep: go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface -- encoding/json into interface{} only builds maps/slices for masking; Go has no gadget deserialization
 	var result interface{}
 	if err := json.Unmarshal(body, &result); err == nil {
 		maskJSON(result)

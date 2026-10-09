@@ -7,7 +7,8 @@ import (
 )
 
 func (s *service) Delete(ctx *abstraction.Context, req *dto.SampleDeleteRequest) error {
-	if _, err := s.sampleRepository.FindOne(ctx, &dto.SampleFilter{IDs: []string{req.ID}}); err != nil {
+	// Rows of other users are "not found" (no existence leak) when the permission is "own".
+	if _, err := s.sampleRepository.FindOne(ctx, &dto.SampleFilter{IDs: []string{req.ID}, CreatedBy: ctx.OwnerID()}); err != nil {
 		return response.ErrorConstant.NotFound.WithMessage("sample not found")
 	}
 	if res := s.sampleRepository.SoftDelete(ctx, &dto.SampleFilter{IDs: []string{req.ID}}); res.Error != nil {

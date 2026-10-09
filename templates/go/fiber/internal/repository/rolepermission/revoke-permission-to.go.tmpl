@@ -1,0 +1,18 @@
+package repositoryrolepermission
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/model"
+)
+
+// RevokePermissionTo takes the permissions away from the role (hard delete).
+func (r *repository) RevokePermissionTo(ctx *abstraction.Context, roleID uuid.UUID, perms ...string) *gorm.DB {
+	if len(perms) == 0 {
+		return r.CheckTrx(ctx)
+	}
+	return r.CheckTrx(ctx).Where("role_id = ? AND permission IN ?", roleID, perms).Delete(&model.RolePermission{})
+}

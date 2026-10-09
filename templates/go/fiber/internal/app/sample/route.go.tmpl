@@ -1,12 +1,20 @@
 package sample
 
-import "github.com/gofiber/fiber/v2"
+import (
+	"github.com/gofiber/fiber/v2"
 
-// Route registers sample CRUD endpoints on the given fiber router.
+	"{{.ModuleName}}/internal/middleware"
+)
+
+// Route registers sample CRUD endpoints. Each needs a permission (roles/role_permissions);
+// with an ":own" grant the service limits the action to the user's own samples.
 func (h *Handler) Route(g fiber.Router) {
-	g.Get("", h.Find)
-	g.Get("/:id", h.FindByID)
-	g.Post("", h.Create)
-	g.Put("/:id", h.Update)
-	g.Delete("/:id", h.Delete)
+	can := func(action string) fiber.Handler {
+		return middleware.RequirePermission(h.AuthzService, "samples", action)
+	}
+	g.Get("", can("read"), h.Find)
+	g.Get("/:id", can("read"), h.FindByID)
+	g.Post("", can("create"), h.Create)
+	g.Put("/:id", can("update"), h.Update)
+	g.Delete("/:id", can("delete"), h.Delete)
 }

@@ -1,13 +1,20 @@
 package dto
 
 import (
-	"fmt"
-
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"{{.ModuleName}}/internal/abstraction"
 )
+
+// sampleSortColumns is the ORDER BY allowlist for SampleFilter (API field → DB column).
+var sampleSortColumns = abstraction.SortColumns{
+	"id":         "samples.id",
+	"name":       "samples.name",
+	"status":     "samples.status",
+	"created_at": "samples.created_at",
+	"updated_at": "samples.updated_at",
+}
 
 // SampleFilter is the query filter for listing samples.
 type SampleFilter struct {
@@ -16,6 +23,7 @@ type SampleFilter struct {
 	IDs       []string               `json:"ids"             query:"ids"`
 	Name      string                 `json:"name"            query:"name"`
 	Status    string                 `json:"status"          query:"status"`
+	CreatedBy string                 `json:"-" query:"-"` // set by the service for "own" permissions, never bound
 	ForCount  bool                   `json:"-"`
 	ForUpdate bool                   `json:"-"`
 	clauses   []clause.Expression
@@ -60,24 +68,20 @@ func (f *SampleFilter) Apply(tx *gorm.DB) *gorm.DB {
 	if f.Status != "" {
 		tx = tx.Where("samples.status = ?", f.Status)
 	}
+	if f.CreatedBy != "" {
+		tx = tx.Where("samples.created_by = ?", f.CreatedBy)
+	}
 	for _, c := range f.clauses {
 		tx = tx.Clauses(c)
 	}
 	for _, s := range f.scopes {
 		tx = tx.Scopes(s)
 	}
-	for _, s := range f.Sorts {
-		if s.Field != "" {
-			order := s.Order
-			if order == "" {
-				order = "asc"
-			}
-			tx = tx.Order(fmt.Sprintf("%s %s", s.Field, order))
-		}
-	}
+	tx = sampleSortColumns.Apply(tx, f.Sorts...)
 	if !f.ForCount && !f.ForUpdate {
 		tx.Select("samples.*")
 		if f.Pagination != nil {
+			tx = sampleSortColumns.Apply(tx, f.Pagination.SortItems()...)
 			f.Pagination.Apply(tx)
 		}
 	}
@@ -87,12 +91,12 @@ func (f *SampleFilter) Apply(tx *gorm.DB) *gorm.DB {
 
 // SampleFindByIDRequest is the payload for finding a sample by ID.
 type SampleFindByIDRequest struct {
-	ID string `params:"id" json:"id" validate:"required"`
+	ID string `params:"id" json:"-" validate:"required,uuid"`
 }
 
 // SampleDeleteRequest is the payload for deleting a sample by ID.
 type SampleDeleteRequest struct {
-	ID string `params:"id" json:"id" validate:"required"`
+	ID string `params:"id" json:"-" validate:"required,uuid"`
 }
 
 // SampleCreateRequest is the payload for creating a sample.
@@ -103,7 +107,7 @@ type SampleCreateRequest struct {
 
 // SampleUpdateRequest is the payload for updating a sample.
 type SampleUpdateRequest struct {
-	ID          string `params:"id" json:"id" validate:"required"`
+	ID          string `params:"id" json:"-" validate:"required,uuid"`
 	Name        string `json:"name"        validate:"omitempty,min=1,max=100"`
 	Description string `json:"description" validate:"omitempty,max=500"`
 }

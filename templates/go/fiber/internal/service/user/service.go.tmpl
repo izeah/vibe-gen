@@ -1,11 +1,20 @@
 package serviceuser
 
 import (
+	"time"
+	"uuid"
+
+	"gorm.io/gorm"
+
 	"{{.ModuleName}}/internal/abstraction"
 	"{{.ModuleName}}/internal/dto"
 	"{{.ModuleName}}/internal/factory"
 	"{{.ModuleName}}/internal/model"
+	repositoryrole "{{.ModuleName}}/internal/repository/role"
 	repositoryuser "{{.ModuleName}}/internal/repository/user"
+	repositoryuserrole "{{.ModuleName}}/internal/repository/userrole"
+	serviceauthz "{{.ModuleName}}/internal/service/authz"
+	"{{.ModuleName}}/pkg/trxmanager"
 )
 
 // Service defines user management business logic.
@@ -14,13 +23,53 @@ type Service interface {
 	FindByEmail(ctx *abstraction.Context, email string) (*model.User, error)
 	Create(ctx *abstraction.Context, req *dto.UserCreateRequest) (*dto.UserResponse, error)
 	Update(ctx *abstraction.Context, req *dto.UserUpdateRequest) (*dto.UserResponse, error)
+	SetRoles(ctx *abstraction.Context, req *dto.UserSetRolesRequest) (*dto.UserResponse, error)
 }
 
 type service struct {
-	userRepository repositoryuser.Repository
+	userRepository     repositoryuser.Repository
+	roleRepository     repositoryrole.Repository
+	userRoleRepository repositoryuserrole.Repository
+	authzService       serviceauthz.Service
+	trxManager         *trxmanager.TrxManager
 }
 
 // New creates a new user Service.
 func New(f *factory.Factory) Service {
-	return &service{userRepository: f.UserRepository}
+	return &service{
+		userRepository:     f.UserRepository,
+		roleRepository:     f.RoleRepository,
+		userRoleRepository: f.UserRoleRepository,
+		authzService:       serviceauthz.New(f),
+		trxManager:         f.TrxManager,
+	}
+}
+
+// withRoles preloads User.Roles (ordered by code) on a UserFilter query.
+func (s *service) withRoles(tx *gorm.DB) *gorm.DB {
+	return tx.Preload("Roles", func(db *gorm.DB) *gorm.DB { return db.Order("roles.code") })
+}
+
+func (s *service) toUserResponse(m *model.User) *dto.UserResponse {
+	r := &dto.UserResponse{
+		ID:        m.ID.String(),
+		Name:      m.Name,
+		Email:     m.Email,
+		Roles:     make([]*dto.UserRoleResponse, len(m.Roles)),
+		CreatedAt: time.Unix(0, m.CreatedAt).UTC().Format(time.RFC3339),
+	}
+	for i, role := range m.Roles {
+		r.Roles[i] = &dto.UserRoleResponse{ID: role.ID.String(), Code: role.Code, Name: role.Name}
+	}
+	if m.UpdatedAt != nil {
+		r.UpdatedAt = time.Unix(0, *m.UpdatedAt).UTC().Format(time.RFC3339)
+	}
+	if m.CreatedBy != uuid.Nil() {
+		r.CreatedBy = m.CreatedBy.String()
+	}
+	if m.UpdatedBy != nil {
+		upd := m.UpdatedBy.String()
+		r.UpdatedBy = &upd
+	}
+	return r
 }

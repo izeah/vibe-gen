@@ -1,0 +1,41 @@
+package model
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// RoleEntity contains the domain-specific attributes of Role.
+type RoleEntity struct {
+	Code        string `gorm:"column:code;not null;unique"             json:"code"` // stable handle, never updated
+	Name        string `gorm:"column:name;not null"                    json:"name"`
+	Description string `gorm:"column:description;not null;default:''"  json:"description"`
+	IsSystem    bool   `gorm:"column:is_system;not null;default:false" json:"is_system"`
+}
+
+// Role is a named set of permissions; users hold roles through user_roles.
+type Role struct {
+	abstraction.Entity
+	RoleEntity
+
+	// context
+	Context *abstraction.Context `json:"-" gorm:"-"`
+}
+
+// TableName returns the database table name.
+func (Role) TableName() string {
+	return "roles"
+}
+
+// BeforeCreate sets UUIDv7, timestamps and the audit creator.
+func (m *Role) BeforeCreate(_ *gorm.DB) error {
+	m.SetupBeforeCreate(m.Context)
+	return nil
+}
+
+// BeforeUpdate sets updated_at (UnixNano) and updated_by.
+func (m *Role) BeforeUpdate(_ *gorm.DB) error {
+	m.SetupBeforeUpdate(m.Context)
+	return nil
+}

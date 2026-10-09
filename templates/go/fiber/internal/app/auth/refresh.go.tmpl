@@ -4,8 +4,12 @@ import (
 	"github.com/gofiber/fiber/v2"
 
 	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/dto"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
 	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
 )
 
 // Refresh exchanges a valid refresh token for a new token pair.
@@ -22,11 +26,23 @@ func (h *Handler) Refresh(c *fiber.Ctx) (err error) {
 		payload = new(dto.RefreshRequest)
 		data    *dto.LoginResponse
 	)
-	if err = c.BodyParser(payload); err != nil {
+	cfg := config.App()
+	// Cookie mode reads the refresh token from the HttpOnly cookie, never from the body.
+	if cfg.AuthCookieMode {
+		payload.RefreshToken = c.Cookies(authcookie.Name)
+	} else if err = c.BodyParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = validator.Struct(payload); err != nil {
 		return response.ErrorBadRequest(err).Send(c)
 	}
 	if data, err = h.AuthService.Refresh(ctx, payload); err != nil {
 		return response.ErrorResponse(err).Send(c)
+	}
+	if cfg.AuthCookieMode {
+		_, refreshLifetime := authtoken.Lifetimes()
+		c.Append(fiber.HeaderSetCookie, authcookie.New(data.RefreshToken, refreshLifetime, cfg.BasePath).String())
+		data.RefreshToken = ""
 	}
 	return response.SuccessResponse(data).Send(c)
 }

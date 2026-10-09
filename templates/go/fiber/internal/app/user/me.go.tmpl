@@ -1,0 +1,25 @@
+package user
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Me returns the authenticated user's own profile.
+// @Summary     Get current user
+// @Tags        user
+// @Produce     json
+// @Success     200  {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/users/me [get]
+func (h *Handler) Me(c *fiber.Ctx) error {
+	ctx := abstraction.GetContext(c)
+	data, err := h.UserService.FindByID(ctx, &dto.UserFindByIDRequest{ID: ctx.Auth.UserID})
+	if err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(data).Send(c)
+}

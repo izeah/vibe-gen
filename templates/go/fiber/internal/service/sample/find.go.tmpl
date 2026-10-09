@@ -10,6 +10,7 @@ import (
 )
 
 func (s *service) Find(ctx *abstraction.Context, f *dto.SampleFilter) ([]*dto.SampleResponse, *abstraction.PaginationInfo, error) {
+	f.CreatedBy = ctx.OwnerID() // "own" permission: list only the user's rows
 	count, err := s.sampleRepository.Count(ctx, f)
 	if err != nil {
 		return nil, nil, response.ErrorResponse(err)

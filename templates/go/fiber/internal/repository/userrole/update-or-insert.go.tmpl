@@ -1,0 +1,47 @@
+package repositoryuserrole
+
+import (
+	"time"
+	"uuid"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) UpdateOrInsert(ctx *abstraction.Context, e []*model.UserRole) *gorm.DB {
+	now := time.Now().UnixNano()
+	var uid *uuid.UUID
+	if ctx != nil && ctx.Auth != nil {
+		if ctx.Auth.ID != uuid.Nil() {
+			uid = &ctx.Auth.ID
+		} else if ctx.Auth.UserID != "" {
+			if parsed, err := uuid.Parse(ctx.Auth.UserID); err == nil {
+				uid = &parsed
+			}
+		}
+	}
+	for _, item := range e {
+		if item.ID == uuid.Nil() {
+			item.ID = uuid.NewV7()
+		}
+		if item.CreatedAt == 0 {
+			item.CreatedAt = now
+			if uid != nil && item.CreatedBy == uuid.Nil() {
+				item.CreatedBy = *uid
+			}
+		}
+		item.UpdatedAt = &now
+		if uid != nil {
+			item.UpdatedBy = uid
+		}
+	}
+	return r.CheckTrx(ctx).Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "id"},
+		},
+		DoUpdates: clause.AssignmentColumns([]string{"user_id", "role_id", "updated_at", "updated_by"}),
+	}).Create(&e)
+}

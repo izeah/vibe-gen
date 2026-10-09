@@ -36,23 +36,21 @@ DOCKER_REGISTRY_HOST ?= local
 # -------------------------------------------------------------------
 # Tool versions — keep in sync with .gitlab-ci.yml variables block
 # -------------------------------------------------------------------
-GOLANGCI_LINT_VERSION ?= 2.12.2
-GOSEC_VERSION         ?= v2.26.1
-GOVULNCHECK_VERSION   ?= v1.3.0
-GOIMPORTS_VERSION     ?= v0.45.0
+GOLANGCI_LINT_VERSION ?= 2.14.0
+GOSEC_VERSION         ?= v2.29.0
+GOVULNCHECK_VERSION   ?= v1.8.0
+GOIMPORTS_VERSION     ?= v0.51.0
 
 CI_IMAGE ?= $(DOCKER_REGISTRY_HOST)/ci-tools:latest
 
+# config.yml wins; an empty value keeps DB_* from .env / the environment (same precedence as the app).
 define load_db_env
   _cfg="$(CONFIG_FILE)"; \
   if [ ! -f "$$_cfg" ]; then echo "ERROR: config file '$$_cfg' not found"; exit 1; fi; \
   _yv() { grep -A 20 "^$$1:" "$$_cfg" | grep "^[[:space:]]*$$2:" | head -1 | sed 's/.*:[[:space:]]*//' | tr -d '"' | sed 's/[[:space:]]*#.*//' | tr -d '\r'; }; \
-  DB_HOST=$$(_yv db host); \
-  DB_USER=$$(_yv db username); \
-  DB_PASS=$$(_yv db password); \
-  DB_PORT=$$(_yv db port); \
-  DB_NAME=$$(_yv db name_db); \
-  DB_SSLMODE=$$(_yv db sslmode); \
+  _set() { _v=$$(_yv db $$2); if [ -n "$$_v" ]; then eval "$$1=\$$_v"; fi; }; \
+  _set DB_HOST host; _set DB_USER username; _set DB_PASS password; \
+  _set DB_PORT port; _set DB_NAME name_db; _set DB_SSLMODE sslmode; \
   if [ -z "$$DB_HOST" ]; then echo "ERROR: db.host is empty in $$_cfg"; exit 1; fi; \
   if [ -z "$$DB_NAME" ]; then echo "ERROR: db.name_db is empty in $$_cfg"; exit 1; fi; \
   echo "Config: $$_cfg | host=$$DB_HOST port=$$DB_PORT db=$$DB_NAME sslmode=$$DB_SSLMODE";
@@ -73,7 +71,7 @@ define load_env
 endef
 
 .PHONY: help run build swag tidy \
-	check-tools install-tools build-ci-image lint fmt fmt-check imports-check gosec gosec-json precommit prepush \
+	check-tools install-tools build-ci-image lint fmt fmt-check imports-check gosec gosec-json vuln sast precommit prepush \
 	migrate-create migrate-up migrate-down migrate-down-all migrate-version migrate-force \
 	pg-start pg-stop pg-clean pg-init-schema pg-copy-from redis-start redis-stop redis-clean \
 	gen-keys \
@@ -88,6 +86,7 @@ help:
 	@echo "  tidy             Run go mod tidy"
 	@echo "  swag             Generate Swagger docs"
 	@echo "  gen-keys         Generate RSA PEM keys for JWT (./secret-auth/)"
+	@echo "  create-admin     Create the first admin: make create-admin EMAIL=admin@example.com"
 	@echo ""
 	@echo "Testing & Coverage (Makefile.Common):"
 	@echo "  test             Run unit tests"
@@ -111,8 +110,10 @@ help:
 	@echo "  imports-check    Check imports formatting"
 	@echo "  gosec            Run security scanner"
 	@echo "  gosec-json       Run security scanner (JSON output)"
+	@echo "  vuln             Scan dependencies for known vulnerabilities (govulncheck)"
+	@echo "  sast             Static security analysis (Semgrep, p/default rules)"
 	@echo "  precommit        Run all fast checks (tools, tidy, fmt, lint, cover)"
-	@echo "  prepush          Run precommit + race tests + security scanner"
+	@echo "  prepush          Run precommit + race tests + security & vulnerability scanners"
 	@echo ""
 	@echo "Tools & CI:"
 	@echo "  check-tools      Verify installed tool versions against pinned"
@@ -274,6 +275,13 @@ gosec-json:
 gosec:
 	gosec -exclude-dir=cryptoutil -exclude-generated -tests=false -fmt=text ./...
 
+vuln:
+	govulncheck ./...
+
+# Semgrep SAST with the public registry rules, no account needed (brew install semgrep, or pipx install semgrep).
+sast:
+	semgrep scan --config p/default --error --metrics=off
+
 tidy:
 	go mod tidy
 
@@ -283,7 +291,7 @@ tidy:
 precommit: check-tools tidy fmt-check imports-check lint test-cover cover-check
 	@echo "✓ All checks passed — safe to commit"
 
-prepush: precommit test-race gosec
+prepush: precommit test-race gosec vuln sast
 	@echo "✓ Ready to push"
 
 # -------------------------------------------------------------------
@@ -298,22 +306,22 @@ migrate-create:
 
 migrate-up:
 	@$(load_env) \
-	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	echo "ENV=$(ENV) | File=$(ENV_FILE)"; \
 	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" up
 
 migrate-down:
 	@$(load_env) \
-	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	echo "ENV=$(ENV) | File=$(ENV_FILE)"; \
 	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" down 1
 
 migrate-down-all:
 	@$(load_env) \
-	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	echo "ENV=$(ENV) | File=$(ENV_FILE)"; \
 	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" down -all
 
 migrate-version:
 	@$(load_env) \
-	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	echo "ENV=$(ENV) | File=$(ENV_FILE)"; \
 	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" version
 
 migrate-force:
@@ -321,7 +329,7 @@ migrate-force:
 		echo "Usage: make migrate-force VERSION=<version>"; exit 1; \
 	fi
 	@$(load_env) \
-	echo "ENV=$(ENV) | File=$(ENV_FILE) | DB=$${DATABASE_URL}"; \
+	echo "ENV=$(ENV) | File=$(ENV_FILE)"; \
 	$(MIGRATE_BIN) -path $(MIGRATE_DIR) -database "$${DATABASE_URL}" force $(VERSION)
 
 # -------------------------------------------------------------------
@@ -331,11 +339,11 @@ pg-start:
 	@if docker ps -a --format '{{"{{"}}{{".Names"}}{{"}}"}}' | grep -q '^$(POSTGRES_CONTAINER)$$'; then \
 	  docker start $(POSTGRES_CONTAINER); \
 	else \
-	  docker run -d --name $(POSTGRES_CONTAINER) -p $(POSTGRES_PORT):5432 \
+	  docker run -d --name $(POSTGRES_CONTAINER) -p 127.0.0.1:$(POSTGRES_PORT):5432 \
 	    -e POSTGRES_USER=$(POSTGRES_USER) \
 	    -e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) \
 	    -e POSTGRES_DB=$(POSTGRES_DB) \
-	    -v $(POSTGRES_VOLUME):/var/lib/postgresql/data \
+	    -v $(POSTGRES_VOLUME):/var/lib/postgresql \
 	    postgres:18; \
 	fi
 	@echo "PostgreSQL ready on port $(POSTGRES_PORT)"
@@ -356,13 +364,15 @@ pg-init-schema:
 
 pg-copy-from:
 	@$(load_db_env) \
+	dump=$$(umask 077; mktemp "$${TMPDIR:-/tmp}/{{.ProjectSlug}}_dump.XXXXXX") || exit 1; \
+	trap 'rm -f "$$dump"' EXIT; \
 	echo "Dumping from: $$DB_USER@$$DB_HOST:$$DB_PORT/$$DB_NAME"; \
-	PGPASSWORD="$$DB_PASS" pg_dump -h "$$DB_HOST" -p "$$DB_PORT" -U "$$DB_USER" -d "$$DB_NAME" -n public --no-comments -Fc -f /tmp/{{.ProjectSlug}}_dump.dump; \
-	PGPASSWORD=$(POSTGRES_PASSWORD) psql -h localhost -p $(POSTGRES_PORT) -U $(POSTGRES_USER) -d $(POSTGRES_DB) -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";"; \
-	PGPASSWORD=$(POSTGRES_PASSWORD) pg_restore -h localhost -p $(POSTGRES_PORT) -U $(POSTGRES_USER) -d $(POSTGRES_DB) --no-owner --no-privileges --no-comments -n public /tmp/{{.ProjectSlug}}_dump.dump
+	PGPASSWORD="$$DB_PASS" pg_dump -h "$$DB_HOST" -p "$$DB_PORT" -U "$$DB_USER" -d "$$DB_NAME" -n public --no-comments -Fc -f "$$dump" && \
+	PGPASSWORD=$(POSTGRES_PASSWORD) psql -h localhost -p $(POSTGRES_PORT) -U $(POSTGRES_USER) -d $(POSTGRES_DB) -c "DROP SCHEMA IF EXISTS public CASCADE; CREATE SCHEMA public; CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\";" && \
+	PGPASSWORD=$(POSTGRES_PASSWORD) pg_restore -h localhost -p $(POSTGRES_PORT) -U $(POSTGRES_USER) -d $(POSTGRES_DB) --no-owner --no-privileges --no-comments -n public "$$dump"
 
 redis-start:
-	@if docker ps -a --format '{{"{{"}}{{".Names"}}{{"}}"}}' | grep -q '^$(REDIS_CONTAINER)$$'; then docker start $(REDIS_CONTAINER); else docker run -d --name $(REDIS_CONTAINER) -p $(REDIS_PORT):6379 -v $(REDIS_VOLUME):/data redis:7; fi
+	@if docker ps -a --format '{{"{{"}}{{".Names"}}{{"}}"}}' | grep -q '^$(REDIS_CONTAINER)$$'; then docker start $(REDIS_CONTAINER); else docker run -d --name $(REDIS_CONTAINER) -p 127.0.0.1:$(REDIS_PORT):6379 -v $(REDIS_VOLUME):/data redis:7; fi
 	@echo "Redis ready on port $(REDIS_PORT)"
 
 redis-stop:
@@ -372,6 +382,15 @@ redis-clean:
 	@docker rm -f $(REDIS_CONTAINER) 2>/dev/null || true
 	@docker volume rm $(REDIS_VOLUME) 2>/dev/null || true
 	@echo "Removed container + volume $(REDIS_CONTAINER)"
+
+# -------------------------------------------------------------------
+# First admin account (password read from the terminal, not echoed)
+# -------------------------------------------------------------------
+.PHONY: create-admin
+create-admin:
+	@if [ -z "$(EMAIL)" ]; then echo "Usage: make create-admin EMAIL=admin@example.com"; exit 1; fi
+	@trap 'stty echo 2>/dev/null' EXIT; trap 'exit 130' INT TERM; stty -echo 2>/dev/null; printf "Password (8-72 bytes): "; IFS= read -r PW; stty echo 2>/dev/null; echo; \
+	printf '%s\n' "$$PW" | go run scripts/create_admin.go -email "$(EMAIL)"
 
 # -------------------------------------------------------------------
 # JWT Key Generation (pure Go, no openssl required)

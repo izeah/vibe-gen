@@ -6,27 +6,34 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 )
 
+// Token types. Access tokens authorize API calls; refresh tokens are only accepted by
+// /auth/refresh and /auth/logout. ClaimsFrom*Token rejects a token of the wrong type.
+const (
+	TypeAccess  = "access"
+	TypeRefresh = "refresh"
+)
+
+// CustomClaims carries no PII: users are identified by the UUID in `sub` only.
 type CustomClaims struct {
 	PartnerId string `json:"partnerId,omitempty"`
-	Email     string `json:"email,omitempty"`
-	Role      string `json:"role,omitempty"`
+	Type      string `json:"typ"`
+	FamilyId  string `json:"fid,omitempty"` // refresh rotation family (refresh tokens only)
 
 	jwt.RegisteredClaims
 }
 
+// AddtionalClaims are the inputs for New. Issuer, issue time and expiry come from the config.
 type AddtionalClaims struct {
-	TokenId string
-	UserId  string
-	Email   string
-	Role    string
-
-	PartnerId string
-
-	Issuer    string
-	ExpiredAt time.Time
-	IssuedAt  time.Time
+	TokenId        string // access token jti
+	RefreshTokenId string // refresh token jti (registered in the refresh family store)
+	UserId         string
+	PartnerId      string
+	FamilyId       string // refresh rotation family
 }
 
+// AuthToken holds the claims of one login/refresh; AccessToken and RefreshToken sign them.
 type AuthToken struct {
-	token *jwt.Token
+	token          *jwt.Token
+	refreshTokenId string
+	issuedAt       time.Time
 }

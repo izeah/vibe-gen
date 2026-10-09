@@ -5,6 +5,7 @@ import (
 	"uuid"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"{{.ModuleName}}/internal/abstraction"
 	"{{.ModuleName}}/internal/dto"
@@ -28,7 +29,8 @@ func (r *repository) Update(ctx *abstraction.Context, f *dto.UserFilter, e *mode
 			}
 		}
 	}
-	return r.CheckTrx(ctx).Model(&model.User{}).
+	// Omit associations: User.Roles is read-only here (repositoryuserrole writes user_roles).
+	return r.CheckTrx(ctx).Model(&model.User{}).Omit(clause.Associations).
 		Scopes(func(tx *gorm.DB) *gorm.DB {
 			if f != nil {
 				f.ForUpdate = true

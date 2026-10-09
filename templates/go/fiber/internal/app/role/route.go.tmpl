@@ -1,0 +1,18 @@
+package role
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/middleware"
+)
+
+// Route registers role management endpoints; every one needs roles:manage.
+func (h *Handler) Route(g fiber.Router) {
+	manage := middleware.RequirePermission(h.AuthzService, "roles", "manage")
+	g.Get("", manage, h.Find)
+	g.Get("/:id", manage, h.FindByID)
+	g.Post("", manage, h.Create)
+	g.Put("/:id", manage, h.Update)
+	g.Put("/:id/permissions", manage, h.SetPermissions)
+	g.Delete("/:id", manage, h.Delete)
+}

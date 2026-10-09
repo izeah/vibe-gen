@@ -6,6 +6,7 @@ import (
 	"{{.ModuleName}}/internal/abstraction"
 	"{{.ModuleName}}/internal/dto"
 	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
 )
 
 // Update updates an existing sample.
@@ -28,6 +29,9 @@ func (h *Handler) Update(c *fiber.Ctx) (err error) {
 		return response.ErrorBadRequest(err).Send(c)
 	}
 	if err = c.ParamsParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = validator.Struct(payload); err != nil {
 		return response.ErrorBadRequest(err).Send(c)
 	}
 	if data, err = h.SampleService.Update(ctx, payload); err != nil {

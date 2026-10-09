@@ -1,0 +1,19 @@
+package repositoryrole
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) IDs(ctx *abstraction.Context, f *dto.RoleFilter) (data []string, err error) {
+	err = r.CheckTrx(ctx).Model(&model.Role{}).Scopes(func(tx *gorm.DB) *gorm.DB {
+		if f != nil {
+			return f.Apply(tx).Select("roles.id")
+		}
+		return tx.Select("roles.id")
+	}).Pluck("roles.id", &data).Error
+	return
+}

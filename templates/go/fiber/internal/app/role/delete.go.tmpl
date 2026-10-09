@@ -1,0 +1,34 @@
+package role
+
+import (
+	"github.com/gofiber/fiber/v2"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// Delete removes a role by ID.
+// @Summary     Delete role
+// @Tags        role
+// @Param       id   path      string  true  "Role ID"
+// @Success     200  {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles/{id} [delete]
+func (h *Handler) Delete(c *fiber.Ctx) (err error) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.RoleDeleteRequest)
+	)
+	if err = c.ParamsParser(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = validator.Struct(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = h.RoleService.Delete(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(nil).Send(c)
+}
