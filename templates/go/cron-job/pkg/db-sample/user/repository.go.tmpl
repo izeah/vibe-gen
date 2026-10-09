@@ -2,7 +2,7 @@ package user
 
 import (
 	"context"
-	"fmt"
+	"strings"
 	"time"
 	"uuid"
 
@@ -139,13 +139,10 @@ func (f *Filter) Apply(tx *gorm.DB) *gorm.DB {
 	for _, s := range f.scopes {
 		tx = tx.Scopes(s)
 	}
+	// Sorts are set by code (no user input). If they ever come from input, map them through an allowlist first.
 	for _, s := range f.Sorts {
 		if s.Field != "" {
-			order := s.Order
-			if order == "" {
-				order = "asc"
-			}
-			tx = tx.Order(fmt.Sprintf("%s %s", s.Field, order))
+			tx = tx.Order(clause.OrderByColumn{Column: clause.Column{Name: s.Field}, Desc: strings.EqualFold(s.Order, "desc")})
 		}
 	}
 	return tx

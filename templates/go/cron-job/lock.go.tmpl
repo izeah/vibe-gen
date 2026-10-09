@@ -1,0 +1,47 @@
+package main
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"time"
+
+	"github.com/bsm/redislock"
+
+	"{{.ModuleName}}/internal/config"
+)
+
+// lockCooldown: after a run the lock is kept this long instead of released, so an instance whose
+// clock is a little late for the same tick still sees it and skips: one tick runs once across
+// instances. Schedules must be further apart than the job's duration plus this cooldown.
+const lockCooldown = 5 * time.Second
+
+// locked runs job only if no other instance holds its Redis lock (cron:lock:<name>). ttl must
+// exceed the job's worst-case duration: the lock is not renewed while the job runs, and the TTL
+// frees it if a worker dies.
+// ponytail: no renewal heartbeat; add one (lock.Refresh in a ticker) if a job can outlive its TTL.
+func locked(name string, ttl time.Duration, job func(ctx context.Context) error) func() {
+	return func() {
+		ctx := context.Background()
+		lock, err := config.Redis().Obtain(ctx, "cron:lock:"+name, ttl, nil)
+		if errors.Is(err, redislock.ErrNotObtained) {
+			fmt.Printf("%s: skipped, running on another instance\n", name)
+			return
+		}
+		if err != nil {
+			// Fail closed: without the lock two instances could run the job at once.
+			fmt.Fprintf(os.Stderr, "%s: lock unavailable, skipped: %v\n", name, err)
+			return
+		}
+		defer func() {
+			// Owner-checked: shortens only this run's lock (it may have expired and been taken over).
+			if err := lock.Refresh(ctx, lockCooldown, nil); err != nil && !errors.Is(err, redislock.ErrNotObtained) {
+				fmt.Fprintf(os.Stderr, "%s: lock release failed (the TTL frees it): %v\n", name, err)
+			}
+		}()
+		if err := job(ctx); err != nil {
+			fmt.Fprintf(os.Stderr, "%s: job error: %v\n", name, err)
+		}
+	}
+}

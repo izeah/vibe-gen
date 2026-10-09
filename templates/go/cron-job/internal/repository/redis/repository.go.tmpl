@@ -1,0 +1,21 @@
+package redis
+
+import "github.com/redis/go-redis/v9"
+
+// Repository groups the Redis-backed repositories injected through the factory.
+type Repository struct {
+	Otp          OtpRepository
+	RateLimit    RateLimitRepository
+	Cooldown     CooldownRepository
+	RefreshToken RefreshTokenRepository
+}
+
+// New wires all Redis repositories to a single client.
+func New(client *redis.Client) Repository {
+	return Repository{
+		Otp:          NewOtp(client),
+		RateLimit:    NewRateLimit(client),
+		Cooldown:     NewCooldown(client),
+		RefreshToken: NewRefreshToken(client),
+	}
+}
