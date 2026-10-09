@@ -3,27 +3,27 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
+    "dev": "nuxt dev --port 3001",
     "build": "nuxt build",
-    "dev": "nuxt dev",
-    "generate": "nuxt generate",
-    "preview": "nuxt preview",
-    "postinstall": "nuxt prepare",
-    "lint": "eslint .",
-    "test": "vitest run"
+    "start": "PORT=3001 node --env-file-if-exists=.env .output/server/index.mjs",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
-    "nuxt": "^3.15.4",
-    "@pinia/nuxt": "^0.10.1",
-    "pinia": "^2.3.1",
-    "axios": "^1.8.4"
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "@nuxt/devtools": "latest",
-    "typescript": "^5.7.2",
-    "vue": "^3.5.13",
-    "vue-router": "^4.5.0",
-    "vitest": "^3.0.7",
-    "eslint": "^9.22.0"
+    "@biomejs/biome": "2.5.15",
+    "@playwright/test": "1.63.0",
+    "nuxt": "4.5.2",
+    "vitest": "5.0.3",
+    "vue": "3.5.43",
+    "vue-router": "5.3.1"
   }
 }

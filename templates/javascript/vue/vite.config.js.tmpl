@@ -1,0 +1,7 @@
+import vue from "@vitejs/plugin-vue";
+import { defineConfig, mergeConfig } from "vite";
+import { sharedConfig } from "./vite.shared.js";
+
+export default defineConfig(({ mode }) =>
+  mergeConfig(sharedConfig(mode), { plugins: [vue()] }),
+);

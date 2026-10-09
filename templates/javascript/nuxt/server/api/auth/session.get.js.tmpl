@@ -1,0 +1,3 @@
+import { session } from "../../../src/server/bff/handlers.js";
+
+export default defineEventHandler((event) => session(toWebRequest(event)));

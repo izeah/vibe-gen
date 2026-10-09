@@ -1,0 +1,19 @@
+// Security headers for every response; the CSP (with a per-request nonce) is set by
+// server/plugins/csp.
+const securityHeaders = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Strict-Transport-Security": "max-age=31536000",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
+
+export default defineNuxtConfig({
+  compatibilityDate: "2026-10-01",
+  devtools: { enabled: false },
+  telemetry: false,
+  css: ["~/styles/globals.css"],
+  app: { head: { title: "{{.ProjectTitle}}", htmlAttrs: { lang: "en" } } },
+  routeRules: { "/**": { headers: securityHeaders } },
+  devServer: { port: 3001 },
+});

@@ -1,0 +1,57 @@
+<script setup>
+import { useQuery, useQueryClient } from "@tanstack/vue-query";
+import { computed, ref, watch } from "vue";
+import { useRouter } from "vue-router";
+import { ApiError, api, logout } from "../lib/auth.js";
+
+// A protected page: api() attaches the in-memory access token and refreshes it on 401.
+const router = useRouter();
+const queryClient = useQueryClient();
+const signOutError = ref("");
+const { data, error, isPending, isError } = useQuery({
+  queryKey: ["users", "me"],
+  queryFn: () => api("/v1/users/me"),
+  retry: false,
+});
+const unauthorized = computed(
+  () => error.value instanceof ApiError && error.value.status === 401,
+);
+watch(unauthorized, (yes) => {
+  if (yes) void router.replace("/login");
+});
+
+async function signOut() {
+  try {
+    await logout();
+  } catch {
+    // The session may still be alive on the server: say so instead of pretending.
+    signOutError.value =
+      "Could not sign out. Check your connection and try again.";
+    return;
+  }
+  queryClient.clear(); // no cached profile for the next user of this browser
+  await router.replace("/login");
+}
+</script>
+
+<template>
+  <main>
+    <section class="card stack" :aria-busy="isPending">
+      <h1>Dashboard</h1>
+      <p v-if="isPending">Loading your profile…</p>
+      <p v-if="isError && !unauthorized" class="error" role="alert">
+        Could not load your profile. Try again later.
+      </p>
+      <dl v-if="data" class="profile">
+        <dt>Name</dt>
+        <dd v-text="data.name" />
+        <dt>Email</dt>
+        <dd v-text="data.email" />
+        <dt>Roles</dt>
+        <dd v-text="data.roles.map((r) => r.name).join(', ')" />
+      </dl>
+      <p v-if="signOutError" class="error" role="alert" v-text="signOutError" />
+      <button type="button" @click="signOut">Sign out</button>
+    </section>
+  </main>
+</template>

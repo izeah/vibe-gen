@@ -1,0 +1,29 @@
+import Document, { Head, Html, Main, NextScript } from "next/document";
+import { themeFromCookieHeader } from "../lib/theme.js";
+
+// The CSP nonce comes from src/proxy (x-nonce request header) and is applied to every script.
+// The theme cookie is allowlisted to light|dark before it becomes the data-theme attribute.
+export default class AppDocument extends Document {
+  static async getInitialProps(ctx) {
+    const initial = await Document.getInitialProps(ctx);
+    const nonce = ctx.req?.headers["x-nonce"];
+    return {
+      ...initial,
+      nonce: typeof nonce === "string" ? nonce : undefined,
+      theme: themeFromCookieHeader(ctx.req?.headers.cookie),
+    };
+  }
+
+  render() {
+    const { nonce, theme } = this.props;
+    return (
+      <Html lang="en" data-theme={theme}>
+        <Head nonce={nonce} />
+        <body>
+          <Main />
+          <NextScript nonce={nonce} />
+        </body>
+      </Html>
+    );
+  }
+}

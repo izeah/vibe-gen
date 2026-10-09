@@ -1,0 +1,10 @@
+import { login } from "../../../server/bff/handlers.js";
+import { toPagesHandler } from "../../../server/bff/next-pages.js";
+
+export const config = { api: { bodyParser: false } };
+
+export default toPagesHandler((req) =>
+  req.method === "POST"
+    ? login(req)
+    : Promise.resolve(new Response(null, { status: 405 })),
+);

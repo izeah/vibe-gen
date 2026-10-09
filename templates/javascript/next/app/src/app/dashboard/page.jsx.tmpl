@@ -1,0 +1,15 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useCallback } from "react";
+import { Dashboard } from "../../components/Dashboard.jsx";
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const toLogin = useCallback(() => router.replace("/login"), [router]);
+  return (
+    <main>
+      <Dashboard onSignedOut={toLogin} />
+    </main>
+  );
+}

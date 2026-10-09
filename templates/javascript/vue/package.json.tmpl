@@ -3,28 +3,28 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "scripts": {
     "dev": "vite",
-    "build": "vue-tsc --build && vite build",
+    "build": "vite build",
     "preview": "vite preview",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
     "test": "vitest run",
-    "lint": "eslint . --ext .vue,.ts,.tsx"
+    "test:e2e": "playwright test"
   },
   "dependencies": {
-    "vue": "^3.5.13",
-    "vue-router": "^4.5.0",
-    "pinia": "^2.3.1",
-    "axios": "^1.8.4",
-    "clsx": "^2.1.1"
+    "@tanstack/vue-query": "5.104.1",
+    "vue": "3.5.43",
+    "vue-router": "5.3.1"
   },
   "devDependencies": {
-    "@vitejs/plugin-vue": "^5.2.1",
-    "@vue/tsconfig": "^0.7.0",
-    "typescript": "^5.7.2",
-    "vite": "^6.2.0",
-    "vitest": "^3.0.7",
-    "vue-tsc": "^2.2.0",
-    "eslint": "^9.22.0",
-    "prettier": "^3.4.2"
+    "@biomejs/biome": "2.5.15",
+    "@playwright/test": "1.63.0",
+    "@vitejs/plugin-vue": "6.0.9",
+    "vite": "8.3.2",
+    "vitest": "5.0.3"
   }
 }

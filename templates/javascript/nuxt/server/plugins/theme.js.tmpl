@@ -1,0 +1,10 @@
+import { themeFrom } from "../../src/lib/theme.js";
+
+// The theme cookie is allowlisted to light|dark before it becomes the data-theme attribute on
+// <html>; no cookie means the OS preference decides (CSS). No inline script, the CSP forbids it.
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("render:html", (html, { event }) => {
+    const theme = themeFrom(getCookie(event, "theme"));
+    if (theme) html.htmlAttrs.push(`data-theme="${theme}"`);
+  });
+});

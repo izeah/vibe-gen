@@ -1,0 +1,14 @@
+// Routes that need a session; without the session cookie the user is sent to /login.
+// Server-side only: the cookie is HttpOnly, so the browser cannot see it (a client-side check
+// would always fail). On client navigation the dashboard's 401 handling redirects instead.
+const PROTECTED = ["/dashboard"];
+
+export default defineNuxtRouteMiddleware((to) => {
+  if (!import.meta.server) return;
+  const protectedPath = PROTECTED.some(
+    (p) => to.path === p || to.path.startsWith(`${p}/`),
+  );
+  if (protectedPath && !useCookie("__Host-session").value) {
+    return navigateTo("/login");
+  }
+});

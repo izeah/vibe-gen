@@ -1,0 +1,11 @@
+import { useRouter } from "next/router";
+import { LoginForm } from "../components/LoginForm.jsx";
+
+export default function LoginPage() {
+  const router = useRouter();
+  return (
+    <main>
+      <LoginForm onSuccess={() => router.replace("/dashboard")} />
+    </main>
+  );
+}
