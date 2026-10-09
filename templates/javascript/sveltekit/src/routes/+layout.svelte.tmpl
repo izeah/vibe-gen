@@ -1,0 +1,13 @@
+<script>
+import ThemeToggle from "../components/atoms/ThemeToggle.svelte";
+import "../styles/globals.css";
+
+let { children } = $props();
+</script>
+
+<svelte:head>
+  <title>{{.ProjectTitle}}</title>
+</svelte:head>
+
+<ThemeToggle />
+{@render children()}

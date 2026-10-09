@@ -1,0 +1,50 @@
+<script>
+import { goto } from "$app/navigation";
+import { onMount } from "svelte";
+import { ApiError, api, logout } from "../../lib/api.js";
+
+// A protected page: the BFF attaches the access token (and refreshes it) on /api/v1/*.
+let user = $state();
+let loading = $state(true);
+let failed = $state(false);
+
+onMount(async () => {
+  try {
+    user = await api("/v1/users/me");
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) {
+      await goto("/login", { replaceState: true });
+      return;
+    }
+    failed = true;
+  } finally {
+    loading = false;
+  }
+});
+
+async function signOut() {
+  await logout().catch(() => undefined);
+  await goto("/login", { replaceState: true });
+}
+</script>
+
+<main>
+  <section class="card stack" aria-busy={loading}>
+    <h1>Dashboard</h1>
+    {#if loading}
+      <p>Loading your profile…</p>
+    {:else if failed}
+      <p class="error" role="alert">Could not load your profile. Try again later.</p>
+    {:else if user}
+      <dl class="profile">
+        <dt>Name</dt>
+        <dd>{user.name}</dd>
+        <dt>Email</dt>
+        <dd>{user.email}</dd>
+        <dt>Roles</dt>
+        <dd>{user.roles.map((r) => r.name).join(", ")}</dd>
+      </dl>
+    {/if}
+    <button type="button" onclick={signOut}>Sign out</button>
+  </section>
+</main>
