@@ -1,0 +1,128 @@
+package redis
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// CachedRole is a role as cached for a user: the id keys its permission set, the code is what
+// middleware.RequireRole matches.
+type CachedRole struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+}
+
+// PermissionRepository caches which roles each user holds (authz:user:<id>) and each role's
+// permission set (authz:role:<id>). Two levels: a permission change touches one role key, not
+// every user holding the role.
+type PermissionRepository interface {
+	// GetUserRoles returns the cached roles; ok=false on a cache miss.
+	GetUserRoles(ctx context.Context, userID string) (roles []CachedRole, ok bool, err error)
+	SetUserRoles(ctx context.Context, userID string, roles []CachedRole, ttl time.Duration) error
+	// GetRolePermissions returns the cached sets of the given roles in one MGET; roles not
+	// cached are absent from the map.
+	GetRolePermissions(ctx context.Context, roleIDs []string) (map[string][]string, error)
+	SetRolePermissions(ctx context.Context, sets map[string][]string, ttl time.Duration) error
+	// DelUsers / DelRoles drop cached entries, so the next request reads the database.
+	DelUsers(ctx context.Context, userIDs ...string) error
+	DelRoles(ctx context.Context, roleIDs ...string) error
+}
+
+const (
+	redisKeyUserRoles       = "authz:user:"
+	redisKeyRolePermissions = "authz:role:"
+)
+
+type permission struct {
+	client *redis.Client
+}
+
+func NewPermission(client *redis.Client) PermissionRepository {
+	return &permission{client: client}
+}
+
+func (r *permission) GetUserRoles(ctx context.Context, userID string) ([]CachedRole, bool, error) {
+	raw, err := r.client.Get(ctx, redisKeyUserRoles+userID).Bytes()
+	if errors.Is(err, redis.Nil) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var roles []CachedRole
+	if err := json.Unmarshal(raw, &roles); err != nil {
+		return nil, false, err
+	}
+	return roles, true, nil
+}
+
+func (r *permission) SetUserRoles(ctx context.Context, userID string, roles []CachedRole, ttl time.Duration) error {
+	raw, err := json.Marshal(roles)
+	if err != nil {
+		return err
+	}
+	return r.client.Set(ctx, redisKeyUserRoles+userID, raw, ttl).Err()
+}
+
+func (r *permission) GetRolePermissions(ctx context.Context, roleIDs []string) (map[string][]string, error) {
+	sets := make(map[string][]string, len(roleIDs))
+	if len(roleIDs) == 0 {
+		return sets, nil
+	}
+	vals, err := r.client.MGet(ctx, prefixed(redisKeyRolePermissions, roleIDs)...).Result()
+	if err != nil {
+		return nil, err
+	}
+	for i, v := range vals {
+		s, ok := v.(string)
+		if !ok { // nil = not cached
+			continue
+		}
+		var perms []string
+		if err := json.Unmarshal([]byte(s), &perms); err != nil {
+			return nil, err
+		}
+		sets[roleIDs[i]] = perms
+	}
+	return sets, nil
+}
+
+func (r *permission) SetRolePermissions(ctx context.Context, sets map[string][]string, ttl time.Duration) error {
+	pipe := r.client.Pipeline()
+	for roleID, perms := range sets {
+		raw, err := json.Marshal(perms)
+		if err != nil {
+			return err
+		}
+		pipe.Set(ctx, redisKeyRolePermissions+roleID, raw, ttl)
+	}
+	_, err := pipe.Exec(ctx)
+	return err
+}
+
+func (r *permission) DelUsers(ctx context.Context, userIDs ...string) error {
+	return r.del(ctx, redisKeyUserRoles, userIDs)
+}
+
+func (r *permission) DelRoles(ctx context.Context, roleIDs ...string) error {
+	return r.del(ctx, redisKeyRolePermissions, roleIDs)
+}
+
+func (r *permission) del(ctx context.Context, prefix string, ids []string) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	return r.client.Del(ctx, prefixed(prefix, ids)...).Err()
+}
+
+func prefixed(prefix string, ids []string) []string {
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = prefix + id
+	}
+	return keys
+}

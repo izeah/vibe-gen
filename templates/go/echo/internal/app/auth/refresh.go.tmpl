@@ -4,7 +4,10 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/dto"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
 	"{{.ModuleName}}/pkg/response"
 )
 
@@ -22,7 +25,13 @@ func (h *Handler) Refresh(c echo.Context) (err error) {
 		payload = new(dto.RefreshRequest)
 		data    *dto.LoginResponse
 	)
-	if err = c.Bind(payload); err != nil {
+	cfg := config.App()
+	// Cookie mode reads the refresh token from the HttpOnly cookie, never from the body.
+	if cfg.AuthCookieMode {
+		if ck, err := c.Cookie(authcookie.Name); err == nil {
+			payload.RefreshToken = ck.Value
+		}
+	} else if err = c.Bind(payload); err != nil {
 		return response.ErrorBadRequest(err).Send(c)
 	}
 	if err = c.Validate(payload); err != nil {
@@ -30,6 +39,11 @@ func (h *Handler) Refresh(c echo.Context) (err error) {
 	}
 	if data, err = h.AuthService.Refresh(ctx, payload); err != nil {
 		return response.ErrorResponse(err).Send(c)
+	}
+	if cfg.AuthCookieMode {
+		_, refreshLifetime := authtoken.Lifetimes()
+		c.SetCookie(authcookie.New(data.RefreshToken, refreshLifetime, cfg.BasePath))
+		data.RefreshToken = ""
 	}
 	return response.SuccessResponse(data).Send(c)
 }

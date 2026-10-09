@@ -1,23 +1,88 @@
 package serviceauth
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"net/http"
+	"strings"
+	"sync"
+	"uuid"
+
 	"golang.org/x/crypto/bcrypt"
+	"gorm.io/gorm"
 
 	"{{.ModuleName}}/internal/abstraction"
 	"{{.ModuleName}}/internal/dto"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
 	"{{.ModuleName}}/pkg/response"
 )
 
+const (
+	loginWindowSec     = 15 * 60
+	loginMaxPerEmailIP = 5  // failed attempts per email+IP per window
+	loginMaxPerEmail   = 20 // per email across IPs: backstop when the client IP is spoofable
+)
+
+// dummyHash makes the unknown-email path as slow as a wrong password, so response
+// timing does not reveal which emails are registered.
+var dummyHash = sync.OnceValue(func() []byte {
+	h, _ := bcrypt.GenerateFromPassword([]byte("timing-equalizer-not-a-password"), bcrypt.DefaultCost)
+	return h
+})
+
+// loginFailKey hashes the email so no raw PII lands in Redis keys.
+func (s *service) loginFailKey(email, ip string) string {
+	sum := sha256.Sum256([]byte(email))
+	return "auth:login:fail:" + hex.EncodeToString(sum[:]) + ":" + ip
+}
+
 func (s *service) Login(ctx *abstraction.Context, req *dto.LoginRequest) (*dto.LoginResponse, error) {
-	f := &dto.UserFilter{Email: req.Email}
+	rc := ctx.RequestContext()
+	email := strings.ToLower(strings.TrimSpace(req.Email))
+	limits := []struct {
+		key string
+		max int64
+	}{
+		{s.loginFailKey(email, req.ClientIP), loginMaxPerEmailIP},
+		{s.loginFailKey(email, "*"), loginMaxPerEmail},
+	}
+	// Count the attempt before checking the password: a read-then-increment would let
+	// parallel requests all pass the check before any of them is counted.
+	for _, l := range limits {
+		n, ttl, err := s.rateLimitRepository.Hit(rc, l.key, loginWindowSec)
+		if err != nil {
+			return nil, response.ErrorBuilder(http.StatusInternalServerError, err)
+		}
+		if n > l.max {
+			return nil, response.ErrorConstant.TooManyRequests.WithMessage(fmt.Sprintf("too many failed login attempts, retry in %d seconds", ttl))
+		}
+	}
+
+	// Exact, case-insensitive match (UserFilter.Email is an ILIKE search filter).
+	f := (&dto.UserFilter{}).Scopes(func(tx *gorm.DB) *gorm.DB {
+		return tx.Where("LOWER(users.email) = ?", email)
+	})
 	user, err := s.userRepository.FindOne(ctx, f)
-	if err != nil {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, response.ErrorBuilder(http.StatusInternalServerError, err)
+	}
+	hash := dummyHash()
+	if err == nil {
+		hash = []byte(user.Password)
+	}
+	if bcrypt.CompareHashAndPassword(hash, []byte(req.Password)) != nil || err != nil {
 		return nil, response.ErrorConstant.Unauthorized.WithMessage("invalid credentials")
 	}
+	// Success: forget this client's failures and take back the hit on the per-email backstop.
+	_ = s.rateLimitRepository.Reset(rc, limits[0].key)
+	_ = s.rateLimitRepository.Undo(rc, limits[1].key)
 
-	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		return nil, response.ErrorConstant.Unauthorized.WithMessage("invalid credentials")
+	familyID, jti := uuid.NewV7().String(), uuid.NewV7().String()
+	_, refreshLifetime := authtoken.Lifetimes()
+	if err := s.refreshTokenRepository.Save(rc, familyID, jti, refreshLifetime); err != nil {
+		return nil, response.ErrorBuilder(http.StatusInternalServerError, err)
 	}
-
-	return s.issueTokens(user)
+	return s.issueTokens(user, familyID, jti)
 }

@@ -1,0 +1,33 @@
+package role
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Delete removes a role by ID.
+// @Summary     Delete role
+// @Tags        role
+// @Param       id   path      string  true  "Role ID"
+// @Success     200  {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles/{id} [delete]
+func (h *Handler) Delete(c echo.Context) (err error) {
+	var (
+		ctx     = c.(*abstraction.Context)
+		payload = new(dto.RoleDeleteRequest)
+	)
+	if err = c.Bind(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = c.Validate(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = h.RoleService.Delete(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(nil).Send(c)
+}

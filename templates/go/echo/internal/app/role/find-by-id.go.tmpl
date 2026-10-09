@@ -1,0 +1,35 @@
+package role
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// FindByID returns a single role by ID.
+// @Summary     Get role by ID
+// @Tags        role
+// @Produce     json
+// @Param       id   path      string  true  "Role ID"
+// @Success     200  {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles/{id} [get]
+func (h *Handler) FindByID(c echo.Context) (err error) {
+	var (
+		ctx     = c.(*abstraction.Context)
+		payload = new(dto.RoleFindByIDRequest)
+		data    *dto.RoleResponse
+	)
+	if err = c.Bind(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = c.Validate(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.RoleService.FindByID(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(data).Send(c)
+}

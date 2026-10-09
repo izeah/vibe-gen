@@ -2,17 +2,20 @@ package user
 
 import (
 	"{{.ModuleName}}/internal/factory"
+	serviceauthz "{{.ModuleName}}/internal/service/authz"
 	serviceuser "{{.ModuleName}}/internal/service/user"
 )
 
 // Handler handles user management requests.
 type Handler struct {
 	UserService serviceuser.Service
+	AuthzService serviceauthz.Service
 }
 
 // NewHandler creates a new user Handler.
 func NewHandler(f *factory.Factory) *Handler {
 	return &Handler{
 		UserService: serviceuser.New(f),
+		AuthzService: serviceauthz.New(f),
 	}
 }

@@ -8,7 +8,6 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"{{.ModuleName}}/internal/abstraction"
-	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/pkg/response"
 )
 
@@ -22,7 +21,7 @@ func Authentication(next echo.HandlerFunc) echo.HandlerFunc {
 			}
 
 			tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-			claims, err := authtoken.Verify(tokenStr, config.AuthKey().PemDataPublic)
+			claims, err := authtoken.ClaimsFromAccessToken(tokenStr)
 			if err != nil {
 				return response.ErrorConstant.Unauthorized.WithMessage("invalid or expired token").Send(c)
 			}
@@ -36,8 +35,6 @@ func Authentication(next echo.HandlerFunc) echo.HandlerFunc {
 			ctx.Auth = &abstraction.AuthContext{
 				ID:     uid,
 				UserID: userIDStr,
-				Email:  claims.Email,
-				Role:   claims.Role,
 			}
 
 		return next(ctx)

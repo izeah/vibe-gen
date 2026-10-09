@@ -1,0 +1,34 @@
+package middleware
+
+import (
+	"net/http"
+
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	serviceauthz "{{.ModuleName}}/internal/service/authz"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// RequireRole allows the route only if the user holds one of the roles (by roles.code, the
+// immutable handle). Prefer RequirePermission: it lets admins change who may do what without a
+// deploy. Use RequireRole for flags that really are about the role itself. Must run after
+// Authentication.
+func RequireRole(authz serviceauthz.Service, codes ...string) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			ctx, ok := c.(*abstraction.Context)
+			if !ok || ctx.Auth == nil {
+				return response.ErrorConstant.Unauthorized.Send(c)
+			}
+			held, err := authz.HasAnyRole(ctx, ctx.Auth.ID, codes...)
+			if err != nil {
+				return response.ErrorBuilder(http.StatusInternalServerError, err).Send(c)
+			}
+			if !held {
+				return response.ErrorConstant.Forbidden.WithMessage("insufficient role").Send(c)
+			}
+			return next(ctx)
+		}
+	}
+}

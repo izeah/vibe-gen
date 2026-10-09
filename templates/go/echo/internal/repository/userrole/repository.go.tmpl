@@ -1,0 +1,43 @@
+package repositoryuserrole
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+// Repository defines the data access contract for user roles (which roles a user holds).
+type Repository interface {
+	Find(ctx *abstraction.Context, f *dto.UserRoleFilter) (data []*model.UserRole, err error)
+	FindOne(ctx *abstraction.Context, f *dto.UserRoleFilter) (data *model.UserRole, err error)
+	Count(ctx *abstraction.Context, f *dto.UserRoleFilter) (data *int64, err error)
+	Create(ctx *abstraction.Context, e interface{}) (db *gorm.DB)
+	Update(ctx *abstraction.Context, f *dto.UserRoleFilter, e *model.UserRole) *gorm.DB
+	Updates(ctx *abstraction.Context, f *dto.UserRoleFilter, e *model.UserRole) *gorm.DB
+	UpdateOrInsert(ctx *abstraction.Context, e []*model.UserRole) *gorm.DB
+	FirstOrCreate(ctx *abstraction.Context, data *model.UserRole) (err error)
+	Exists(ctx *abstraction.Context, f *dto.UserRoleFilter) (bool, error)
+	Delete(ctx *abstraction.Context, f *dto.UserRoleFilter) *gorm.DB
+	SoftDelete(ctx *abstraction.Context, f *dto.UserRoleFilter) *gorm.DB
+	IDs(ctx *abstraction.Context, f *dto.UserRoleFilter) (data []string, err error)
+
+	HasRole(ctx *abstraction.Context, userID, roleID uuid.UUID) (bool, error)
+	AssignRole(ctx *abstraction.Context, userID uuid.UUID, roleIDs ...uuid.UUID) *gorm.DB
+	RevokeRole(ctx *abstraction.Context, userID uuid.UUID, roleIDs ...uuid.UUID) *gorm.DB
+	ReassignRole(ctx *abstraction.Context, userID uuid.UUID, roleIDs []uuid.UUID) error
+}
+
+type repository struct {
+	abstraction.Repository
+}
+
+// New creates a new user roles Repository.
+func New(db *gorm.DB) Repository {
+	return &repository{
+		Repository: abstraction.Repository{Db: db},
+	}
+}

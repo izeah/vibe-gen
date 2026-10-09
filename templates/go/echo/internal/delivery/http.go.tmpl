@@ -1,9 +1,6 @@
 package delivery
 
 import (
-	"fmt"
-	"os"
-
 	"github.com/labstack/echo/v4"
 	echoSwagger "github.com/swaggo/echo-swagger"
 
@@ -13,6 +10,7 @@ import (
 
 	"{{.ModuleName}}/internal/app/auth"
 	"{{.ModuleName}}/internal/app/health"
+	"{{.ModuleName}}/internal/app/role"
 	"{{.ModuleName}}/internal/app/sample"
 	"{{.ModuleName}}/internal/app/user"
 	"{{.ModuleName}}/internal/config"
@@ -31,18 +29,13 @@ const (
 func HTTP(e *echo.Echo, f *factory.Factory) {
 	cfg := config.Get()
 
-	// — Swagger UI
-	host := fmt.Sprintf("localhost:%d", cfg.App.Port)
-	if h := os.Getenv("APP_HOST"); h != "" {
-		host = h
+	// — Swagger UI: never in production (it maps the whole API surface).
+	if cfg.App.Env != "production" {
+		e.GET(cfg.App.BasePath+"/swagger/*", echoSwagger.WrapHandler)
 	}
-	// SwaggerInfo is auto-populated by `swag init` from the main.go annotations.
-	// The values below override the generated defaults.
-	_ = host // used when setting swaggerInfo manually
-	e.GET("/swagger/*", echoSwagger.WrapHandler)
 
 	// — v1 routes
-	v1 := e.Group("/v1")
+	v1 := e.Group(cfg.App.BasePath + "/v1")
 
 	// Public routes
 	health.NewHandler(f).Route(v1.Group("/health"))
@@ -52,5 +45,6 @@ func HTTP(e *echo.Echo, f *factory.Factory) {
 	v1.Use(middleware.Authentication)
 	user.NewHandler(f).Route(v1.Group("/users"))
 	sample.NewHandler(f).Route(v1.Group("/samples"))
+	role.NewHandler(f).Route(v1.Group("/roles"))
 }
 

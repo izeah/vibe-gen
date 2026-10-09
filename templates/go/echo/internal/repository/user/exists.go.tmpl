@@ -12,7 +12,11 @@ func (r *repository) Exists(ctx *abstraction.Context, f *dto.UserFilter) (bool, 
 	var data int64
 	if err := r.CheckTrx(ctx).Model(&model.User{}).Scopes(func(tx *gorm.DB) *gorm.DB {
 		if f != nil {
-			return f.Apply(tx)
+			// A copy marked ForCount: Apply would otherwise add SELECT <table>.* and paginate,
+			// which breaks COUNT as soon as a row matches.
+			fc := *f
+			fc.ForCount = true
+			return fc.Apply(tx)
 		}
 		return tx
 	}).Count(&data).Error; err != nil {

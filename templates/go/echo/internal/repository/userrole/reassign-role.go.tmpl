@@ -1,0 +1,26 @@
+package repositoryuserrole
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/model"
+)
+
+// ReassignRole replaces the user's whole role set with roleIDs (empty = no roles): one delete
+// of the roles not listed, one insert of the missing ones, atomically (a savepoint when ctx
+// already carries a transaction).
+func (r *repository) ReassignRole(ctx *abstraction.Context, userID uuid.UUID, roleIDs []uuid.UUID) error {
+	return r.CheckTrx(ctx).Transaction(func(tx *gorm.DB) error {
+		del := tx.Where("user_id = ?", userID)
+		if len(roleIDs) > 0 {
+			del = del.Where("role_id NOT IN ?", roleIDs)
+		}
+		if err := del.Delete(&model.UserRole{}).Error; err != nil {
+			return err
+		}
+		return assign(tx, ctx, userID, roleIDs).Error
+	})
+}

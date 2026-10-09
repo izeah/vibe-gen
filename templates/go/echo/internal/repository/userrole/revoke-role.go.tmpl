@@ -1,0 +1,18 @@
+package repositoryuserrole
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/model"
+)
+
+// RevokeRole takes the roles away from the user (hard delete).
+func (r *repository) RevokeRole(ctx *abstraction.Context, userID uuid.UUID, roleIDs ...uuid.UUID) *gorm.DB {
+	if len(roleIDs) == 0 {
+		return r.CheckTrx(ctx)
+	}
+	return r.CheckTrx(ctx).Where("user_id = ? AND role_id IN ?", userID, roleIDs).Delete(&model.UserRole{})
+}

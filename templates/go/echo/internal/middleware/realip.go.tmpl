@@ -1,0 +1,33 @@
+package middleware
+
+import (
+	"net"
+	"strings"
+
+	"github.com/labstack/echo/v4"
+)
+
+// IPExtractor decides how c.RealIP() finds the client: the socket address unless trusted
+// proxies are configured, in which case X-Forwarded-For is read from the right, skipping only
+// those proxies. Echo's default trusts any X-Forwarded-For, letting clients spoof their IP.
+func IPExtractor(proxies []string) (echo.IPExtractor, error) {
+	if len(proxies) == 0 {
+		return echo.ExtractIPDirect(), nil
+	}
+	opts := []echo.TrustOption{echo.TrustLoopback(false), echo.TrustLinkLocal(false), echo.TrustPrivateNet(false)}
+	for _, p := range proxies {
+		if !strings.Contains(p, "/") {
+			if strings.Contains(p, ":") {
+				p += "/128"
+			} else {
+				p += "/32"
+			}
+		}
+		_, ipnet, err := net.ParseCIDR(p)
+		if err != nil {
+			return nil, err
+		}
+		opts = append(opts, echo.TrustIPRange(ipnet))
+	}
+	return echo.ExtractIPFromXFFHeader(opts...), nil
+}

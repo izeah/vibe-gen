@@ -1,13 +1,20 @@
 package sample
 
-import "github.com/labstack/echo/v4"
+import (
+	"github.com/labstack/echo/v4"
 
-// Route registers sample CRUD endpoints on the given echo.Group.
+	"{{.ModuleName}}/internal/middleware"
+)
+
+// Route registers sample CRUD endpoints. Each needs a permission (roles/role_permissions);
+// with an ":own" grant the service limits the action to the user's own samples.
 func (h *Handler) Route(g *echo.Group) {
-	g.GET("", h.Find)
-	g.GET("/:id", h.FindByID)
-	g.POST("", h.Create)
-	g.PUT("/:id", h.Update)
-	g.DELETE("/:id", h.Delete)
+	can := func(action string) echo.MiddlewareFunc {
+		return middleware.RequirePermission(h.AuthzService, "samples", action)
+	}
+	g.GET("", h.Find, can("read"))
+	g.GET("/:id", h.FindByID, can("read"))
+	g.POST("", h.Create, can("create"))
+	g.PUT("/:id", h.Update, can("update"))
+	g.DELETE("/:id", h.Delete, can("delete"))
 }
-

@@ -1,0 +1,24 @@
+package middleware
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/config"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// CookieCSRF guards the auth routes in cookie mode (allowlisted Origin + custom header); it is a
+// no-op when cookie mode is off, because nothing then relies on a cookie.
+func CookieCSRF() echo.MiddlewareFunc {
+	cfg := config.App()
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			h := c.Request().Header
+			if cfg.AuthCookieMode && !authcookie.CheckCSRF(h.Get("Origin"), h.Get(authcookie.CSRFHeader), cfg.CorsAllowOrigin) {
+				return response.ErrorConstant.Forbidden.WithMessage("csrf check failed").Send(c)
+			}
+			return next(c)
+		}
+	}
+}

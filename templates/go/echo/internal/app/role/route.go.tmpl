@@ -1,0 +1,18 @@
+package role
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/middleware"
+)
+
+// Route registers role management endpoints; every one needs roles:manage.
+func (h *Handler) Route(g *echo.Group) {
+	manage := middleware.RequirePermission(h.AuthzService, "roles", "manage")
+	g.GET("", h.Find, manage)
+	g.GET("/:id", h.FindByID, manage)
+	g.POST("", h.Create, manage)
+	g.PUT("/:id", h.Update, manage)
+	g.PUT("/:id/permissions", h.SetPermissions, manage)
+	g.DELETE("/:id", h.Delete, manage)
+}

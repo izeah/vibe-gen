@@ -1,0 +1,27 @@
+package servicerole
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Update(ctx *abstraction.Context, req *dto.RoleUpdateRequest) (*dto.RoleResponse, error) {
+	m, err := s.roleRepository.FindOne(ctx, &dto.RoleFilter{IDs: []string{req.ID}})
+	if err != nil {
+		return nil, response.ErrorConstant.NotFound.WithMessage("role not found")
+	}
+	// id, code and is_system never change here (code and clients branch on the code); only
+	// display text does, system roles included: renaming cannot lock anyone out.
+	m.Context = ctx
+	m.Name = req.Name
+	m.Description = req.Description
+	if res := s.roleRepository.Updates(ctx, &dto.RoleFilter{IDs: []string{req.ID}}, m); res.Error != nil {
+		return nil, response.ErrorResponse(res.Error)
+	}
+	perms, err := s.permissionsOf(ctx, m.ID)
+	if err != nil {
+		return nil, response.ErrorResponse(err)
+	}
+	return s.toRoleResponse(m, perms), nil
+}

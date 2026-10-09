@@ -4,7 +4,10 @@ import (
 	"github.com/labstack/echo/v4"
 
 	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/dto"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
 	"{{.ModuleName}}/pkg/response"
 )
 
@@ -22,14 +25,21 @@ func (h *Handler) Login(c echo.Context) (err error) {
 		payload = new(dto.LoginRequest)
 		data    *dto.LoginResponse
 	)
+	cfg := config.App()
 	if err = c.Bind(payload); err != nil {
 		return response.ErrorBadRequest(err).Send(c)
 	}
 	if err = c.Validate(payload); err != nil {
 		return response.ErrorBadRequest(err).Send(c)
 	}
+	payload.ClientIP = c.RealIP() // set after binding so clients cannot supply it
 	if data, err = h.AuthService.Login(ctx, payload); err != nil {
 		return response.ErrorResponse(err).Send(c)
+	}
+	if cfg.AuthCookieMode {
+		_, refreshLifetime := authtoken.Lifetimes()
+		c.SetCookie(authcookie.New(data.RefreshToken, refreshLifetime, cfg.BasePath))
+		data.RefreshToken = ""
 	}
 	return response.SuccessResponse(data).Send(c)
 }

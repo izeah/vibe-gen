@@ -1,0 +1,37 @@
+package role
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Update updates an existing role.
+// @Summary     Update role
+// @Tags        role
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string                   true  "Role ID"
+// @Param       body  body  dto.RoleUpdateRequest  true  "Update payload"
+// @Success     200   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles/{id} [put]
+func (h *Handler) Update(c echo.Context) (err error) {
+	var (
+		ctx     = c.(*abstraction.Context)
+		payload = new(dto.RoleUpdateRequest)
+		data    *dto.RoleResponse
+	)
+	if err = c.Bind(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if err = c.Validate(payload); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+	if data, err = h.RoleService.Update(ctx, payload); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessResponse(data).Send(c)
+}

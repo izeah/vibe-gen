@@ -1,89 +1,159 @@
 package authtoken
 
 import (
-	"crypto/rsa"
 	"errors"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 	pkgerr "github.com/pkg/errors"
+
+	"{{.ModuleName}}/internal/config"
 )
 
+// Swapped by tests, so they need neither config.yml nor key files.
+var (
+	authKey = config.AuthKey
+	issuer  = func() string { return config.App().Name }
+	now     = time.Now
+)
+
+// Lifetimes returns the configured access/refresh token lifetimes (defaults 15m / 7d).
+func Lifetimes() (access, refresh time.Duration) {
+	k := authKey()
+	access, refresh = k.AccessTokenLifetime, k.RefreshTokenLifetime
+	if access <= 0 {
+		access = 15 * time.Minute
+	}
+	if refresh <= 0 {
+		refresh = 7 * 24 * time.Hour
+	}
+	return access, refresh
+}
+
+// New prepares one login/refresh: the claims the access and refresh token share. Sign them
+// with AccessToken and RefreshToken. Issuer (= audience, so tokens of another service are
+// rejected), issue time and expiry come from the config. No PII and no roles: users are
+// identified by `sub` only.
 func New(additionalInfo *AddtionalClaims) *AuthToken {
+	issuedAt := now()
+	accessLifetime, _ := Lifetimes()
 	claims := &CustomClaims{
+		// partnerId is used on b2b2c access tokens; b2b access tokens leave it empty.
 		PartnerId: additionalInfo.PartnerId,
-		Email:     additionalInfo.Email,
-		Role:      additionalInfo.Role,
+		FamilyId:  additionalInfo.FamilyId,
 		RegisteredClaims: jwt.RegisteredClaims{
-			ExpiresAt: jwt.NewNumericDate(additionalInfo.ExpiredAt),
-			IssuedAt:  jwt.NewNumericDate(additionalInfo.IssuedAt),
-			Issuer:    additionalInfo.Issuer,
+			ExpiresAt: jwt.NewNumericDate(issuedAt.Add(accessLifetime)),
+			IssuedAt:  jwt.NewNumericDate(issuedAt),
+			Issuer:    issuer(),
+			Audience:  jwt.ClaimStrings{issuer()},
 			Subject:   additionalInfo.UserId,
 			ID:        additionalInfo.TokenId,
 		},
 	}
 	return &AuthToken{
-		token: jwt.NewWithClaims(jwt.SigningMethodRS256, claims),
+		token:          jwt.NewWithClaims(jwt.SigningMethodRS256, claims),
+		refreshTokenId: additionalInfo.RefreshTokenId,
+		issuedAt:       issuedAt,
 	}
 }
 
-func (t *AuthToken) AccessToken(privateKeyPEM []byte) (token string, err error) {
-	token = ""
-	//Parse PEM keys into operational RSA structural formats
-	var privateKey *rsa.PrivateKey
-	if privateKey, err = jwt.ParseRSAPrivateKeyFromPEM(privateKeyPEM); err != nil {
-		return token, pkgerr.WithStack(err)
-	}
-
-	token, err = t.token.SignedString(privateKey)
+// AccessToken signs the access token (typ=access, jti=TokenId, access lifetime).
+func (t *AuthToken) AccessToken() (token string, err error) {
+	claims, err := t.claims()
 	if err != nil {
-		return "", pkgerr.WithStack(err)
+		return "", err
 	}
-	return
+	claims.Type = TypeAccess
+	claims.FamilyId = "" // the rotation family belongs to refresh tokens only
+	return sign(claims)
 }
 
-func (t *AuthToken) RefreshToken(expiredAt time.Time, privateKeyPEM []byte) (token string, err error) {
-	token = ""
-	//Parse PEM keys into operational RSA structural formats
-	var privateKey *rsa.PrivateKey
-	if privateKey, err = jwt.ParseRSAPrivateKeyFromPEM(privateKeyPEM); err != nil {
-		return token, pkgerr.WithStack(err)
+// RefreshToken signs the refresh token (typ=refresh, jti=RefreshTokenId, fid=FamilyId,
+// refresh lifetime). Both ids are required: the refresh store rotates by them.
+func (t *AuthToken) RefreshToken() (token string, err error) {
+	claims, err := t.claims()
+	if err != nil {
+		return "", err
 	}
+	if t.refreshTokenId == "" || claims.FamilyId == "" {
+		return "", pkgerr.WithStack(errors.New("auth token: refresh token needs RefreshTokenId and FamilyId"))
+	}
+	_, refreshLifetime := Lifetimes()
+	claims.Type = TypeRefresh
+	claims.ID = t.refreshTokenId
+	claims.ExpiresAt = jwt.NewNumericDate(t.issuedAt.Add(refreshLifetime))
+	return sign(claims)
+}
 
+// claims returns a copy of the shared claims, so signing one token never changes the other.
+func (t *AuthToken) claims() (*CustomClaims, error) {
 	claims, ok := t.token.Claims.(*CustomClaims)
 	if !ok || claims == nil {
-		return "", pkgerr.WithStack(errors.New("auth token: claims are missing or wrong type"))
+		return nil, pkgerr.WithStack(errors.New("auth token: claims are missing or wrong type"))
 	}
-	claims.ExpiresAt = jwt.NewNumericDate(expiredAt)
+	c := *claims
+	return &c, nil
+}
 
-	method := jwt.NewWithClaims(jwt.SigningMethodRS256, claims)
-	token, err = method.SignedString(privateKey)
+func sign(claims *CustomClaims) (string, error) {
+	privateKeyPEM := authKey().PemDataPrivate
+	if len(privateKeyPEM) == 0 {
+		return "", pkgerr.WithStack(errors.New("auth token: private key not configured"))
+	}
+	// Parse the PEM key into its RSA form.
+	privateKey, err := jwt.ParseRSAPrivateKeyFromPEM(privateKeyPEM)
 	if err != nil {
 		return "", pkgerr.WithStack(err)
 	}
-	return
+	token, err := jwt.NewWithClaims(jwt.SigningMethodRS256, claims).SignedString(privateKey)
+	if err != nil {
+		return "", pkgerr.WithStack(err)
+	}
+	return token, nil
 }
 
-func Verify(tokenStr string, publicKeyPEM []byte) (*CustomClaims, error) {
-	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(publicKeyPEM)
+// ClaimsFromAccessToken verifies an access token (Authentication middleware) and returns its claims.
+func ClaimsFromAccessToken(tokenStr string) (*CustomClaims, error) {
+	return verify(tokenStr, TypeAccess)
+}
+
+// ClaimsFromRefreshToken verifies a refresh token (/auth/refresh, /auth/logout) and returns its
+// claims; a refresh token without a rotation family is rejected.
+func ClaimsFromRefreshToken(tokenStr string) (*CustomClaims, error) {
+	claims, err := verify(tokenStr, TypeRefresh)
+	if err != nil {
+		return nil, err
+	}
+	if claims.FamilyId == "" {
+		return nil, pkgerr.New("invalid token: refresh token without family")
+	}
+	return claims, nil
+}
+
+// verify checks signature (RS256 only), expiry, issuer, audience and token type, with the
+// public key and issuer from the config.
+func verify(tokenStr, typ string) (*CustomClaims, error) {
+	publicKey, err := jwt.ParseRSAPublicKeyFromPEM(authKey().PemDataPublic)
 	if err != nil {
 		return nil, pkgerr.WithStack(err)
 	}
 
-	token, err := jwt.ParseWithClaims(tokenStr, &CustomClaims{}, func(t *jwt.Token) (interface{}, error) {
-		// Strictly validate that the signing method used matches RS256
-		if _, ok := t.Method.(*jwt.SigningMethodRSA); !ok {
-			return nil, pkgerr.Errorf("unexpected signing method: %v", t.Header["alg"])
-		}
+	claims := &CustomClaims{}
+	_, err = jwt.ParseWithClaims(tokenStr, claims, func(*jwt.Token) (interface{}, error) {
 		return publicKey, nil
-	}, jwt.WithLeeway(5*time.Second))
+	},
+		jwt.WithValidMethods([]string{jwt.SigningMethodRS256.Alg()}),
+		jwt.WithIssuer(issuer()),
+		jwt.WithAudience(issuer()),
+		jwt.WithExpirationRequired(),
+		jwt.WithLeeway(5*time.Second),
+		jwt.WithTimeFunc(now),
+	)
 	if err != nil {
 		return nil, pkgerr.WithStack(err)
 	}
-
-	if claims, ok := token.Claims.(*CustomClaims); ok && token.Valid {
-		return claims, nil
+	if claims.Type != typ || claims.Subject == "" || claims.ID == "" {
+		return nil, pkgerr.Errorf("invalid token: want type %q", typ)
 	}
-
-	return nil, pkgerr.New("invalid token claims")
+	return claims, nil
 }

@@ -35,17 +35,35 @@ type Context struct {
 
 	// CountryCode is the service country code. Set by Context middleware.
 	CountryCode *string
+
+	// PermissionScope is what middleware.RequirePermission granted for this route:
+	// "any" row, or "own" = only rows the user created. Services read it via OwnerID.
+	PermissionScope string
 }
 
-// AuthContext holds the decoded JWT payload.
+// AuthContext holds the decoded JWT payload. Roles are not in the token: middleware reads
+// them per request (serviceauthz, cached), so a role change applies at once.
 type AuthContext struct {
 	ID     uuid.UUID `json:"id"`
 	UserID string    `json:"user_id"`
-	Email  string    `json:"email"`
-	Role   string    `json:"role"`
 }
 
 // NewContext wraps an echo.Context with application context.
 func NewContext(c echo.Context) *Context {
 	return &Context{Context: c}
+}
+
+// RequestContext returns the request-scoped context.Context (cancellation, deadlines,
+// trace spans) for calls into Redis, HTTP clients, etc.
+func (c *Context) RequestContext() context.Context {
+	return c.Request().Context()
+}
+
+// OwnerID is the user a query must be limited to (created_by) when the route's permission is
+// scoped to the user's own rows, or "" when any row is allowed.
+func (c *Context) OwnerID() string {
+	if c.PermissionScope == "own" && c.Auth != nil {
+		return c.Auth.ID.String()
+	}
+	return ""
 }

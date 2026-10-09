@@ -1,0 +1,47 @@
+package servicerole
+
+import (
+	"errors"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// SetPermissions replaces the role's whole permission set in one transaction and drops the
+// cached set, so the change applies to the next request.
+func (s *service) SetPermissions(ctx *abstraction.Context, req *dto.RoleSetPermissionsRequest) (*dto.RoleResponse, error) {
+	perms, err := s.checkPermissions(req.Permissions)
+	if err != nil {
+		return nil, err
+	}
+	var m *model.Role
+	err = s.trxManager.WithTrx(ctx, func(ctx *abstraction.Context) error {
+		var err error
+		// Lock the role row: concurrent replacements of the same set run one after the other.
+		m, err = s.roleRepository.FindOne(ctx, (&dto.RoleFilter{IDs: []string{req.ID}}).
+			Clauses(clause.Locking{Strength: "UPDATE"}))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return response.ErrorConstant.NotFound.WithMessage("role not found")
+		}
+		if err != nil {
+			return response.ErrorConstant.InternalServerError.WithError(err)
+		}
+		if m.IsSystem {
+			return response.ErrorConstant.Forbidden.WithMessage("system roles cannot be changed")
+		}
+		if err = s.rolePermissionRepository.SyncPermissions(ctx, m.ID, perms); err != nil {
+			return response.ErrorConstant.InternalServerError.WithError(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err // already a response error
+	}
+	s.authzService.InvalidateRoles(ctx, m.ID)
+	return s.toRoleResponse(m, perms), nil
+}

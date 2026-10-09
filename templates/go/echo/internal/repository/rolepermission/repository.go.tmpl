@@ -1,0 +1,43 @@
+package repositoryrolepermission
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+// Repository defines the data access contract for role permissions.
+type Repository interface {
+	Find(ctx *abstraction.Context, f *dto.RolePermissionFilter) (data []*model.RolePermission, err error)
+	FindOne(ctx *abstraction.Context, f *dto.RolePermissionFilter) (data *model.RolePermission, err error)
+	Count(ctx *abstraction.Context, f *dto.RolePermissionFilter) (data *int64, err error)
+	Create(ctx *abstraction.Context, e interface{}) (db *gorm.DB)
+	Update(ctx *abstraction.Context, f *dto.RolePermissionFilter, e *model.RolePermission) *gorm.DB
+	Updates(ctx *abstraction.Context, f *dto.RolePermissionFilter, e *model.RolePermission) *gorm.DB
+	UpdateOrInsert(ctx *abstraction.Context, e []*model.RolePermission) *gorm.DB
+	FirstOrCreate(ctx *abstraction.Context, data *model.RolePermission) (err error)
+	Exists(ctx *abstraction.Context, f *dto.RolePermissionFilter) (bool, error)
+	Delete(ctx *abstraction.Context, f *dto.RolePermissionFilter) *gorm.DB
+	SoftDelete(ctx *abstraction.Context, f *dto.RolePermissionFilter) *gorm.DB
+	IDs(ctx *abstraction.Context, f *dto.RolePermissionFilter) (data []string, err error)
+
+	HasPermissionTo(ctx *abstraction.Context, roleIDs []uuid.UUID, permission string) (bool, error)
+	GivePermissionTo(ctx *abstraction.Context, roleID uuid.UUID, perms ...string) *gorm.DB
+	RevokePermissionTo(ctx *abstraction.Context, roleID uuid.UUID, perms ...string) *gorm.DB
+	SyncPermissions(ctx *abstraction.Context, roleID uuid.UUID, perms []string) error
+}
+
+type repository struct {
+	abstraction.Repository
+}
+
+// New creates a new role permissions Repository.
+func New(db *gorm.DB) Repository {
+	return &repository{
+		Repository: abstraction.Repository{Db: db},
+	}
+}

@@ -1,0 +1,196 @@
+package dto
+
+import (
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// roleSortColumns is the ORDER BY allowlist for RoleFilter (API field → DB column).
+var roleSortColumns = abstraction.SortColumns{
+	"code":       "roles.code",
+	"name":       "roles.name",
+	"created_at": "roles.created_at",
+}
+
+// RoleFilter is the query filter for roles.
+type RoleFilter struct {
+	*abstraction.Pagination
+	Sorts     []abstraction.SortItem `json:"sorts,omitempty" query:"sorts"`
+	IDs       []string               `json:"ids"             query:"ids"`
+	Codes     []string               `json:"codes"           query:"codes"`
+	ForCount  bool                   `json:"-"`
+	ForUpdate bool                   `json:"-"`
+	clauses   []clause.Expression
+	scopes    []func(*gorm.DB) *gorm.DB
+}
+
+// Clauses appends GORM clause expressions (e.g. clause.Locking{Strength: "UPDATE"}).
+func (f *RoleFilter) Clauses(conds ...clause.Expression) *RoleFilter {
+	if f != nil {
+		f.clauses = append(f.clauses, conds...)
+	}
+	return f
+}
+
+// Scopes appends custom GORM query scopes.
+func (f *RoleFilter) Scopes(funcs ...func(*gorm.DB) *gorm.DB) *RoleFilter {
+	if f != nil {
+		f.scopes = append(f.scopes, funcs...)
+	}
+	return f
+}
+
+// Order appends SortItem entries.
+func (f *RoleFilter) Order(items ...abstraction.SortItem) *RoleFilter {
+	if f != nil {
+		f.Sorts = append(f.Sorts, items...)
+	}
+	return f
+}
+
+// Apply applies the filter conditions to a GORM query.
+func (f *RoleFilter) Apply(tx *gorm.DB) *gorm.DB {
+	if f == nil {
+		return tx
+	}
+	if len(f.IDs) > 0 {
+		tx = tx.Where("roles.id IN ?", f.IDs)
+	}
+	if len(f.Codes) > 0 {
+		tx = tx.Where("roles.code IN ?", f.Codes)
+	}
+	for _, c := range f.clauses {
+		tx = tx.Clauses(c)
+	}
+	for _, s := range f.scopes {
+		tx = tx.Scopes(s)
+	}
+	tx = roleSortColumns.Apply(tx, f.Sorts...)
+	if !f.ForCount && !f.ForUpdate {
+		tx.Select("roles.*")
+		if f.Pagination != nil {
+			tx = roleSortColumns.Apply(tx, f.Pagination.SortItems()...)
+			f.Pagination.Apply(tx)
+		}
+	}
+	return tx
+}
+
+// RolePermissionFilter is the query filter for role_permissions.
+type RolePermissionFilter struct {
+	*abstraction.Pagination
+	Sorts     []abstraction.SortItem `json:"sorts,omitempty" query:"sorts"`
+	IDs       []string               `json:"ids"             query:"ids"`
+	RoleIDs     []string             `json:"role_ids"        query:"role_ids"`
+	Permissions []string             `json:"permissions"     query:"permissions"`
+	ForCount  bool                   `json:"-"`
+	ForUpdate bool                   `json:"-"`
+	clauses   []clause.Expression
+	scopes    []func(*gorm.DB) *gorm.DB
+}
+
+// Clauses appends GORM clause expressions.
+func (f *RolePermissionFilter) Clauses(conds ...clause.Expression) *RolePermissionFilter {
+	if f != nil {
+		f.clauses = append(f.clauses, conds...)
+	}
+	return f
+}
+
+// Scopes appends custom GORM query scopes.
+func (f *RolePermissionFilter) Scopes(funcs ...func(*gorm.DB) *gorm.DB) *RolePermissionFilter {
+	if f != nil {
+		f.scopes = append(f.scopes, funcs...)
+	}
+	return f
+}
+
+// Order appends SortItem entries.
+func (f *RolePermissionFilter) Order(items ...abstraction.SortItem) *RolePermissionFilter {
+	if f != nil {
+		f.Sorts = append(f.Sorts, items...)
+	}
+	return f
+}
+
+// rolePermissionSortColumns is the ORDER BY allowlist for RolePermissionFilter.
+var rolePermissionSortColumns = abstraction.SortColumns{
+	"permission": "role_permissions.permission",
+}
+
+// Apply applies the filter conditions to a GORM query.
+func (f *RolePermissionFilter) Apply(tx *gorm.DB) *gorm.DB {
+	if f == nil {
+		return tx
+	}
+	if len(f.IDs) > 0 {
+		tx = tx.Where("role_permissions.id IN ?", f.IDs)
+	}
+	if len(f.RoleIDs) > 0 {
+		tx = tx.Where("role_permissions.role_id IN ?", f.RoleIDs)
+	}
+	if len(f.Permissions) > 0 {
+		tx = tx.Where("role_permissions.permission IN ?", f.Permissions)
+	}
+	for _, c := range f.clauses {
+		tx = tx.Clauses(c)
+	}
+	for _, s := range f.scopes {
+		tx = tx.Scopes(s)
+	}
+	tx = rolePermissionSortColumns.Apply(tx, f.Sorts...)
+	if !f.ForCount && !f.ForUpdate {
+		tx.Select("role_permissions.*")
+		if f.Pagination != nil {
+			tx = rolePermissionSortColumns.Apply(tx, f.Pagination.SortItems()...)
+			f.Pagination.Apply(tx)
+		}
+	}
+	return tx
+}
+
+// RoleFindByIDRequest is the payload for finding a role by ID.
+type RoleFindByIDRequest struct {
+	ID string `param:"id" json:"-" validate:"required,uuid"`
+}
+
+// RoleDeleteRequest is the payload for deleting a role by ID.
+type RoleDeleteRequest struct {
+	ID string `param:"id" json:"-" validate:"required,uuid"`
+}
+
+// RoleCreateRequest is the payload for creating a role. Code is the stable snake_case handle
+// (a-z, 0-9, _; starts with a letter) and cannot be changed later.
+type RoleCreateRequest struct {
+	Code        string   `json:"code"        validate:"required,min=2,max=50"`
+	Name        string   `json:"name"        validate:"required,min=1,max=100"`
+	Description string   `json:"description" validate:"max=255"`
+	Permissions []string `json:"permissions" validate:"max=100,dive,max=64"`
+}
+
+// RoleUpdateRequest is the payload for updating a role. ID and code are immutable.
+type RoleUpdateRequest struct {
+	ID          string `param:"id" json:"-" validate:"required,uuid"`
+	Name        string `json:"name"        validate:"required,min=1,max=100"`
+	Description string `json:"description" validate:"max=255"`
+}
+
+// RoleSetPermissionsRequest replaces the whole permission set of a role.
+type RoleSetPermissionsRequest struct {
+	ID          string   `param:"id" json:"-" validate:"required,uuid"`
+	Permissions []string `json:"permissions" validate:"max=100,dive,max=64"`
+}
+
+// RoleResponse is the role read representation.
+type RoleResponse struct {
+	ID          string   `json:"id"`
+	Code        string   `json:"code"`
+	Name        string   `json:"name"`
+	Description string   `json:"description"`
+	IsSystem    bool     `json:"is_system"`
+	Permissions []string `json:"permissions,omitempty"`
+	CreatedAt   string   `json:"created_at"`
+	UpdatedAt   string   `json:"updated_at,omitempty"`
+}

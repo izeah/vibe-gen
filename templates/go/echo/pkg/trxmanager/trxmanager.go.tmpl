@@ -10,6 +10,7 @@ import (
 	"gorm.io/plugin/dbresolver"
 
 	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/pkg/response"
 )
 
 // TrxManager manages database transactions using the abstraction.Context.
@@ -25,7 +26,8 @@ func New(db *gorm.DB) *TrxManager {
 	return &TrxManager{db: db}
 }
 
-// WithTrx executes fn within a database transaction.
+// WithTrx executes fn within a database transaction. fn returns response errors
+// (response.ErrorConstant...); the returned error is always one, so services just pass it on.
 // If ctx.Trx is already set (nested call), fn is executed on the existing transaction.
 // On panic: rollback + re-panic as error.
 // On error: rollback.
@@ -63,6 +65,12 @@ func (g *TrxManager) WithTrx(ctx *abstraction.Context, fn trxFn) (err error) {
 		}
 		if err != nil {
 			log.Error().Err(err).Msg("trxmanager: transaction failed")
+			// Callers return this error as is: anything that is not already a response error
+			// (commit failure, panic, an unmapped query error) becomes a generic 500.
+			var respErr *response.Error
+			if !errors.As(err, &respErr) {
+				err = response.ErrorConstant.InternalServerError.WithError(err)
+			}
 		}
 		ctx.Trx = nil
 	}()

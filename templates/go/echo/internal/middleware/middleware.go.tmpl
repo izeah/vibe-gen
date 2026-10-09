@@ -2,43 +2,43 @@ package middleware
 
 import (
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	echomw "github.com/labstack/echo/v4/middleware"
 
+	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/factory"
 	"{{.ModuleName}}/pkg/validator"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
 )
 
 // Init ...
 func Init(e *echo.Echo, f *factory.Factory) {
 	e.Use(Context, Trace)
+	e.Use(echomw.SecureWithConfig(echomw.SecureConfig{
+		// Swagger UI needs inline scripts; everything else is JSON and gets a deny-all CSP.
+		Skipper:               func(c echo.Context) bool { return strings.HasPrefix(c.Path(), config.App().BasePath+"/swagger") },
+		XSSProtection:         "0",
+		ContentTypeNosniff:    "nosniff",
+		XFrameOptions:         "DENY",
+		HSTSMaxAge:            31536000,
+		ContentSecurityPolicy: "default-src 'none'; frame-ancestors 'none'",
+		ReferrerPolicy:        "no-referrer",
+	}))
+	// CORS is off unless origins are configured: browsers reach the API through the BFF.
+	// Never combine a wildcard origin with credentials.
+	// Auth cookie mode allows credentials for these exact origins only (the refresh cookie).
+	if origins := config.App().CorsAllowOrigin; len(origins) > 0 {
+		e.Use(echomw.CORSWithConfig(echomw.CORSConfig{
+			AllowOrigins:     origins,
+			AllowHeaders:     []string{echo.HeaderOrigin, echo.HeaderContentType, echo.HeaderAccept, echo.HeaderAuthorization, authcookie.CSRFHeader},
+			AllowMethods:     []string{http.MethodGet, http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete},
+			AllowCredentials: config.App().AuthCookieMode,
+		}))
+	}
 	e.Use(
-		echomw.CORSWithConfig(echomw.CORSConfig{
-			AllowOrigins:     []string{"*"},
-			AllowCredentials: true,
-			AllowHeaders: []string{
-				echo.HeaderOrigin,
-				echo.HeaderContentLength,
-				echo.HeaderContentType,
-				echo.HeaderAccept,
-				echo.HeaderAuthorization,
-				echo.HeaderAccessControlAllowOrigin,
-				echo.HeaderAccessControlAllowHeaders,
-			},
-			ExposeHeaders: []string{"Content-Length"},
-			AllowMethods: []string{
-				http.MethodGet,
-				http.MethodPut,
-				http.MethodPost,
-				http.MethodDelete,
-				http.MethodOptions,
-				http.MethodHead,
-				http.MethodPatch,
-				http.MethodOptions,
-			},
-		}),
 		echomw.TimeoutWithConfig(echomw.TimeoutConfig{
 			Skipper:      echomw.DefaultSkipper,
 			ErrorMessage: http.StatusText(http.StatusRequestTimeout),

@@ -1,0 +1,54 @@
+package servicerole
+
+import (
+	"math"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Find(ctx *abstraction.Context, f *dto.RoleFilter) ([]*dto.RoleResponse, *abstraction.PaginationInfo, error) {
+	count, err := s.roleRepository.Count(ctx, f)
+	if err != nil {
+		return nil, nil, response.ErrorResponse(err)
+	}
+	roles, err := s.roleRepository.Find(ctx, f)
+	if err != nil {
+		return nil, nil, response.ErrorResponse(err)
+	}
+
+	// Permissions of every listed role in one query (no per-role lookups), grouped in memory.
+	ids := make([]string, len(roles))
+	for i, r := range roles {
+		ids[i] = r.ID.String()
+	}
+	byRole := map[string][]string{}
+	if len(ids) > 0 {
+		rows, err := s.rolePermissionRepository.Find(ctx, (&dto.RolePermissionFilter{RoleIDs: ids}).
+			Order(abstraction.SortItem{Field: "permission", Order: "asc"}))
+		if err != nil {
+			return nil, nil, response.ErrorResponse(err)
+		}
+		for _, row := range rows {
+			byRole[row.RoleID.String()] = append(byRole[row.RoleID.String()], row.Permission)
+		}
+	}
+
+	result := make([]*dto.RoleResponse, len(roles))
+	for i, r := range roles {
+		result[i] = s.toRoleResponse(r, byRole[r.ID.String()])
+	}
+
+	var info *abstraction.PaginationInfo
+	if f.Pagination != nil && f.Pagination.PageSize != nil && count != nil {
+		info = &abstraction.PaginationInfo{Pagination: f.Pagination}
+		info.Count = *count
+		info.Pages = int(math.Ceil(float64(*count) / float64(*f.Pagination.PageSize)))
+		if len(result) > *f.Pagination.PageSize {
+			result = result[:len(result)-1]
+			info.MoreRecords = true
+		}
+	}
+	return result, info, nil
+}

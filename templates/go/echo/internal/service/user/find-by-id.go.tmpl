@@ -1,36 +1,15 @@
 package serviceuser
 
 import (
-	"time"
-	"uuid"
-
 	"{{.ModuleName}}/internal/abstraction"
 	"{{.ModuleName}}/internal/dto"
 	"{{.ModuleName}}/pkg/response"
 )
 
 func (s *service) FindByID(ctx *abstraction.Context, req *dto.UserFindByIDRequest) (*dto.UserResponse, error) {
-	user, err := s.userRepository.FindOne(ctx, &dto.UserFilter{IDs: []string{req.ID}})
+	user, err := s.userRepository.FindOne(ctx, (&dto.UserFilter{IDs: []string{req.ID}}).Scopes(s.withRoles))
 	if err != nil {
 		return nil, response.ErrorConstant.NotFound.WithMessage("user not found")
 	}
-	r := &dto.UserResponse{
-		ID:        user.ID.String(),
-		Name:      user.Name,
-		Email:     user.Email,
-		Role:      user.Role,
-		CreatedAt: time.Unix(0, int64(user.CreatedAt)).UTC().Format("2006-01-02T15:04:05Z07:00"),
-	}
-	if user.UpdatedAt != nil {
-		r.UpdatedAt = time.Unix(0, int64(*user.UpdatedAt)).UTC().Format("2006-01-02T15:04:05Z07:00")
-	}
-	if user.CreatedBy != uuid.Nil() {
-		r.CreatedBy = user.CreatedBy.String()
-	}
-	if user.UpdatedBy != nil {
-		updStr := user.UpdatedBy.String()
-		r.UpdatedBy = &updStr
-	}
-	return r, nil
+	return s.toUserResponse(user), nil
 }
-

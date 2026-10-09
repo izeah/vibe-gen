@@ -1,0 +1,41 @@
+package role
+
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// Find lists roles with pagination.
+// @Summary     List roles
+// @Tags        role
+// @Produce     json
+// @Param       page       query  int  false  "Page number"
+// @Param       page_size  query  int  false  "Items per page"
+// @Success     200        {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles [get]
+func (h *Handler) Find(c echo.Context) (err error) {
+	var (
+		ctx  = c.(*abstraction.Context)
+		data []*dto.RoleResponse
+		info *abstraction.PaginationInfo
+	)
+
+	f := new(dto.RoleFilter)
+	if err = c.Bind(f); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+
+	f.Pagination = new(abstraction.Pagination)
+	if err = c.Bind(f.Pagination); err != nil {
+		return response.ErrorBadRequest(err).Send(c)
+	}
+
+	if data, info, err = h.RoleService.Find(ctx, f); err != nil {
+		return response.ErrorResponse(err).Send(c)
+	}
+	return response.SuccessListResponse(data, info).Send(c)
+}

@@ -1,0 +1,26 @@
+package repositoryrole
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) Exists(ctx *abstraction.Context, f *dto.RoleFilter) (bool, error) {
+	var data int64
+	if err := r.CheckTrx(ctx).Model(&model.Role{}).Scopes(func(tx *gorm.DB) *gorm.DB {
+		if f != nil {
+			// A copy marked ForCount: Apply would otherwise add SELECT <table>.* and paginate,
+			// which breaks COUNT as soon as a row matches.
+			fc := *f
+			fc.ForCount = true
+			return fc.Apply(tx)
+		}
+		return tx
+	}).Count(&data).Error; err != nil {
+		return false, err
+	}
+	return data > 0, nil
+}

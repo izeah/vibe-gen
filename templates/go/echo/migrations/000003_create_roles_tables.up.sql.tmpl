@@ -1,0 +1,67 @@
+-- roles + role_permissions + user_roles: role-based access control. A user holds any number of
+-- roles (user_roles); a role holds permissions (role_permissions). Permissions are
+-- "<resource>:<action>[:any|own]" strings from the catalog in code; "own" limits the action to
+-- rows the user created (created_by). roles.code is the stable handle (snake_case, never
+-- changes); name/description are display text. Timestamps are Unix nanoseconds (UTC).
+-- Rows of these three tables are hard-deleted.
+CREATE TABLE IF NOT EXISTS roles (
+    id          UUID         PRIMARY KEY DEFAULT uuidv7(),
+    code        VARCHAR(50)  NOT NULL UNIQUE CHECK (code ~ '^[a-z][a-z0-9_]{1,49}$'),
+    name        VARCHAR(100) NOT NULL,
+    description VARCHAR(255) NOT NULL DEFAULT '',
+    is_system   BOOLEAN      NOT NULL DEFAULT false, -- permissions + delete locked in the API; set only by migration
+    created_at  BIGINT       NOT NULL,
+    created_by  UUID         NOT NULL,
+    updated_at  BIGINT,
+    updated_by  UUID,
+    deleted_at  BIGINT,
+    deleted_by  UUID
+);
+
+CREATE TABLE IF NOT EXISTS role_permissions (
+    id          UUID        PRIMARY KEY DEFAULT uuidv7(),
+    role_id     UUID        NOT NULL REFERENCES roles (id) ON DELETE CASCADE,
+    permission  VARCHAR(64) NOT NULL,
+    created_at  BIGINT      NOT NULL,
+    created_by  UUID        NOT NULL,
+    updated_at  BIGINT,
+    updated_by  UUID,
+    deleted_at  BIGINT,
+    deleted_by  UUID,
+    UNIQUE (role_id, permission)
+);
+
+-- A role still assigned to a user cannot be deleted (RESTRICT); a user's rows go with the user.
+CREATE TABLE IF NOT EXISTS user_roles (
+    id          UUID   PRIMARY KEY DEFAULT uuidv7(),
+    user_id     UUID   NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+    role_id     UUID   NOT NULL REFERENCES roles (id) ON DELETE RESTRICT,
+    created_at  BIGINT NOT NULL,
+    created_by  UUID   NOT NULL,
+    updated_at  BIGINT,
+    updated_by  UUID,
+    deleted_at  BIGINT,
+    deleted_by  UUID,
+    UNIQUE (user_id, role_id)
+);
+CREATE INDEX IF NOT EXISTS user_roles_role_id_idx ON user_roles (role_id);
+
+-- Seed: admin holds every permission of the catalog; user works on samples, changing only its own.
+-- created_by = the system user (abstraction.DefaultSystemUserID).
+INSERT INTO roles (code, name, description, is_system, created_at, created_by) VALUES
+    ('admin', 'Admin', 'Full access',  true,  (EXTRACT(EPOCH FROM clock_timestamp()) * 1e9)::BIGINT, '018b1234-5678-7abc-8def-123456789a01'),
+    ('user',  'User',  'Regular user', false, (EXTRACT(EPOCH FROM clock_timestamp()) * 1e9)::BIGINT, '018b1234-5678-7abc-8def-123456789a01')
+ON CONFLICT (code) DO NOTHING;
+
+INSERT INTO role_permissions (role_id, permission, created_at, created_by)
+SELECT r.id, p.permission, (EXTRACT(EPOCH FROM clock_timestamp()) * 1e9)::BIGINT, '018b1234-5678-7abc-8def-123456789a01'
+FROM roles r
+JOIN (VALUES
+    ('admin', 'users:read:any'), ('admin', 'users:create'), ('admin', 'users:update:any'),
+    ('admin', 'roles:manage'),
+    ('admin', 'samples:read:any'), ('admin', 'samples:create'),
+    ('admin', 'samples:update:any'), ('admin', 'samples:delete:any'),
+    ('user',  'samples:read:any'), ('user', 'samples:create'),
+    ('user',  'samples:update:own'), ('user', 'samples:delete:own')
+) AS p (role, permission) ON p.role = r.code
+ON CONFLICT (role_id, permission) DO NOTHING;

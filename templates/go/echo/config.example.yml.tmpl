@@ -1,11 +1,24 @@
 app:
   name: "{{.ProjectSlug}}"
+  # local | development | staging | production. Unset = production (no Swagger UI).
+  env: "local"
   port: 3000
   prometheus_port: 9090
   log_level: "debug"
   service_api_url: "http://localhost:3000"
-  cors_allow_origin:
-    - "http://localhost:3000"
+  # Browsers reach this API through the frontend BFF (server-to-server), so CORS stays OFF by default.
+  # Only list origins that must call the API directly from a browser. Credentials are never allowed.
+  cors_allow_origin: []
+  # Optional prefix before /v1 when the API itself must serve under a path (e.g. "/api").
+  # Usually the reverse proxy adds the prefix and this stays empty.
+  base_path: ""
+  # SPA without a BFF (React/Vue): refresh token in an HttpOnly cookie (Path=<base_path>/v1/auth),
+  # access token in the SPA's memory. Requires cors_allow_origin (exact SPA origin, same site).
+  auth_cookie_mode: false
+  # Proxies (IPs or CIDRs) allowed to set X-Forwarded-For. Empty = the socket IP is the client IP,
+  # so nobody can spoof their IP to dodge the per-IP login rate limit. Behind a load balancer or the
+  # frontend BFF, list it here and make it overwrite (not append to) X-Forwarded-For.
+  trusted_proxies: []
   timeout_test: false
 
 db:
@@ -31,12 +44,15 @@ redis:
 crypto:
   private_key: "./secret-auth/privateKey.pem"
   public_key: "./secret-auth/pubKey.pem"
-  access_token_lifetime: 60
+  access_token_lifetime: 15 # minutes; short-lived because access tokens cannot be revoked
   refresh_token_lifetime: 10080
   key_encryption_key: "" # use CRYPTO_KEY_ENCRYPTION_KEY env var
 
 opentelemetry:
   host_grpc: ""
+  # Records query params + request/response bodies (sensitive keys masked) in traces and logs.
+  # Keep false in staging/production (privacy). Enable locally when debugging.
+  capture_payload: false
 
 circuit_breaker:
   max_request: 5

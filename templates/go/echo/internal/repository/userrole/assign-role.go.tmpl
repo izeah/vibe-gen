@@ -1,0 +1,33 @@
+package repositoryuserrole
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/model"
+)
+
+// AssignRole gives the user the roles in one insert; roles the user already holds are kept.
+func (r *repository) AssignRole(ctx *abstraction.Context, userID uuid.UUID, roleIDs ...uuid.UUID) *gorm.DB {
+	return assign(r.CheckTrx(ctx), ctx, userID, roleIDs)
+}
+
+func assign(tx *gorm.DB, ctx *abstraction.Context, userID uuid.UUID, roleIDs []uuid.UUID) *gorm.DB {
+	if len(roleIDs) == 0 {
+		return tx
+	}
+	rows := make([]*model.UserRole, len(roleIDs))
+	for i, roleID := range roleIDs {
+		rows[i] = &model.UserRole{Context: ctx, UserRoleEntity: model.UserRoleEntity{UserID: userID, RoleID: roleID}}
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "user_id"},
+			{Name: "role_id"},
+		},
+		DoNothing: true,
+	}).Create(&rows)
+}

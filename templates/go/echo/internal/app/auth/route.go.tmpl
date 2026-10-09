@@ -1,10 +1,16 @@
 package auth
 
-import "github.com/labstack/echo/v4"
+import (
+	"github.com/labstack/echo/v4"
+
+	"{{.ModuleName}}/internal/middleware"
+)
 
 // Route registers auth endpoints on the given echo.Group.
 func (h *Handler) Route(g *echo.Group) {
+	g.Use(middleware.CookieCSRF()) // no-op unless auth_cookie_mode
 	g.POST("/login", h.Login)
 	g.POST("/refresh", h.Refresh)
+	g.POST("/logout", h.Logout)
 }
 

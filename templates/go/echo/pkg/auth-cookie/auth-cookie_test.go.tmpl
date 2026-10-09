@@ -1,0 +1,35 @@
+package authcookie
+
+import (
+	"net/http"
+	"testing"
+	"time"
+)
+
+func TestCookieAttributes(t *testing.T) {
+	c := New("tok", time.Hour, "/api")
+	if c.Path != "/api/v1/auth" || !c.HttpOnly || !c.Secure || c.SameSite != http.SameSiteStrictMode || c.MaxAge != 3600 {
+		t.Fatalf("unexpected cookie: %+v", c)
+	}
+	if Clear("").MaxAge >= 0 {
+		t.Fatal("Clear must expire the cookie")
+	}
+}
+
+func TestCheckCSRF(t *testing.T) {
+	allowed := []string{"https://app.example.com"}
+	cases := []struct {
+		origin, header string
+		want           bool
+	}{
+		{"https://app.example.com", "1", true},
+		{"https://app.example.com", "", false},
+		{"https://evil.example", "1", false},
+		{"", "1", false},
+	}
+	for _, c := range cases {
+		if got := CheckCSRF(c.origin, c.header, allowed); got != c.want {
+			t.Errorf("CheckCSRF(%q, %q) = %v", c.origin, c.header, got)
+		}
+	}
+}

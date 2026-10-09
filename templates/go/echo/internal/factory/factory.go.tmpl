@@ -5,8 +5,11 @@ import (
 
 	"{{.ModuleName}}/pkg/database"
 	"{{.ModuleName}}/pkg/trxmanager"
+	rolerepo "{{.ModuleName}}/internal/repository/role"
+	rolepermissionrepo "{{.ModuleName}}/internal/repository/rolepermission"
 	samplerepo "{{.ModuleName}}/internal/repository/sample"
 	userrepo   "{{.ModuleName}}/internal/repository/user"
+	userrolerepo "{{.ModuleName}}/internal/repository/userrole"
 	redisrepo  "{{.ModuleName}}/internal/repository/redis"
 	"{{.ModuleName}}/internal/config"
 )
@@ -25,8 +28,11 @@ type Factory struct {
 	TrxManager *trxmanager.TrxManager
 
 	// ── Repositories ─────────────────────────────────────────────────────────
-	SampleRepository samplerepo.Repository
+	SampleRepository         samplerepo.Repository
+	RoleRepository           rolerepo.Repository
+	RolePermissionRepository rolepermissionrepo.Repository
 	UserRepository   userrepo.Repository
+	UserRoleRepository userrolerepo.Repository
 	RedisRepository  redisrepo.Repository
 
 	// ── Third-party clients ───────────────────────────────────────────────────
@@ -58,7 +64,10 @@ func (f *Factory) SetupRepository() {
 	}
 	f.TrxManager = trxmanager.New(f.DB)
 	f.SampleRepository = samplerepo.New(f.DB)
+	f.RoleRepository = rolerepo.New(f.DB)
+	f.RolePermissionRepository = rolepermissionrepo.New(f.DB)
 	f.UserRepository = userrepo.New(f.DB)
+	f.UserRoleRepository = userrolerepo.New(f.DB)
 	f.RedisRepository = redisrepo.New(config.Redis().DB0())
 }
 

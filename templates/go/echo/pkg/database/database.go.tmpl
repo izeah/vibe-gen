@@ -42,6 +42,7 @@ func Init() {
 		// 	User: os.Getenv("SSH_USER"),
 		// 	Pass: os.Getenv("SSH_PASS"),
 		// 	Port: os.Getenv("SSH_PORT"),
+		// 	KnownHosts: os.Getenv("SSH_KNOWN_HOSTS"), // empty = ~/.ssh/known_hosts
 		// },
 	}
 	for k, config := range sshConfig {

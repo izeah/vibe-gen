@@ -1,0 +1,41 @@
+// Package authz holds the permission catalog and how a held permission resolves to a scope.
+// Which role holds which permission lives in the database (roles, role_permissions); which
+// permissions exist lives here, so a typo can never be granted.
+package authz
+
+import "slices"
+
+// Scope of a granted action: any row, or only rows the user created (created_by).
+const (
+	ScopeAny = "any"
+	ScopeOwn = "own"
+)
+
+// DefaultRoleCode is the role (roles.code) a user created through the API starts with.
+const DefaultRoleCode = "user"
+
+// Catalog lists every permission the API checks: "<resource>:<action>" for actions without a
+// row (create, manage) and "<resource>:<action>:any|own" for actions on existing rows.
+// Adding an endpoint = add its permission here + a migration granting it to admin.
+var Catalog = []string{
+	"users:read:any", "users:create", "users:update:any",
+	"roles:manage",
+	"samples:read:any", "samples:read:own", "samples:create",
+	"samples:update:any", "samples:update:own", "samples:delete:any", "samples:delete:own",
+}
+
+// Valid reports whether p is in the catalog.
+func Valid(p string) bool { return slices.Contains(Catalog, p) }
+
+// Resolve returns the scope a role's permissions grant for resource:action ("" = denied).
+// ":any" wins over ":own"; an unscoped permission (e.g. "samples:create") means any.
+func Resolve(held map[string]bool, resource, action string) string {
+	p := resource + ":" + action
+	switch {
+	case held[p+":"+ScopeAny], held[p]:
+		return ScopeAny
+	case held[p+":"+ScopeOwn]:
+		return ScopeOwn
+	}
+	return ""
+}

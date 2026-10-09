@@ -12,8 +12,11 @@ func (r *repository) Count(ctx *abstraction.Context, f *dto.UserFilter) (data *i
 	var count int64
 	err = r.CheckTrx(ctx).Model(&model.User{}).Where("deleted_at IS NULL").Scopes(func(tx *gorm.DB) *gorm.DB {
 		if f != nil {
-			f.ForCount = true
-			return f.Apply(tx)
+			// Count on a copy: setting ForCount on the caller's filter would make the
+			// following Find skip pagination.
+			fc := *f
+			fc.ForCount = true
+			return fc.Apply(tx)
 		}
 		return tx
 	}).Count(&count).Error

@@ -1,0 +1,44 @@
+package serviceauthz
+
+import (
+	"time"
+	"uuid"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/factory"
+	redisrepo "{{.ModuleName}}/internal/repository/redis"
+	repositoryrolepermission "{{.ModuleName}}/internal/repository/rolepermission"
+	repositoryuserrole "{{.ModuleName}}/internal/repository/userrole"
+)
+
+// cacheTTL bounds how long a change made outside the API (e.g. a migration) takes to apply;
+// changes through /v1/roles and /v1/users/:id/roles invalidate the cache at once.
+const cacheTTL = 60 * time.Second
+
+// Service answers "may this user do resource:action, and on which rows?" from the union of
+// the permissions of every role the user holds.
+type Service interface {
+	// Scope returns authz.ScopeAny, authz.ScopeOwn or "" (denied).
+	Scope(ctx *abstraction.Context, userID uuid.UUID, resource, action string) (string, error)
+	// HasAnyRole reports whether the user holds one of the roles (by roles.code).
+	HasAnyRole(ctx *abstraction.Context, userID uuid.UUID, codes ...string) (bool, error)
+	// InvalidateUsers drops the cached role lists of users after their roles changed.
+	InvalidateUsers(ctx *abstraction.Context, userIDs ...uuid.UUID)
+	// InvalidateRoles drops the cached permission sets of roles after a change.
+	InvalidateRoles(ctx *abstraction.Context, roleIDs ...uuid.UUID)
+}
+
+type service struct {
+	userRoleRepository       repositoryuserrole.Repository
+	rolePermissionRepository repositoryrolepermission.Repository
+	permissionCache          redisrepo.PermissionRepository
+}
+
+// New creates a new authz Service.
+func New(f *factory.Factory) Service {
+	return &service{
+		userRoleRepository:       f.UserRoleRepository,
+		rolePermissionRepository: f.RolePermissionRepository,
+		permissionCache:          f.RedisRepository.Permission,
+	}
+}
