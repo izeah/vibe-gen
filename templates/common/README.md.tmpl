@@ -12,6 +12,60 @@
 - Go 1.21+ (or Node.js 20+ for JS projects)
 - Docker (for local database/Redis)
 - Make
+- Claude Code plugins, installed once per machine at **user scope** (see below)
+- Semgrep CLI for `make sast`: `brew install semgrep` (or `pipx install semgrep`); no account needed
+
+### Claude Code Plugins (required)
+
+Install these plugins once on your machine, at user scope. `.claude/settings.json` does not list them on purpose, so
+opening the project never adds a second, project-scope copy:
+
+```bash
+claude plugin marketplace add anthropics/claude-plugins-official
+claude plugin marketplace add DietrichGebert/ponytail
+{{- if eq .ProjectType "frontend"}}
+claude plugin marketplace add nextlevelbuilder/ui-ux-pro-max-skill
+claude plugin marketplace add https://github.com/miqdadbadjuber/anti-slop
+{{- end}}
+
+claude plugin install ponytail@ponytail
+claude plugin install security-guidance@claude-plugins-official
+{{- if eq .Language "go"}}
+claude plugin install gopls-lsp@claude-plugins-official
+{{- else}}
+claude plugin install typescript-lsp@claude-plugins-official
+{{- end}}
+{{- if eq .ProjectType "frontend"}}
+claude plugin install frontend-design@claude-plugins-official
+claude plugin install ui-ux-pro-max@ui-ux-pro-max-skill
+claude plugin install antislop@anti-slop
+{{- end}}
+```
+
+Keep the default user scope; installing the same plugin again at project scope only duplicates it. Without them the
+vibe workflow loses steps (`/ponytail-review`, security hooks, design guidance) and the agent drifts toward
+over-engineered code, so the agent checks `claude plugin list` before the first task and stops if one is missing. It also
+stops when `semgrep` is missing: the SAST step of the workflow needs it.
+{{- if eq .ProjectType "frontend"}}
+
+antislop asks "during or after?" at the start of every session. `CLAUDE.md` answers `during` for this project; to make
+that the answer everywhere without the question, save it once (Linux/macOS; on Windows the file is
+`%APPDATA%\antislop\settings.json`):
+
+```bash
+mkdir -p ~/.config/antislop && { [ -e ~/.config/antislop/settings.json ] || printf '{"mode":"during"}\n' > ~/.config/antislop/settings.json; }
+```
+{{- end}}
+
+### Context7 MCP (recommended)
+
+Gives the agent current library docs instead of its training-time memory. Install once at user scope:
+
+```bash
+claude mcp add --scope user --transport http context7 https://mcp.context7.com/mcp
+```
+
+Check it with `/mcp` inside Claude Code. The agent works without it but tells you once that it is missing.
 
 ## Local Setup
 
@@ -24,7 +78,19 @@ make swag            # generate Swagger docs into docs/swagger (for Go API proje
 make run             # or: npm run dev
 ```
 
-## Swagger / OpenAPI Documentation
+{{if eq .ProjectType "frontend"}}## Design Direction
+
+Fill in the Intent section of `DESIGN.md` before the first screen (audience, the one decision on the main screen,
+language and register, brand assets, two or three references). The agent proposes the Style section from your answers
+and waits for your `deal`. Until `Status` is `APPROVED` it asks instead of building, because a UI made without
+direction is generic by construction.
+
+```bash
+make sast        # includes the slop lint in .semgrep/antislop.yml
+make ui-shots    # screenshots at 375, 768 and 1280 px, light and dark, into ui-shots/
+```
+
+{{end}}## Swagger / OpenAPI Documentation
 
 For Go API projects (Echo, Gin, Fiber), Swagger docs are generated into `docs/swagger`:
 

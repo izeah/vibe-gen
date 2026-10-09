@@ -1,0 +1,4 @@
+# Dependency lifecycle scripts (preinstall/postinstall) never run: a compromised transitive package
+# cannot execute code on install. Every template builds and tests without them. If a package you add
+# really needs its install script, run it explicitly once: `npm rebuild <package> --ignore-scripts=false`.
+ignore-scripts=true

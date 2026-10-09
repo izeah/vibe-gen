@@ -34,7 +34,11 @@ log.Info().
 - Cardholder PANs, CVV, or payment provider credentials
 - Sensitive customer PII
 
-Field masking is automatically handled in `internal/middleware/trace.go`.
+**Privacy-first defaults in `internal/middleware/trace.go`:**
+- Spans and the `trace` log line record method, route path, status, latency, trace/span IDs, client IP, and `user.id` — never the user's email or other PII.
+- Query params and request/response bodies are **not captured** unless `opentelemetry.capture_payload: true` (or `OTEL_CAPTURE_PAYLOAD=true`). When enabled, sensitive keys (password, token, authorization, cookie, secret, …) are masked — masking is a denylist, so it cannot catch every PII field. Enable it locally while debugging, never in staging/production.
+- When you add a new sensitive field name, add it to the masking list in `trace.go` as well.
+- Correlate logs with traces through `trace_id`; never log a whole struct/model that may carry PII — log IDs.
 
 ---
 
@@ -108,11 +112,13 @@ Set in `config.yml`:
 ```yaml
 opentelemetry:
   host_grpc: "localhost:4317"
+  capture_payload: false # debug only: query + bodies (masked) in traces/logs
 ```
 
 Or via environment variable in `.env`:
 ```bash
 OTEL_HOST_GRPC=localhost:4317
+OTEL_CAPTURE_PAYLOAD=false
 ```
 
 If `host_grpc` is left empty, the application runs standalone with console logging only.

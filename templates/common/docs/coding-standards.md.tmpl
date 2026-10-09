@@ -70,36 +70,27 @@ func (h *Handler) Find(c echo.Context) (err error) {
 - 4 spaces indentation, double quotes for strings.
 - Trailing commas on multiline structures.
 
-## Frontend UI/UX & Component Standards
+{{if eq .ProjectType "frontend"}}## Frontend UI/UX & Component Standards
 
-- **Atomic Design Naming**: Components must follow `PascalCase` and be placed in their respective atomic folder.
-  - Atoms: `Button.tsx`, `Badge.tsx`, `Avatar.tsx`
-  - Molecules: `UserCard.tsx`, `SearchInput.tsx`
-  - Organisms: `DashboardSidebar.tsx`, `UserDataTable.tsx`
-- **shadcn/ui Patterns**:
-  - Never modify files directly inside `src/components/ui/` (they are generated).
-  - Create wrappers in `atoms` or `molecules` to extend them.
-  - Use `class-variance-authority` (CVA) to define variant styles instead of ternary class strings.
-- **State Management Rules**:
-  - **TanStack Query**: For ALL server state (fetching, caching, invalidation). Never use `useEffect` for data fetching.
-  - **zustand**: For global UI state (theme, sidebar toggle, auth session).
-  - **`useState`**: Only for ephemeral, local component state (hover, dropdown open).
-  - **`nuqs`**: For URL state (search params, pagination, filters).
-- **Form Standards**:
-  - All forms MUST use `react-hook-form` + `zod` for validation.
-  - Never use `useState` or manual `onChange` handlers for form fields.
-  - Rely on `<FormMessage />` for field errors.
-- **Import Order**:
-  1. React (`useState`, `useEffect`)
-  2. Third-party libs (`framer-motion`, `@tanstack/react-query`)
-  3. UI components (`@/components/ui/...`)
-  4. Custom components (`@/components/atoms/...`)
-  5. Hooks & Stores
-  6. API / Services
-  7. Types
-  8. Utilities (`@/lib/utils`)
+Direction and visual rules live in `DESIGN.md` and `docs/design_system.md`; these are the code conventions.
 
-## File Organization
+- **Atomic Design Naming**: components are `PascalCase` and live in their atomic folder.
+  - Atoms: `Button`, `Badge`, `ThemeToggle`
+  - Molecules: `UserCard`, `SearchInput`
+  - Organisms: `DashboardSidebar`, `UserDataTable`
+  - Templates end in `Layout`, screens in `Page` (or the framework's route files).
+- **Native first**: semantic HTML and native elements (`<dialog>`, `<details>`, `<input type="date">`) before
+  libraries, CSS before a motion library. A UI library, icon set or motion library needs a reason in the plan and an ADR.
+- **Styling**: tokens only (`var(--token)` from `src/styles/globals.css`). No literal colors or sizes in components, no
+  inline `style`, no `transition: all`.
+- **State**: server data through the framework's data layer (TanStack Query / Vue Query, or load functions /
+  `useFetch`), never copied into local state. UI state stays local. Add a global store only when a real screen needs one.
+- **Forms**: native `<form>` and `FormData`, validated by the BFF or API with zod. Add a form library only when a real
+  screen needs one.
+- **Import order**: framework, third-party, components (atoms → molecules → organisms), hooks and stores,
+  services and API, types, utilities, styles.
+
+{{end}}## File Organization
 
 - Group related files by domain, not by type.
 - Test files colocated with source: `file_test.go` or `file.test.ts`.

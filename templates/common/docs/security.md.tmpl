@@ -13,7 +13,7 @@ All secrets must come from **environment variables** or a **secret manager** (e.
 
 ### Configuration Pattern & Precedence
 
-```
+{{if eq .Language "go"}}```
 1. YAML config (config.yml — primary application configuration)
         ↓ (fallback if absent or empty in config.yml)
 2. .env file in root project (loaded via loadDotEnv, e.g. DB_HOST=localhost) / OS Environment Variables
@@ -26,7 +26,19 @@ All secrets must come from **environment variables** or a **secret manager** (e.
 - **OS Environment Variables**: Evaluated via `AutomaticEnv()`; overrides `.env` values when present in the runtime environment.
 - **Defaults**: Hardcoded fallback values defined in `internal/config/config.go`.
 
-### .env & Third-Party Credentials Rules
+{{else}}```
+1. OS environment variables (runtime / secret manager)
+        ↓ (when unset)
+2. .env in the project root (`node --env-file-if-exists=.env`, KEY=value)
+        ↓ (when unset in both)
+3. Safe defaults in the zod schema of src/config/config.ts
+```
+
+- `src/config/config.ts` validates every variable at startup and refuses to start on an invalid value (fail fast).
+  Errors name the variable, never its value.
+- There is no default for secrets: anything required and unset stops the process.
+
+{{end}}### .env & Third-Party Credentials Rules
 
 - `.env` is always git-ignored.
 - Only `.env.example` is committed.
@@ -34,7 +46,45 @@ All secrets must come from **environment variables** or a **secret manager** (e.
 - Never commit real credentials to version control.
 - Never log secret values — not even in debug mode.
 
-### Database Environment Isolation
+### AI Agent Guardrails (`.claude/settings.json`)
+
+The committed `.claude/settings.json` denies the agent the secret files (`.env`, `.env.*.local`, `config.yml`/`config.yaml`
+and their `config.<env>.*` variants, `secret/`, `secret-auth/`, `*.pem`, `*.key`; examples such as `.env.example` and
+`config.example.yml` stay readable), raw database shells, `make pg-copy-from`, and force-pushes.
+
+> [!WARNING]
+> These rules are **defense in depth, not a security boundary.** `Read()` denies also cover `cat`/`head`/`tail`/`sed` and
+> redirections in Bash, but not a script that opens the file itself (`node -e`, `python -c`), a recursive `grep`, or a
+> denied program run as `sh -c "…"` or by full path.
+> For OS-level enforcement turn on the Claude Code sandbox in **your own** `.claude/settings.local.json` — the deny rules
+> above are merged into it, so Bash subprocesses cannot read those files either:
+>
+> ```json
+> { "sandbox": { "enabled": true, "allowUnsandboxedCommands": false } }
+> ```
+>
+> It is not enabled here because it also restricts network and Docker access for every command (see the Claude Code
+> sandboxing docs before enabling it). Real secrets belong in a secret manager; a local `.env` should only ever hold
+> local-Docker credentials.
+
+### Claude Code Plugins
+
+Plugins run hooks on your machine with your permissions. They are installed by each developer at user scope from their
+public marketplaces (see `README.md`) and are **not pinned**: `claude plugin update` pulls whatever the upstream
+repository ships. Review a plugin's changes before updating it, and only install plugins from marketplaces you trust.
+{{if eq .ProjectType "frontend"}}
+The `antislop` plugin also starts a local MCP server (`antislop-contrast`): a Python script from the plugin that computes
+WCAG contrast ratios for two hex colors. It imports only the standard library and opens no network connection (checked on
+v3.2.20), but it runs with your permissions like any plugin code, so read its changes before `claude plugin update`.
+{{end}}
+{{if ne .Language "go"}}### Dependency Install Scripts
+
+`.npmrc` sets `ignore-scripts=true`: `npm install` never runs a dependency's `preinstall`/`postinstall`, so a hijacked
+package cannot run code on a developer machine or in CI. Keep it. Note that it also skips `pre*`/`post*` hooks of your
+own npm scripts, so do not add any. A package that truly needs its install step: `npm rebuild <pkg> --ignore-scripts=false`
+after reviewing what it runs.
+
+{{end}}### Database Environment Isolation
 
 > [!CAUTION]
 > **Strict Environment Isolation**: Automated workflows, CI pipelines, and unit/integration tests are strictly limited to the **local Docker container** (`localhost:5432`).
@@ -45,6 +95,46 @@ All secrets must come from **environment variables** or a **secret manager** (e.
 
 ## Authentication & Authorization
 
+### Architecture — Browser ↔ BFF ↔ API
+
+Frontend and API may live on **different domains**, so browsers never hold tokens and never call the API directly:
+
+```
+Browser ──(HttpOnly; Secure; SameSite=Lax session cookie + CSRF token)──▶ BFF (same site as the FE)
+BFF     ──(Authorization: Bearer <access token>, server-to-server)──────▶ Go API
+```
+
+- The **BFF** (Next.js route handlers / Nuxt server routes / a small server for SPAs) stores access + refresh tokens
+  server-side or in `__Host-` prefixed `HttpOnly; Secure; SameSite=Lax; Path=/` cookies, refreshes them, and enforces CSRF
+  (double-submit token + `Origin` check) on every state-changing request.
+- The **Go API** stays stateless Bearer-JWT. CORS is off by default (`app.cors_allow_origin: []`) because no browser
+  calls it; credentials are never allowed cross-origin.
+- Tokens never touch `localStorage`/`sessionStorage` or JS-readable cookies.
+
+### SPA without a BFF — `AUTH_COOKIE_MODE` (React/Vue Vite)
+
+A Vite SPA has no server of its own, so it calls the API directly. Turn on cookie mode
+({{if eq .Language "go"}}`app.auth_cookie_mode: true` / `AUTH_COOKIE_MODE=true`{{else}}`AUTH_COOKIE_MODE=true`{{end}}) and list the exact SPA origin in
+{{if eq .Language "go"}}`app.cors_allow_origin`{{else}}`APP_CORS_ALLOW_ORIGIN`{{end}} (the API refuses to start in cookie mode without it):
+
+- `POST /v1/auth/login` and `/v1/auth/refresh` set the refresh token in `__Secure-refresh_token`
+  (`HttpOnly; Secure; SameSite=Strict; Path=<base path>/v1/auth`) and **omit it from the body**. The access token is
+  returned in the body and must live **only in the SPA's memory** (a reload restores it through `/v1/auth/refresh`).
+- `/v1/auth/refresh` and `/v1/auth/logout` read the refresh token **only from the cookie**; logout always clears it.
+- **CSRF:** every cookie-mode auth request needs an `Origin` from the allowlist **and** the header
+  `X-CSRF-Protection: 1` (a cross-site form cannot send it, and it forces a CORS preflight). Missing either → `403`.
+- CORS sends `Access-Control-Allow-Credentials: true` for the exact allowlisted origins only; never `*`.
+- **Same site required:** SPA and API must share a registrable domain (`app.example.com` + `api.example.com`);
+  browsers block third-party cookies, so different domains cannot work — use a framework with a BFF (Next, Nuxt,
+  SvelteKit) instead.
+- **Accepted trade-off:** XSS on the SPA can use the in-memory access token while the tab is open (not the refresh
+  token). A strict CSP and no `dangerouslySetInnerHTML` / `v-html` without DOMPurify matter even more.
+- Fetch with `credentials: "include"` only for `/v1/auth/*`; send the access token as `Authorization: Bearer`.
+- **Sibling subdomains:** a `__Secure-` cookie can still be planted by another subdomain of the same site
+  (`Domain=example.com`), which could log a victim into the attacker's session. `__Host-` would prevent it but forces
+  `Path=/` (the cookie would reach every endpoint). Do not host untrusted content (user uploads, third-party pages) on a
+  subdomain of the API's site; serve it from a separate registrable domain.
+
 ### JWT + Refresh Token Rotation
 
 Use stateless JWT with short-lived access tokens and rotating refresh tokens.
@@ -52,29 +142,39 @@ Use stateless JWT with short-lived access tokens and rotating refresh tokens.
 **Token Lifetimes:**
 | Token Type | TTL | Storage |
 |---|---|---|
-| Access Token | 15 minutes | Memory / `Authorization: Bearer` header |
-| Refresh Token | 7–30 days | HttpOnly cookie (preferred) or secure storage |
+| Access Token | 15 minutes | BFF only (server-side / `HttpOnly` cookie) → sent to the API as `Authorization: Bearer` |
+| Refresh Token | 7–30 days | BFF only, `__Host-` `HttpOnly; Secure; SameSite` cookie — never readable by JS |
 
-**Rotation Policy:**
-1. Every refresh token use **must issue a new refresh token** and invalidate the old one.
-2. Implement **token family** tracking: if a refresh token is reused (replay detected), revoke the **entire family** (force logout all sessions).
-3. Refresh tokens are stored as a hash (SHA-256) in Redis or database — never store raw tokens.
+**Implemented flow ({{if eq .Language "go"}}`internal/service/auth`, `pkg/auth-token`, `internal/repository/redis/refresh-token.go`{{else}}`src/service/auth`, `src/pkg/auth-token`, `src/repository/redis/refresh-token`{{end}}):**
+1. Tokens are RS256 JWTs with `typ` (`access` | `refresh`), `iss` = `aud` = app name, `sub` = user UUID, unique `jti`.
+   {{if eq .Language "go"}}`authtoken.ClaimsFromAccessToken` / `ClaimsFromRefreshToken`{{else}}`verify`{{end}} enforces the algorithm, expiry, issuer, audience **and type** — a refresh token is rejected by the
+   auth middleware and an access token is rejected by `/auth/refresh` and `/auth/logout`. Issue both from one
+   {{if eq .Language "go"}}`authtoken.New(&authtoken.AddtionalClaims{...})` with `.AccessToken()` and `.RefreshToken()` (keys, issuer, clock and lifetimes come from the config inside `pkg/auth-token`){{else}}`newAuthToken({...})` with `.accessToken(key)` and `.refreshToken(ttlSec, key)`{{end}}: each sets its
+   own `typ`, `jti` and expiry (the refresh token also `fid`) on a copy of the shared claims.
+2. **Login** starts a session family: Redis `auth:refresh:family:<fid>` = current refresh `jti` (TTL = refresh lifetime).
+3. **Refresh** (`POST /v1/auth/refresh`) atomically swaps the current `jti` (Lua compare-and-set) and issues a new pair.
+   Presenting an already-rotated token = **reuse** → the whole family is deleted and a warning is logged.
+4. **Logout** (`POST /v1/auth/logout`, body: refresh token) deletes the family. Already-issued access tokens stay valid
+   until they expire, which is why they live 15 minutes.
+5. The BFF must serialize refreshes per session — two concurrent refreshes with the same token look like reuse.
 
-```go
-// Example: Refresh token family pattern in Redis
-// Key: refresh_token_family:<user_id>:<family_id>
-// Value: hashed_refresh_token + expiry
-// On replay detected: DEL refresh_token_family:<user_id>:* (revoke all families)
-```
+**Login brute-force protection:** 5 failed attempts per email+IP and 20 per email (any IP) per 15 minutes → `429`.
+Each attempt is counted atomically *before* the password check (a successful login takes its count back), so parallel
+requests cannot slip past the limit. Redis keys hash the email (no PII). Unknown emails still run a bcrypt comparison
+so timing does not reveal accounts. The client IP is the socket address; `X-Forwarded-For` is only read (from the
+right) when the request comes from a configured trusted proxy ({{if eq .Language "go"}}`app.trusted_proxies`{{else}}`APP_TRUST_PROXY`{{end}}).
+**Accepted trade-off:** anyone who knows an email can keep that account locked out of login (20 attempts per window,
+from any IPs). If that matters for your users, add a CAPTCHA after a few failures or an unlock-by-email flow.
 
 **Access Token Claims — Minimal PII:**
 ```go
 type Claims struct {
     UserID string `json:"sub"`  // UUID only, no email/name
-    Role   string `json:"role"`
+    Type   string `json:"typ"`  // access | refresh
     jwt.RegisteredClaims        // exp, iat, jti
 }
-// NEVER put: email, phone, full name, password hash in JWT claims
+// NEVER put: email, phone, full name, password hash in JWT claims (enforced: claims carry sub/typ only).
+// No roles either: they are read per request, so assigning or revoking a role applies at once.
 ```
 
 **Validation Rules:**
@@ -83,48 +183,67 @@ type Claims struct {
 - Reject tokens with `alg: none`.
 - Use `RS256` (asymmetric) in production; `HS256` is acceptable only for internal services.
 
-### RBAC (Role-Based Access Control)
+### RBAC (Role-Based Access Control){{if eq .ProjectType "api"}}
 
-```go
-// Pattern: middleware chain — Authentication first, then Authorization
-g.Use(middleware.Authentication())
-g.Use(middleware.Authorization("admin", "superadmin"))
-// Handler runs only if both middlewares pass
-```
+Who may do what lives in the database, not in code:
 
+- `roles` + `role_permissions` + `user_roles` (migration `000003`). A user holds any number of roles; a request is
+  allowed when the **union** of the permissions of all the user's roles grants it (`:any` wins over `:own`).
+- `roles.code` (snake_case) is the immutable handle: code and frontends branch on `code`, never on `name` (editable
+  display text) or `id`.
+- A permission is `<resource>:<action>[:any|own]` and must exist in the catalog
+  ({{if eq .Language "go"}}`internal/authz/permission.go`{{else}}`src/authz/permission.ts`{{end}}); the API rejects anything else, so a typo is never granted.
+- Authorization runs in middleware, declared on every protected route ({{if eq .Language "go"}}`middleware.RequirePermission(h.AuthzService, "samples", "update")`{{else if eq .FrameworkID "typescript/nestjs"}}`@Permission("samples", "update")` + `PermissionGuard`{{else}}`requirePermission(h.authzService, "samples", "update")`{{end}}),
+  never inside handlers or services. The check resolves user → roles (`authz:user:<id>`) → permission sets
+  (`authz:role:<id>`, one MGET) from **Redis** (60 s TTL) and falls back to the **database** when Redis is unavailable
+  (slower, never skipped). No permission → `403`.
+- {{if eq .Language "go"}}`middleware.RequireRole(h.AuthzService, "<code>", ...)`{{else if eq .FrameworkID "typescript/nestjs"}}`@Roles("<code>")` + `RoleGuard`{{else}}`requireRole(h.authzService, "<code>", ...)`{{end}} checks role membership by `code`. Prefer
+  permissions; use it only for behavior that really belongs to the role itself.
+- **Scope `own`**: the middleware stores the granted scope; services limit queries to rows the user created
+  ({{if eq .Language "go"}}`CreatedBy: ctx.OwnerID()`{{else}}`createdBy: ownerId(ctx)`{{end}}). Someone else's row is `404`, so its existence does not leak.
+- Admins manage roles through `/v1/roles` (`roles:manage`): `PUT /v1/roles/:id/permissions` replaces a set in one
+  transaction and drops its cache entry at once. `is_system` roles cannot have their permissions changed or be
+  deleted (name/description can be edited; `is_system` is set only by migration); a role still
+  assigned to users cannot be deleted (`409`).
+- A user's roles change only through `PUT /v1/users/:id/roles` (`roles:manage`, replaces the whole set). Creating or
+  updating a user never touches roles (a new user gets the `user` role), so `users:update` alone cannot grant `admin`.
+- **Never check role names in code** (`if role == "admin"`): add a permission instead.
+- Tokens carry no role. Role assignments and permission changes both apply on the next request.
+{{else}}
+
+The API enforces permissions (`roles` / `role_permissions` / `user_roles`); the frontend only hides what the user
+cannot do and must never be the only check. Branch on `user.roles[].code` (immutable), never on the role `name`.
+{{end}}
 ---
 
 ## Rate Limiting
 
-### Redis Sliding Window Algorithm
+### What ships
 
-Use sliding window over fixed window to prevent burst exploitation at window boundaries.
+Login only (see "Login brute-force protection"): a fixed-window counter in Redis,
+{{if eq .Language "go"}}`RateLimitRepository.Hit` (`internal/repository/redis/rate-limit.go`){{else}}`rateLimitRepository.hit` (`src/repository/redis/rate-limit.ts`){{end}} — one Lua
+script does `INCR` + `EXPIRE` on the first hit + `TTL`, so the count is atomic and a key can never lose its expiry.
+Count **before** doing the guarded work; take a hit back (`Undo`/`undo`) only when the attempt must not count.
 
-**Go implementation pattern (using Redis):**
+### Adding a limit
 
-```go
-// internal/repository/redis/rate-limit/rate-limit.go
-// Key: rate_limit:<identifier>:<window_start_unix>
-// Algorithm:
-// 1. ZADD key <current_timestamp_ms> <current_timestamp_ms>
-// 2. ZREMRANGEBYSCORE key 0 <window_start_ms>  (remove old entries)
-// 3. ZCARD key  (count requests in window)
-// 4. If count > limit: reject (HTTP 429)
-// 5. EXPIRE key <window_seconds>
-```
+Reuse `Hit` with a key per identifier (hash PII such as emails: `sha256(email)`), reject with `429` and the remaining
+TTL when the count exceeds the limit. A fixed window allows up to 2× the limit around a window boundary; if that
+matters (e.g. paid API quotas), switch that limiter to a sliding window (sorted set: `ZADD` now, `ZREMRANGEBYSCORE`
+older than the window, `ZCARD`, `EXPIRE`, in one Lua script).
 
 **Rate Limit Tiers:**
 
 | Endpoint Category | Limit | Window | Identifier |
 |---|---|---|---|
-| Auth (login, register) | 5 req | 1 minute | IP |
+| Auth login (shipped) | 5 attempts / 20 attempts | 15 minutes | email + IP / email |
 | OTP send | 3 req | 5 minutes | phone/email |
 | OTP verify | 5 attempts | 10 minutes | phone/email |
 | General API (authenticated) | 1000 req | 1 minute | user_id |
 | General API (unauthenticated) | 60 req | 1 minute | IP |
 | File upload | 10 req | 1 hour | user_id |
 
-**Response Headers (always include):**
+**Response headers (when you add a general API limiter):**
 ```
 X-RateLimit-Limit: 100
 X-RateLimit-Remaining: 87
@@ -138,7 +257,7 @@ Retry-After: 60  (only on 429)
 
 | # | Vulnerability | Status | Mitigation |
 |---|---|---|---|
-| A01 | Broken Access Control | ☐ | RBAC middleware; validate ownership (`user_id` match) before any data access; never trust client-provided IDs for authorization |
+| A01 | Broken Access Control | ☐ | Permission check on every protected route; `:own` scope filters by `created_by`; IDs come from the path only, never the body |
 | A02 | Cryptographic Failures | ☐ | bcrypt cost ≥ 12 for passwords; TLS everywhere; no MD5/SHA1 for sensitive data; encrypt PII fields at rest |
 | A03 | Injection | ☐ | Parameterized queries via ORM only; never concatenate user input into SQL, shell, or LDAP queries |
 | A04 | Insecure Design | ☐ | Threat model per feature; rate limiting on auth; token rotation; least privilege DB user |
@@ -157,8 +276,12 @@ Retry-After: 60  (only on 429)
 - Validate all incoming request data **before** any processing or database operation.
 - Use strict schema validation (go-playground/validator for Go, zod for TypeScript).
 - **Reject unexpected fields** — use allowlist-based binding, not denylist.
-- Sanitize all user-controlled values used in file paths, SQL, or shell commands.
-- Never pass raw user input to `fmt.Sprintf`, `exec.Command`, or string interpolation in queries.
+- Validation is about **integrity** (type, length, format, enum allowlist) — it is NOT the defense against injection:
+  - **SQL injection** → parameterized queries + identifier allowlists (see [SQL Injection Prevention](#sql-injection-prevention)).
+  - **XSS** → context-aware output encoding + CSP (see [XSS Prevention](#xss-prevention)).
+  - Do not "sanitize" (strip characters from) input to stop SQLi/XSS — it corrupts legitimate data (`O'Brien`) and still misses payloads.
+- File paths: resolve with `filepath.Clean` and verify the result stays inside the allowed base directory.
+- Never pass raw user input to `fmt.Sprintf`-built SQL, `exec.Command`, or shell strings.
 
 ```go
 // Go: strict binding + validation pattern
@@ -182,12 +305,12 @@ if err := c.Validate(req); err != nil {
 
 ## Security Headers
 
-Apply on every response. For Go (Echo/Gin/Fiber), use middleware. For Node.js, use Helmet.
+Apply on every response.{{if ne .Language "go"}} The API sets them in `src/middleware/security` (no extra dependency): JSON routes get a deny-all CSP and `Cache-Control: no-store`.{{end}}
 
-```go
+{{if eq .Language "go"}}```go
 // Go — Echo middleware example
 e.Use(middleware.SecureWithConfig(middleware.SecureConfig{
-    XSSProtection:         "1; mode=block",
+    XSSProtection:         "0", // legacy XSS auditor is removed from browsers and can introduce leaks; rely on CSP
     ContentTypeNosniff:    "nosniff",
     XFrameOptions:         "DENY",
     HSTSMaxAge:            31536000,
@@ -214,14 +337,14 @@ app.use(helmet({
 }));
 ```
 
-**Required headers in production:**
+{{else}}{{end}}**Required headers in production:**
 
 | Header | Value |
 |---|---|
 | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains; preload` |
 | `X-Content-Type-Options` | `nosniff` |
 | `X-Frame-Options` | `DENY` |
-| `X-XSS-Protection` | `1; mode=block` |
+| `X-XSS-Protection` | `0` (legacy auditor disabled — CSP is the real protection) |
 | `Referrer-Policy` | `strict-origin-when-cross-origin` |
 | `Content-Security-Policy` | At minimum: `default-src 'self'` |
 | `Permissions-Policy` | `camera=(), microphone=(), geolocation=()` |
@@ -232,7 +355,7 @@ app.use(helmet({
 
 - Use parameterized queries / ORM query builders **exclusively**.
 - Never concatenate user input into SQL strings.
-- In GORM: always use `?` placeholders or GORM's method chaining.
+{{if eq .Language "go"}}- In GORM: always use `?` placeholders or GORM's method chaining.
 
 ```go
 // ✅ Safe — parameterized
@@ -243,22 +366,72 @@ db.Where("email = '" + userInput + "'").Take(&user)
 db.Raw("SELECT * FROM users WHERE email = '" + userInput + "'").Scan(&user)
 ```
 
+**Identifiers cannot be parameterized.** Column names, sort direction, and table names coming from the request
+(`?sort_by=`, `?sorts[0][field]=`) MUST go through an allowlist. GORM's `Order(string)` is raw SQL:
+
+```go
+// ❌ DANGEROUS — ?sort_by=(CASE WHEN (SELECT ...) THEN id ELSE name END)
+tx.Order(fmt.Sprintf("%s %s", f.SortBy, f.Sort))
+
+// ✅ Safe — allowlist in the DTO filter, unknown fields are ignored, direction is DESC only for "desc"
+var userSortColumns = abstraction.SortColumns{
+    "name":       "users.name",
+    "created_at": "users.created_at",
+}
+tx = userSortColumns.Apply(tx, f.Sorts...)
+tx = userSortColumns.Apply(tx, f.Pagination.SortItems()...)
+```
+
+Every new filter DTO declares its own `<entity>SortColumns`. `internal/abstraction/pagination_test.go` guards the behavior.
+
+{{else}}- With Drizzle: use the query builder (`eq`, `ilike`, `inArray`, ...) or the `sql` tag, which parameterizes every
+  interpolated value. Never use `sql.raw()` with request data.
+
+```ts
+// ✅ Safe — parameterized
+db.select().from(users).where(sql`lower(${users.email}) = ${email}`);
+
+// ❌ DANGEROUS — never do this
+db.execute(sql.raw(`SELECT * FROM users WHERE email = '${email}'`));
+```
+
+**Identifiers cannot be parameterized.** Sort fields from the request (`?sort_by=`) MUST go through an allowlist:
+
+```ts
+// ✅ Safe — unknown fields are ignored, direction is DESC only for "desc" (src/dto/<entity>)
+export const userSortColumns: SortColumns = { name: users.name, created_at: users.createdAt };
+applyFilter(query, f, userSortColumns);
+```
+
+Every new filter declares its own `<entity>SortColumns`. `src/abstraction/pagination.test` guards the behavior
+(including `constructor`/`__proto__`, which must never resolve to prototype members).
+
+{{end}}---
+
+## XSS Prevention
+
+- **Encode on output, by context.** React/Vue/Svelte escape text interpolation by default — keep it that way.
+- **Banned without DOMPurify sanitization:** `dangerouslySetInnerHTML`, `v-html`, `{@html}`, `innerHTML`, `document.write`, `eval`, `new Function`.
+- Never build URLs for `href`/`src` from user input without allowing only `https:` (block `javascript:` / `data:`).
+- **CSP** on every HTML response: start from `default-src 'self'; object-src 'none'; base-uri 'self'; frame-ancestors 'none'` and avoid `'unsafe-inline'` for scripts (use nonces/hashes).
+- APIs return `Content-Type: application/json` with `X-Content-Type-Options: nosniff`, so a JSON body can never be sniffed as HTML.
+- Tokens never live in `localStorage`/`sessionStorage` — any XSS can read them. Auth uses `HttpOnly; Secure; SameSite` cookies (see Authentication).
+
 ---
 
 ## CORS
 
-- Restrict `Access-Control-Allow-Origin` to known origins in production.
-- Do not use `*` in production without explicit justification.
-- Allowlist origins from config/environment, not hardcoded.
-
-```go
-e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-    AllowOrigins: config.Get().AllowedOrigins, // from environment
-    AllowMethods: []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"},
-    AllowHeaders: []string{"Authorization", "Content-Type", "X-Request-ID"},
-    MaxAge:       86400,
-}))
-```
+- **Off by default.** Browsers reach the API through the BFF (server-to-server), which needs no CORS.
+- Only when a browser must call the API directly, list exact origins in {{if eq .Language "go"}}`app.cors_allow_origin` (or the
+  space-separated `APP_CORS_ALLOW_ORIGIN` env var){{else}}`APP_CORS_ALLOW_ORIGIN` (comma-separated){{end}}. Never `*`.
+- `Access-Control-Allow-Credentials: true` is sent **only in cookie mode** (`AUTH_COOKIE_MODE`, see "SPA without a BFF"),
+  and only for those exact origins. Never turn it on for any other reason.
+{{- if eq .Language "go"}}
+- Implemented in `internal/middleware` (Echo), `internal/middleware/security.go` (Gin), and `main.go` (Fiber),
+  together with the security headers below (deny-all CSP for JSON routes; `/swagger` is exempt).
+{{- else}}
+- Implemented in `src/middleware/cors` (exact-origin allowlist from `APP_CORS_ALLOW_ORIGIN`, comma-separated).
+{{- end}}
 
 ---
 

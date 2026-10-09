@@ -3,89 +3,58 @@
 ## The Workflow
 
 ```
-Populate docs/task.md (Implementation Plan)
+Triage the prompt (LIGHT vs HEAVY — CLAUDE.md Rule 0)
+  ├─ LIGHT ─────────────────────────────────────────────┐
+  └─ HEAVY → Clarify / PRD breakdown                     │
+             → Plan in docs/task.md (AWAITING REVIEW)    │
+             → STOP → developer revises → "deal"         │
+  ↓ ←──────────────────────────────────────────────────┘
+Impact Analysis → Inspect Relevant Files Only → Implement
   ↓
-STOP — Wait for developer to type 'deal'
+Verify: build + lint + targeted tests
   ↓
-Intake & Alignment (PRD Breakdown OR Clarifying Challenge)
+/ponytail-review → apply cuts → RECHECK (build + tests again)
   ↓
-Discuss & Agree on Task List ("Deal")
+/security-review (security-sensitive changes) + security-guidance hooks
   ↓
-Impact Analysis
-  ↓
-Inspect Relevant Files Only
-  ↓
-Plan Minimal Change
-  ↓
-Implement (DB Migrations → Models → Business Logic → Handlers)
-  ↓
-Targeted Test
-  ↓
-Review Diff
-  ↓
-Update docs/progress.md
-  ↓
-Commit (when appropriate)
+Review git diff → Update docs/progress.md → Commit
 ```
 
 ## Step-by-Step
 
-### 0. MANDATORY PLANNING GATE — Populate `docs/task.md` First
+### 0. Triage
 
-> [!IMPORTANT]
-> **This gate has zero exceptions. No code may be written before `deal` is received.**
+Every prompt is classified first. **HEAVY** if any of: vague requirements, schema change, new/changed API contract, auth/session/payment/PII/upload/security-sensitive code (any size), new dependency, more than 2 files or more than one layer, irreversible operation. Otherwise **LIGHT**. In doubt → HEAVY.
 
-At the start of **every** new feature, bug fix, or non-trivial change:
+- **LIGHT**: one-line triage statement, implement, verify (steps 2–9).
+- **HEAVY**: plan first (step 1). No code, no file creation, no mutating command before the developer types **`deal`**.
 
-1. **Open `docs/task.md`** — this is the mandatory planning document.
-2. **Fill every required section** (do not leave any blank):
-   - Scope Size: `S` (1-2 files) | `M` (3-6 files) | `L` (7-15 files) | `XL` (16+ files)
-   - Files to Create (table: path, layer, purpose)
-   - Files to Modify (table: path, what changes)
-   - DB Schema Changes (SQL DDL, migration command)
-   - API Contracts (method, path, auth, request, response)
-   - Business Rules & Validations (checklist)
-   - Dependencies (new libraries required)
-   - Testing Plan (unit + integration tests to write)
-   - Security Considerations (risks per feature)
-3. **Set Status to `AWAITING REVIEW`.**
-4. **STOP.** Present the plan:
-   > *"I have prepared a complete implementation plan in `docs/task.md`. Please review and type `deal` to proceed."*
-5. **Do NOT write any code, create any file, or run any command** until the developer types **`deal`**.
-6. **On `deal`:** Execute phase-by-phase. Check off items in the `docs/task.md` Execution Checklist as you go.
-7. **On completion:** Archive the task summary to `docs/progress.md`. Reset `docs/task.md` for the next task.
+### 1. Plan (HEAVY only) — `docs/task.md`
 
-**Handling underspecified prompts:**
-- If requirements are vague, list all clarifying questions in `docs/task.md` under "Clarifying Questions".
-- STOP and ask the developer before even writing the plan sections.
+#### Scenario A: Developer provides a PRD
+1. Analyze it thoroughly: business objective, scope, domain entities, user journeys, edge cases, technical constraints.
+2. Decompose into feature specs: API contracts, database schema, models, services, integrations.
+
+#### Scenario B: Developer provides a brief / underspecified prompt
+(e.g. *"buatkan fitur payment"*, *"tambahkan auth"*)
+1. Do NOT guess business rules or write speculative code.
+2. Ask targeted questions, recorded under "Clarifying Questions" in `docs/task.md`:
+   - **Scope & Flow**: core user flows, required endpoints/screens.
+   - **Data & Schema**: fields, relationships, PostgreSQL 18 UUIDv7 vs MySQL BINARY(16).
+   - **Business Rules**: validation, roles, permissions, error conditions.
+   - **Security & Privacy**: which data is PII, who may read/write it, retention.
+   - **Integrations**: third-party gateways, notifications, background jobs.
+3. STOP until answered.
+
+#### Then, for both scenarios
+1. Fill every section of `docs/task.md`: Scope Size (`S` 1-2 files | `M` 3-6 | `L` 7-15 | `XL` 16+), Files to Create, Files to Modify, DB Schema Changes, API Contracts, Business Rules & Validations, Dependencies, Testing Plan, Security Considerations.
+2. Set Status to `AWAITING REVIEW` and STOP:
+   > *"Plan ready in `docs/task.md`. Please review, point out anything off, and type `deal` to proceed."*
+3. Revise on feedback, STOP again. Only `deal` unlocks execution.
+4. On `deal`, execute phase-by-phase and tick the Execution Checklist. If the work drifts from the plan (new file, dependency, or schema change), STOP and get approval for the delta.
+5. On completion, archive the summary to `docs/progress.md` and reset `docs/task.md`.
 
 ---
-
-
-When starting project initialization or beginning a new feature during vibe coding, developer requests typically arrive in one of two ways:
-
-#### Scenario A: Developer Provides a PRD (Product Requirements Document)
-When a comprehensive PRD or detailed specification is provided:
-1. **Analyze the PRD Thoroughly**: Review the business objective, scope, domain entities, user journeys, edge cases, and technical constraints.
-2. **Break Down Feature Specifications**: Decompose the PRD into modular, technical feature specs (API contracts, database schema, domain models, business logic services, external integrations).
-3. **Formulate an Actionable Task List**: Create a sequenced, trackable checklist of implementation steps (staged in `docs/progress.md` or `docs/roadmap.md`).
-4. **Offer for Developer Review**: Present the breakdown and task list to the developer:
-   > *"I have analyzed your PRD and prepared the following feature breakdown and task list. Does this match your architectural expectations and priorities?"*
-5. **Discuss & Iterate**: Discuss any assumptions, trade-offs, or open questions until mutual alignment is reached.
-6. **Execute on Deal**: Once the developer confirms ("deal"), immediately begin phased execution without delay.
-
-#### Scenario B: Developer Provides High-Level / Brief / Underspecified Prompts
-When the developer provides a short, vague, or underspecified prompt (e.g., *"buatkan fitur payment"*, *"tambahkan auth"*):
-1. **Challenge the Developer**: Do NOT make wild assumptions, guess business rules, or immediately write speculative code.
-2. **Present Targeted Clarifying Questions**: Ask structured, precise questions to establish the necessary context:
-   - **Scope & Flow**: What are the core user flows and required endpoints?
-   - **Data & Schema**: What fields and relationships are required? Which database (PostgreSQL 18 UUIDv7 vs MySQL BINARY(16))?
-   - **Business Rules**: What are the validation rules, roles, permissions, and error conditions?
-   - **Integrations**: Are there third-party gateways, notification services, or background tasks?
-3. **Formulate Spec & Task List**: Use the developer's answers to draft the feature specification and implementation task list.
-4. **Discuss & Refine**: Iterate the discussion with the developer.
-5. **Execute on Deal**: Proceed to implementation only after mutual agreement ("deal"). If not yet aligned, continue discussing until consensus is reached.
-
 
 ### 2. Impact Analysis
 Identify **exactly** which files will be affected. Do not scan the entire repository.
@@ -110,7 +79,7 @@ Follow existing patterns. Do not introduce new patterns without a clear reason.
   6. **PROHIBITION**: Never execute raw SQL DDL directly against the database, and never rely on ORM `AutoMigrate` without running `make migrate-up`.
 - **Third-Party API Integrations (Midtrans, Finpay, etc.)**:
   1. Place clients under `pkg/<thirdparty-name>` or `pkg/thirdparty-sample`.
-  2. Update `config.example.yml` and `.env.example` with **dummy credentials** (e.g. `MIDTRANS_SERVER_KEY=SB-Mid-server-dummy-key`). Never hardcode real keys; let the developer supply real secrets.
+  2. Update `config.example.yml` and `.env.example` with **dummy credentials** (e.g. `MIDTRANS_SERVER_KEY=SB-Mid-server-dummy-key`). Never hardcode real keys; let the developer supply real secrets. Never read `.env` / `config.yml` (blocked in `.claude/settings.json`).
 
 ### 6. Targeted Test
 Run the smallest relevant set of tests first.
@@ -125,11 +94,28 @@ go test ./internal/service/user/...
 npm test -- --testPathPattern=user
 ```
 
-### 7. Review Diff
+### 6b. Ponytail Review & Recheck
+1. Run `/ponytail-review` on the diff.
+2. Apply cuts unless they break CLAUDE.md Rule 1.1 (security/privacy first; the 12 mandated repository methods, the role/permission repository methods and the file-per-function layout are exempt).
+3. **Recheck**: build + lint + targeted tests again.
+
+### 6c. SAST (every task)
+Run `{{if and (eq .Language "go") (eq .ProjectType "worker")}}semgrep scan --config p/default --error --metrics=off{{else}}make sast{{end}}` (Semgrep, public `p/default` rules, no account). Fix every finding; mark a proven false positive with `nosemgrep: <rule-id> -- <reason>` on the line above it.{{if eq .ProjectType "frontend"}} It also runs the slop lint in `.semgrep/antislop.yml`; a technique `DESIGN.md` explicitly asks for is kept with the same marker and its reason.{{end}}
+
+### 6d. Security Review
+For changes touching input handling, DB queries, auth/cookies, uploads, outbound calls, logging, or FE rendering of user data: run `/security-review` and resolve every finding. Never bypass `security-guidance` hook warnings.
+
+{{if eq .ProjectType "frontend"}}### 6e. UI Evidence and antislop Delivery Gate (frontend, when the task changes what the user sees)
+1. `DESIGN.md` Status must be `APPROVED` before UI work starts (CLAUDE.md Rule 10).
+2. `make ui-shots`, then open the PNGs in `ui-shots/` (375, 768 and 1280 px; light and dark) and look at them.
+3. Run the app, click every control, check the console.
+4. Report the antislop Delivery Gate: PASS or FAIL per item, every PASS with evidence. A FAIL means the task is not done.
+
+{{end}}### 7. Review Diff
 ```bash
 git diff
 ```
-Ensure changes are scoped to what was intended. Do not commit unrelated changes.
+Ensure changes are scoped to what was intended. Do not commit unrelated changes. If `git status` fails because the project is not a repository, run `git init` first.
 
 ### 8. Update Progress
 Update `docs/progress.md` before a context transition or at the end of a work session.
@@ -155,6 +141,11 @@ cat docs/progress.md
 git status
 git log --oneline -10
 ```
+
+## Milestones / Before Release
+- `/ponytail-audit` — whole-repo over-engineering audit.
+- `/ponytail-debt` — list deferred `ponytail:` shortcuts and decide which to pay down.
+- Dependency scan: `make vuln` (Go) or `npm audit --omit=dev` (JS).
 
 ## Principles
 

@@ -28,7 +28,6 @@ This project standardizes on **UUID v7 (RFC 9562)** for all entity primary keys 
       name VARCHAR(255) NOT NULL,
       email VARCHAR(255) UNIQUE NOT NULL,
       password VARCHAR(255) NOT NULL,
-      role VARCHAR(50) NOT NULL DEFAULT 'user',
       created_at BIGINT NOT NULL,
       updated_at BIGINT,
       deleted_at BIGINT,
@@ -51,7 +50,6 @@ This project standardizes on **UUID v7 (RFC 9562)** for all entity primary keys 
       name VARCHAR(255) NOT NULL,
       email VARCHAR(255) UNIQUE NOT NULL,
       password VARCHAR(255) NOT NULL,
-      role VARCHAR(50) NOT NULL DEFAULT 'user',
       created_at BIGINT UNSIGNED NOT NULL,
       updated_at BIGINT UNSIGNED NULL DEFAULT NULL,
       deleted_at BIGINT UNSIGNED NULL DEFAULT NULL,
@@ -120,19 +118,56 @@ All models and entities across all Go frameworks (API and cron job) adhere to th
        Name     string `gorm:"column:name;not null"              json:"name"`
        Email    string `gorm:"column:email;uniqueIndex;not null" json:"email"`
        Password string `gorm:"column:password;not null"          json:"-"`
-       Role     string `gorm:"column:role;not null;default:'user'" json:"role"`
    }
 
    type User struct {
        abstraction.Entity
        UserEntity
 
+       // relation
+       Roles []*Role `json:"roles,omitempty" gorm:"many2many:user_roles;joinForeignKey:UserID;joinReferences:RoleID"`
+
        // context
        Context *abstraction.Context `json:"-" gorm:"-"`
    }
    ```
 
-3. **Lifecycle Hooks**:
+3. **Relations (foreign keys)**: every `<Relation>ID` field in `<model>Entity` is a foreign key, and the
+   `<model>` struct then declares the referenced model under a `// relation` comment (between the entity and the
+   context) so it can be preloaded:
+   ```go
+   type UserRoleEntity struct {
+       UserID uuid.UUID `gorm:"column:user_id;type:uuid;not null" json:"user_id"`
+       RoleID uuid.UUID `gorm:"column:role_id;type:uuid;not null" json:"role_id"`
+   }
+
+   type UserRole struct {
+       abstraction.Entity
+       UserRoleEntity
+
+       // relation
+       User *User `json:"user,omitempty" gorm:"foreignKey:UserID;references:ID"`
+       Role *Role `json:"role,omitempty" gorm:"foreignKey:RoleID;references:ID"`
+
+       // context
+       Context *abstraction.Context `json:"-" gorm:"-"`
+   }
+   ```
+   | Relation | FK lives in | Field | Tag |
+   |---|---|---|---|
+   | belongs-to | this `<model>Entity` (`RoleID`) | `Role *Role` | `foreignKey:RoleID;references:ID` |
+   | has-many | the other table (`orders.user_id`) | `Orders []*Order` | `foreignKey:UserID;references:ID` |
+   | many-to-many | a join table (`user_roles`) | `Roles []*Role` | `many2many:user_roles;joinForeignKey:UserID;joinReferences:RoleID` |
+
+   - A single related row is a pointer (`*Role`), several are a slice (`[]*Role`); never `*[]*Role`.
+   - Relation fields are for reads (`Preload("Role")`, `Preload("Roles")`). Write FK rows through their own
+     repository; repositories updating a model with relations use `Omit(clause.Associations)` so GORM never
+     upserts related rows by accident.
+   - The migration declares the constraint (`REFERENCES <table> (id) ON DELETE CASCADE|RESTRICT`) and an index on
+     the FK column. TypeScript models mirror it with `.references(() => <table>.id, { onDelete })` and read related
+     rows with one extra bulk query (`inArray`), never one query per row.
+
+4. **Lifecycle Hooks**:
    ```go
    func (u *User) BeforeCreate(_ *gorm.DB) error {
        u.SetupBeforeCreate()
@@ -159,7 +194,22 @@ All models and entities across all Go frameworks (API and cron job) adhere to th
   - At DB layer (PostgreSQL 18): `DEFAULT uuidv7()` guarantees sortable UUID v7 even for direct SQL inserts.
 
 
-## Naming Conventions
+{{if eq .ProjectType "api"}}## Template Tables
+
+| Table | Migration | Purpose |
+|---|---|---|
+| `users` | `000001` | Accounts. `email` unique (case-insensitive, active rows). Roles: `user_roles`. |
+| `samples` | `000002` | Example domain table; copy its pattern for new entities. |
+| `roles` | `000003` | Named permission sets. `code` (snake_case, unique) is the immutable handle that code and frontends branch on; `name`/`description` are editable display text; `is_system` roles (`admin`) keep their permissions and cannot be deleted through the API (renaming is allowed); `is_system` itself is set only by migration. Hard-deleted. |
+| `role_permissions` | `000003` | One row per (role, permission); `UNIQUE (role_id, permission)`, `role_id` → `roles.id` `ON DELETE CASCADE`. Hard-deleted. |
+| `user_roles` | `000003` | One row per (user, role): a user holds any number of roles. `UNIQUE (user_id, role_id)`, `user_id` → `users.id` `ON DELETE CASCADE`, `role_id` → `roles.id` `ON DELETE RESTRICT` (a role in use cannot be deleted), index on `role_id`. Hard-deleted. |
+
+`000003` seeds `admin` (every permission) and `user` (`samples:read:any`, `samples:create`, `samples:update:own`,
+`samples:delete:own`); `make create-admin` gives the first account the `admin` role. Permissions are
+`<resource>:<action>[:any|own]` strings from the catalog in code (`{{if eq .Language "go"}}internal/authz{{else}}src/authz/permission.ts{{end}}`); see `docs/security.md`.
+**New permission = catalog entry + a migration granting it to `admin`** (and to other roles as needed).
+
+{{end}}## Naming Conventions
 
 - Tables: `snake_case`, plural (e.g., `users`, `user_sessions`)
 - Columns: `snake_case` (e.g., `created_at`, `user_id`)

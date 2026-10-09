@@ -1,17 +1,19 @@
 # Task Plan — {{.ProjectTitle}}
 
 > [!IMPORTANT]
-> **MANDATORY PLANNING GATE — AI AGENT MUST READ THIS FIRST**
+> **PLANNING GATE FOR HEAVY TASKS — AI AGENT MUST READ THIS FIRST**
 >
-> Before writing **any code**, you MUST fully populate this file with a complete implementation plan.
-> After writing the plan, you MUST **STOP** and wait for the developer to explicitly type **`deal`**.
-> **Do NOT write any code, create any file, or run any command until you receive `deal`.**
+> Used for every task triaged as **HEAVY** (CLAUDE.md Rule 0: vague requirements, schema change, API contract change,
+> auth/payment/PII/security-sensitive code, new dependency, >2 files or multi-layer, irreversible operation).
+> Populate this file, then **STOP** and wait for the developer to explicitly type **`deal`**.
+> **Do NOT write any code, create any other file, or run any mutating command until you receive `deal`.**
+> LIGHT tasks skip this file but still run the Verification Pipeline (CLAUDE.md Rule 1).
 
 ---
 
 ## How to Use This File
 
-1. **AI fills this file** with a complete plan every time a new feature or task begins.
+1. **AI fills this file** with a complete plan whenever a task is triaged as HEAVY.
 2. **Developer reviews** the plan — edits, asks questions, or rejects sections.
 3. **Developer types `deal`** to approve and unblock execution.
 4. **AI executes** the plan phase-by-phase, updating the checklist as it goes.

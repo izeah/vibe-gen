@@ -1,0 +1,231 @@
+# Slop lint for UI source: the mechanical tells of AI-generated interfaces, run by `make sast`.
+# Every message names the replacement. A technique DESIGN.md explicitly asks for stays, with
+# `nosemgrep: <rule-id> -- <reason from DESIGN.md>` on the line above (or on) the finding;
+# never a blanket nosemgrep and never a removed rule. What a regex cannot judge (hierarchy,
+# rhythm, identity, honesty of content) is the antislop Delivery Gate's job, not this file's.
+rules:
+  - id: antislop-em-dash
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Em dash in UI source (antislop R-02). Use a comma, period, colon or parentheses.
+    pattern-regex: '—'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-emoji
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Emoji in UI source (antislop R-04): it reads as AI decoration. Use plain text, or an icon
+      that carries meaning the label does not.
+    pattern-regex: '[\x{1F300}-\x{1FAFF}\x{2728}\x{274C}\x{2705}\x{2B50}\x{26A1}\x{2764}\x{FE0F}]'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-generic-cta
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Generic button or link label (antislop R-15). Name the action and its object, for example
+      "Create invoice" or "Save changes".
+    pattern-regex: '(?:>|["''`])\s*(?:Get [Ss]tarted|Learn [Mm]ore|Try [Nn]ow|Explore|Discover|Click [Hh]ere|Submit|Mulai [Ss]ekarang|Pelajari [Ll]ebih [Ll]anjut|Selengkapnya|Coba [Ss]ekarang|Jelajahi|Klik [Dd]i [Ss]ini)\s*(?:<|["''`])'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-buzzword
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Marketing buzzword (antislop R-16). Say what the product does and what it gives the user,
+      with evidence instead of adjectives.
+    pattern-regex: '(?i)\b(?:seamless(?:ly)?|cutting[- ]edge|revolutionary|next[- ]gen(?:eration)?|supercharge[sd]?|unlock the power|effortless(?:ly)?|game[- ]changer|ai[- ]powered|powered by ai|inovatif|revolusioner|terdepan|solusi terbaik|all-in-one|tanpa ribet|transformasi digital|tingkatkan produktivitas)\b'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-generic-error-copy
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Generic error or empty-state copy. Say what failed or why it is empty and the next step,
+      for example "Could not load invoices. Check your connection and try again." (antislop R-27).
+    pattern-regex: '(?i)something went wrong|an error occurred|an unexpected error|unknown error|\boops\b|ups!? terjadi kesalahan|terjadi kesalahan\.?(?:["''`<])|no data (?:available|found)|data tidak (?:tersedia|ditemukan)\.?(?:["''`<])'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-filler-greeting
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Filler greeting. Open with the thing the user came to do; put the product name in the
+      header, not in a welcome line.
+    pattern-regex: '(?i)welcome back|welcome to your|selamat datang kembali|selamat datang di (?:dashboard|aplikasi)'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-placeholder-content
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Placeholder content that looks real (antislop R-23, R-38). Show real data, an honest empty
+      state, or an explicit placeholder such as [REAL DATA]; never invented people, companies,
+      stock photos or avatars.
+    pattern-regex: '(?i)lorem ipsum|dolor sit amet|\bjohn doe\b|\bjane doe\b|\bacme(?: corp| inc)?\b|johndoe@|janedoe@|\bbudi santoso\b|\bsiti aminah\b|\bpt maju jaya\b|08123456789|0812-3456-7890|picsum\.photos|pravatar\.cc|placehold\.co|placeholder\.com|dummyimage\.com|randomuser\.me|ui-avatars\.com|images\.unsplash\.com|source\.unsplash\.com|undraw\.co|storyset\.com'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-fake-stat
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Invented statistic or social proof (antislop R-17, R-18, R-36). Show a number only when it
+      comes from real data; otherwise show nothing.
+    pattern-regex: '(?i)\b\d[\d.,]*[kmb]?\+?\s*(?:%\s*uptime|(?:happy |active )?(?:users|customers|developers|downloads|teams|companies|pengguna|pelanggan))\b|\b99\.9\s*%|\btrusted by\b|\bjoin (?:thousands|millions)\b|\bmost popular\b|\bloved by\b|\bdipercaya oleh\b|\bbergabung dengan (?:ribuan|jutaan)\b'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-feature-theater
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Login affordance the API may not have. Add it only when its endpoint exists; then keep it
+      with `nosemgrep: antislop-feature-theater -- <endpoint>`.
+    pattern-regex: '(?i)forgot (?:your )?password|remember me|(?:sign up|sign in|continue|masuk|daftar|lanjutkan) (?:with|dengan) (?:google|github|apple|facebook)|lupa (?:kata sandi|password)|ingat saya'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-gradient
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Gradient or gradient text without a stated purpose (antislop R-01). A gradient that
+      separates one level of hierarchy from another is craft; one over the whole page is slop. If
+      DESIGN.md asks for it, keep it with `nosemgrep: antislop-gradient -- <reason from DESIGN.md>`.
+    pattern-regex: '(?i)\b(?:repeating-)?(?:linear|radial|conic)-gradient\(|\bbg-gradient-to-|\bbg-linear-to-|\bbg-clip-text\b|-webkit-background-clip:\s*text|background-clip:\s*text'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-glass-glow
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Blur or glow (antislop R-10, R-13): at most 1 or 2 accents, never the character of the whole
+      UI. Use a border or a tonal step for separation. If DESIGN.md asks for it, keep it with
+      `nosemgrep: antislop-glass-glow -- <reason from DESIGN.md>`.
+    pattern-regex: '(?i)backdrop-filter|\bbackdrop-blur|(?:box-shadow:\s*|,\s*)(?:inset\s+)?0(?:px)?\s+0(?:px)?\s+[1-9]\d*px|drop-shadow\(\s*0(?:px)?\s+0(?:px)?\s+[1-9]\d*px|\bshadow-glow\b'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-hardcoded-color
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Literal color outside the token file. Use a token (`var(--accent)`); a new color is a new
+      token in src/styles/globals.css, with its contrast checked in both themes.
+    pattern-regex: '(?<!&)#[0-9a-fA-F]{3,8}\b|\b(?:rgba?|hsla?|oklch|oklab|lab|lch)\('
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*", "globals.css"]
+
+  - id: antislop-font-cdn
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Font loaded from a third-party host: it sends every visitor's IP there and the CSP blocks
+      it. Self-host the font files (see docs/design_system.md, Typography).
+    pattern-regex: '(?i)fonts\.googleapis\.com|fonts\.gstatic\.com|use\.typekit\.net|fonts\.bunny\.net|cdnfonts\.com'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-viewport-height
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      100vh includes the mobile browser chrome and pushes content below the fold (antislop
+      R-03). Let the section size to its content, or use 100dvh where full height is intended.
+    pattern-regex: '\b100vh\b|\b(?:min-)?h-screen\b'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-outline-none
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Focus outline removed (antislop R-32). Keep a visible :focus-visible indicator. If a better
+      one replaces it, keep this line with `nosemgrep: antislop-outline-none -- <where the
+      replacement is>`.
+    pattern-regex: 'outline:\s*(?:none|0)\b|\boutline-none\b'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-endless-animation
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Animation that loops forever (antislop R-19). Motion shows a state change or points at
+      something. A loading indicator is the one allowed loop: keep it with `nosemgrep:
+      antislop-endless-animation -- loading indicator`.
+    pattern-regex: 'animation(?:-iteration-count)?:[^;{}]*\binfinite\b|\banimate-(?:bounce|ping|pulse|spin)\b'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-template-motion
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Template motion (antislop R-19): transition: all, hover lift or scale, fade-in-up or
+      scroll-reveal on everything. Transition only the properties that change (opacity,
+      transform), with a purpose written down in DESIGN.md.
+    pattern-regex: '(?i)transition(?:-property)?:\s*all\b|\btransition-all\b|:hover\s*\{[^}]*transform:\s*(?:scale|translate)|\bhover:-?(?:scale|translate-y)-|\bfade-?in-?(?:up|down)\b|\bdata-aos\b|\bwhileInView\b'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-dead-link
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Link or button that goes nowhere (antislop R-24, R-26). Give it a real destination or
+      behavior, or remove it.
+    pattern-regex: 'href=["'']\s*(?:#|javascript:[^"'']*)?\s*["'']|onClick=\{\(\)\s*=>\s*\{\s*\}\}'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-ui-dependency
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      UI library, icon set or motion library. Native HTML and CSS first. A new one needs a reason
+      in the HEAVY plan and an ADR in docs/decisions.md; then keep the import with `nosemgrep:
+      antislop-ui-dependency -- <ADR number>`.
+    pattern-regex: '(?:from|import|require\()\s*["''](?:lucide-[a-z-]+|@lucide/[^"'']+|@heroicons/[^"'']+|react-icons(?:/[^"'']+)?|@phosphor-icons/[^"'']+|@tabler/icons[^"'']*|framer-motion|motion(?:/react)?|@motionone/[^"'']+|gsap|aos|animate\.css|class-variance-authority|@radix-ui/[^"'']+|@headlessui/[^"'']+|@shadcn/[^"'']+|@mui/[^"'']+|antd|@chakra-ui/[^"'']+|primereact|vuetify|element-plus|daisyui|flowbite[^"'']*|tailwindcss)["'']|@import\s+["'']tailwindcss'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.css", "*.ts", "*.js"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
+
+  - id: antislop-px-font-size
+    languages: [generic]
+    severity: ERROR
+    message: >-
+      Arbitrary font size. Use the type scale tokens (`var(--text-base)`); a new size is a new
+      token in src/styles/globals.css.
+    pattern-regex: 'font-size:\s*\d+(?:\.\d+)?px|font:\s*(?:[\w-]+\s+)*\d+(?:\.\d+)?px|\btext-\[\d+px\]'
+    paths:
+      include: ["*.tsx", "*.jsx", "*.vue", "*.svelte", "*.html", "*.css"]
+      exclude: ["e2e/", "*.test.*", "*.config.*"]
