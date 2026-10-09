@@ -1,0 +1,17 @@
+FROM node:24-alpine AS build
+WORKDIR /app
+ENV NEXT_TELEMETRY_DISABLED=1
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY . .
+RUN npm run build
+
+# The standalone output contains only what `next start` needs.
+FROM node:24-alpine
+WORKDIR /app
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 PORT=3001
+COPY --from=build /app/.next/standalone ./
+COPY --from=build /app/.next/static ./.next/static
+USER node
+EXPOSE 3001
+CMD ["node", "server.js"]

@@ -1,0 +1,10 @@
+# Never send secrets or local state into the build context.
+.env
+.env.*
+!.env.example
+secret-auth/
+*.pem
+node_modules
+dist
+.git
+coverage

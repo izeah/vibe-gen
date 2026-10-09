@@ -1,0 +1,68 @@
+import { type Config, config } from "../config/config.ts";
+import { type Keys, loadKeys } from "../pkg/auth-token/auth-token.ts";
+import { redis } from "../pkg/redis/redis.ts";
+import { type TrxManager, trxManager } from "../pkg/trxmanager/trxmanager.ts";
+import {
+  newPermissionCache,
+  type PermissionCache,
+} from "../repository/redis/permission.ts";
+import {
+  newRateLimitRepository,
+  type RateLimitRepository,
+} from "../repository/redis/rate-limit.ts";
+import {
+  newRefreshTokenRepository,
+  type RefreshTokenRepository,
+} from "../repository/redis/refresh-token.ts";
+import {
+  type RoleRepository,
+  roleRepository,
+} from "../repository/role/repository.ts";
+import {
+  type RolePermissionRepository,
+  rolePermissionRepository,
+} from "../repository/role-permission/repository.ts";
+import {
+  type SampleRepository,
+  sampleRepository,
+} from "../repository/sample/repository.ts";
+import {
+  type UserRepository,
+  userRepository,
+} from "../repository/user/repository.ts";
+import {
+  type UserRoleRepository,
+  userRoleRepository,
+} from "../repository/user-role/repository.ts";
+
+// Factory wires every dependency once; handlers and services take what they need from it.
+// Tests build their own Factory with mocked repositories.
+export type Factory = {
+  config: Config;
+  keys: Keys;
+  trxManager: TrxManager;
+  userRepository: UserRepository;
+  userRoleRepository: UserRoleRepository;
+  sampleRepository: SampleRepository;
+  roleRepository: RoleRepository;
+  rolePermissionRepository: RolePermissionRepository;
+  permissionCache: PermissionCache;
+  refreshTokenRepository: RefreshTokenRepository;
+  rateLimitRepository: RateLimitRepository;
+};
+
+export function newFactory(): Factory {
+  return {
+    config,
+    keys: loadKeys(config.AUTH_PRIVATE_KEY_PATH, config.AUTH_PUBLIC_KEY_PATH),
+    trxManager,
+    userRepository,
+    userRoleRepository,
+    sampleRepository,
+    roleRepository,
+    rolePermissionRepository,
+    permissionCache: newPermissionCache(redis),
+    refreshTokenRepository: newRefreshTokenRepository(redis),
+    rateLimitRepository: newRateLimitRepository(redis),
+  };
+}

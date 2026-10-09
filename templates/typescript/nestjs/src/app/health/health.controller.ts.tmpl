@@ -1,0 +1,10 @@
+import { Controller, Get } from "@nestjs/common";
+import { success } from "../../abstraction/response.ts";
+
+@Controller("health")
+export class HealthController {
+  @Get()
+  check() {
+    return success({ status: "ok" });
+  }
+}

@@ -1,0 +1,16 @@
+FROM node:24-alpine AS build
+WORKDIR /app
+ENV NUXT_TELEMETRY_DISABLED=1
+COPY package.json package-lock.json ./
+RUN npm ci --ignore-scripts
+COPY . .
+RUN npm run build
+
+# .output is self-contained (server + its own node_modules).
+FROM node:24-alpine
+WORKDIR /app
+ENV NODE_ENV=production PORT=3001
+COPY --from=build /app/.output ./.output
+USER node
+EXPOSE 3001
+CMD ["node", ".output/server/index.mjs"]

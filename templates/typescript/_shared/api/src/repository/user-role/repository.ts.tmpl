@@ -1,0 +1,40 @@
+import { assignRole } from "./assign-role.ts";
+import { count } from "./count.ts";
+import { create } from "./create.ts";
+import { deleteRows } from "./delete.ts";
+import { exists } from "./exists.ts";
+import { find } from "./find.ts";
+import { findOne } from "./find-one.ts";
+import { firstOrCreate } from "./first-or-create.ts";
+import { hasRole } from "./has-role.ts";
+import { ids } from "./ids.ts";
+import { reassignRole } from "./reassign-role.ts";
+import { revokeRole } from "./revoke-role.ts";
+import { softDelete } from "./soft-delete.ts";
+import { update } from "./update.ts";
+import { updateOrInsert } from "./update-or-insert.ts";
+import { updates } from "./updates.ts";
+
+// The 12 standard repository methods (one file each), plus the role assignment methods
+// (hasRole, assignRole, revokeRole, reassignRole). They are a deliberate, ready-to-use API:
+// keep them even when unused, and do not expose them as endpoints just to "use" them.
+export const userRoleRepository = {
+  find,
+  findOne,
+  count,
+  create,
+  update,
+  updates,
+  updateOrInsert,
+  softDelete,
+  firstOrCreate,
+  exists,
+  delete: deleteRows,
+  ids,
+  hasRole,
+  assignRole,
+  revokeRole,
+  reassignRole,
+};
+
+export type UserRoleRepository = typeof userRoleRepository;

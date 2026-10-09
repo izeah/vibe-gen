@@ -1,0 +1,31 @@
+import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import type { Context } from "../abstraction/context.ts";
+import {
+  type Creatable,
+  createAudit,
+  entityColumns,
+  updateAudit,
+} from "../abstraction/entity.ts";
+
+// samples mirrors migrations/000002_create_samples_table.up.sql (the SQL is the source of truth).
+export const samples = pgTable("samples", {
+  ...entityColumns(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description").notNull().default(""),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+});
+
+export type Sample = typeof samples.$inferSelect;
+type Insert = typeof samples.$inferInsert;
+export type NewSample = Creatable<Insert>;
+export type SampleEntity = Pick<Sample, "name" | "description" | "status">;
+
+export const beforeCreate = (ctx: Context, e: NewSample): Insert => ({
+  ...e,
+  ...createAudit(ctx),
+});
+
+export const beforeUpdate = (
+  ctx: Context,
+  e: Partial<SampleEntity>,
+): Partial<Insert> => ({ ...e, ...updateAudit(ctx) });

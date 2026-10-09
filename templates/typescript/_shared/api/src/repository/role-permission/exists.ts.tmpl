@@ -1,0 +1,13 @@
+import { sql } from "drizzle-orm";
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type RolePermissionFilter, rolePermissionWhere } from "../../dto/role.ts";
+import { rolePermissions } from "../../model/role-permission.ts";
+
+export async function exists(ctx: Context, f: RolePermissionFilter): Promise<boolean> {
+  const rows = await conn(ctx)
+    .select({ one: sql`1` })
+    .from(rolePermissions)
+    .where(rolePermissionWhere(f))
+    .limit(1);
+  return rows.length > 0;
+}

@@ -1,0 +1,38 @@
+import express, { type Express } from "express";
+import { http } from "./delivery/http.ts";
+import type { Factory } from "./factory/factory.ts";
+import { context } from "./middleware/context.ts";
+import { cors } from "./middleware/cors.ts";
+import { errorHandler, notFound } from "./middleware/error.ts";
+import { requestLog } from "./middleware/request-log.ts";
+import { securityHeaders } from "./middleware/security.ts";
+
+// createApp builds the Express app without listening, so tests can drive it directly.
+export function createApp(f: Factory): Express {
+  const app = express();
+  app.disable("x-powered-by");
+  app.set("trust proxy", trustProxy(f.config.APP_TRUST_PROXY));
+
+  app.use(
+    context,
+    requestLog,
+    securityHeaders(`${f.config.APP_BASE_PATH}/swagger`),
+  );
+  if (f.config.APP_CORS_ALLOW_ORIGIN.length > 0) {
+    app.use(cors(f.config.APP_CORS_ALLOW_ORIGIN, f.config.AUTH_COOKIE_MODE));
+  }
+  app.use(express.json({ limit: f.config.APP_BODY_LIMIT }));
+
+  http(app, f);
+
+  app.use(notFound);
+  app.use(errorHandler);
+  return app;
+}
+
+// "" trusts no proxy (X-Forwarded-For ignored), "1" one hop, else a list of proxy IPs/subnets.
+function trustProxy(v: string): boolean | number | string[] {
+  if (!v) return false;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v.split(",").map((s) => s.trim());
+}

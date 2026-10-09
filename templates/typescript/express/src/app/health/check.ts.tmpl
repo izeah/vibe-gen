@@ -1,0 +1,9 @@
+import type { RequestHandler } from "express";
+import { success } from "../../abstraction/response.ts";
+import type { Handler } from "./handler.ts";
+
+export const check =
+  (_h: Handler): RequestHandler =>
+  (_req, res) => {
+    res.json(success({ status: "ok" }));
+  };

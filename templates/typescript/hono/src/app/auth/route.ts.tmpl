@@ -1,0 +1,14 @@
+import { Hono } from "hono";
+import type { Env } from "../../middleware/env.ts";
+import type { Handler } from "./handler.ts";
+import { login } from "./login.ts";
+import { logout } from "./logout.ts";
+import { refresh } from "./refresh.ts";
+
+export function route(h: Handler): Hono<Env> {
+  const r = new Hono<Env>();
+  r.post("/login", login(h));
+  r.post("/refresh", refresh(h));
+  r.post("/logout", logout(h));
+  return r;
+}

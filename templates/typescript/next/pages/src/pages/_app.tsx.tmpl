@@ -1,0 +1,23 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import NextApp, { type AppContext, type AppProps } from "next/app";
+import Head from "next/head";
+import { useState } from "react";
+import { ThemeToggle } from "../components/atoms/ThemeToggle.tsx";
+import "../styles/globals.css";
+
+export default function App({ Component, pageProps }: AppProps) {
+  const [client] = useState(() => new QueryClient());
+  return (
+    <QueryClientProvider client={client}>
+      <Head>
+        <title>{{.ProjectTitle}}</title>
+      </Head>
+      <ThemeToggle />
+      <Component {...pageProps} />
+    </QueryClientProvider>
+  );
+}
+
+// Render every page per request: a statically optimized page has no request, so it could not
+// carry the CSP nonce from src/proxy and the browser would block its scripts.
+App.getInitialProps = (ctx: AppContext) => NextApp.getInitialProps(ctx);

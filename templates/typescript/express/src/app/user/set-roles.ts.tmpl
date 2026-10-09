@@ -1,0 +1,15 @@
+import type { RequestHandler } from "express";
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { userIdParams, userSetRolesRequest } from "../../dto/user.ts";
+import { ctxOf } from "../../middleware/context.ts";
+import type { Handler } from "./handler.ts";
+
+// PUT /v1/users/:id/roles (roles:manage): replaces the roles the user holds
+export const setRoles =
+  (h: Handler): RequestHandler =>
+  async (req, res) => {
+    const { id } = parse(userIdParams, req.params);
+    const body = parse(userSetRolesRequest, req.body);
+    res.json(success(await h.userService.setRoles(ctxOf(res), id, body)));
+  };

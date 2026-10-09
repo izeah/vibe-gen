@@ -1,0 +1,9 @@
+import { success } from "../../abstraction/response.ts";
+import type { C } from "../../middleware/env.ts";
+import type { Handler } from "./handler.ts";
+
+export const check =
+  (_h: Handler) =>
+  (c: C) => {
+    return c.json(success({ status: "ok" }));
+  };

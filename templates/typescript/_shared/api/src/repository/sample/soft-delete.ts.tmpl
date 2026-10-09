@@ -1,0 +1,13 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { deleteAudit } from "../../abstraction/entity.ts";
+import { type SampleFilter, sampleWhere } from "../../dto/sample.ts";
+import { samples } from "../../model/sample.ts";
+
+// softDelete sets deleted_at/deleted_by on the matching rows; returns the row count.
+export async function softDelete(ctx: Context, f: SampleFilter): Promise<number> {
+  const res = await conn(ctx)
+    .update(samples)
+    .set(deleteAudit(ctx))
+    .where(sampleWhere(f));
+  return res.rowCount ?? 0;
+}

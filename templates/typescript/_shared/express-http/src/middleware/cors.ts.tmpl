@@ -1,0 +1,27 @@
+import type { RequestHandler } from "express";
+import { CSRF_HEADER } from "../abstraction/auth-cookie.ts";
+
+// cors allows only the configured origins. Browsers normally reach the API through the BFF,
+// so app.ts registers this only when APP_CORS_ALLOW_ORIGIN is set. Credentials are allowed
+// only in AUTH_COOKIE_MODE (the SPA sends the refresh cookie), and only for these exact origins.
+export function cors(origins: string[], credentials: boolean): RequestHandler {
+  const allowed = new Set(origins);
+  return (req, res, next) => {
+    res.vary("Origin");
+    const origin = req.get("origin");
+    if (origin && allowed.has(origin)) {
+      res.set("Access-Control-Allow-Origin", origin);
+      if (credentials) res.set("Access-Control-Allow-Credentials", "true");
+      if (req.method === "OPTIONS" && req.get("access-control-request-method")) {
+        res.set({
+          "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE",
+          "Access-Control-Allow-Headers": `Content-Type, Authorization, X-Request-Id, ${CSRF_HEADER}`,
+          "Access-Control-Max-Age": "600",
+        });
+        res.status(204).end();
+        return;
+      }
+    }
+    next();
+  };
+}

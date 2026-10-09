@@ -1,0 +1,7 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type SampleFilter, sampleWhere } from "../../dto/sample.ts";
+import { samples } from "../../model/sample.ts";
+
+export function count(ctx: Context, f: SampleFilter = {}): Promise<number> {
+  return conn(ctx).$count(samples, sampleWhere(f));
+}

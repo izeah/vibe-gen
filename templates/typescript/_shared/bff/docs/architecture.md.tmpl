@@ -1,0 +1,74 @@
+# Architecture — {{.ProjectTitle}}
+
+{{.Framework}}{{if .Variant}} ({{if eq .Variant "pages"}}Pages Router{{else}}App Router{{end}}){{end}} on Node 24, with a **BFF** (backend for frontend)
+in front of the API. The browser never holds a token.
+
+```
+Browser ──(same-origin /api/*, __Host- cookies, X-CSRF-Token)──▶ BFF ──(Bearer)──▶ API (Go / Node templates)
+```
+
+## BFF (`src/server/bff`, web-standard Request/Response)
+
+| Route | What it does |
+|---|---|
+| `GET /api/auth/session` | Sets the `__Host-csrf` cookie on first visit; returns `{ authenticated }` (never tokens); the page reads the CSRF token from the cookie |
+| `POST /api/auth/login` | Forwards credentials to `/v1/auth/login`; stores the tokens AES-256-GCM-sealed in `__Host-access` / `__Host-session` (HttpOnly, Secure, SameSite=Lax) |
+| `POST /api/auth/logout` | Revokes the session at the API (best effort) and clears the cookies |
+| `* /api/**` | Proxies to `API_BASE_URL` for allowlisted prefixes (`BFF_PROXY_PREFIXES`, default `/v1/`); `/v1/auth/*` is always blocked; injects `Authorization: Bearer`, never forwards the browser's cookies; refreshes an expired access token once (one refresh in flight per session) |
+
+Every state-changing request needs `Origin` = `APP_ORIGIN` and `X-CSRF-Token` = the `__Host-csrf` cookie.
+Body size (`BFF_MAX_BODY_BYTES`) and upstream timeout (`BFF_TIMEOUT_MS`) are bounded.
+
+**Limits (ponytail):** the refresh lock is in-process. Run several BFF instances only with sticky sessions or a shared
+(Redis) lock, otherwise concurrent refreshes look like token reuse and the API revokes the session.
+
+The API must run with `AUTH_COOKIE_MODE=false` (the BFF reads the refresh token from the JSON body).
+
+**Client IP for the API's login rate limit:** the BFF forwards `X-Forwarded-For` only when
+`BFF_TRUSTED_PROXY_HOPS` > 0 (number of reverse proxies in front of it that append to the header); the client-typed
+leftmost entry is never trusted. Then configure the API to trust the BFF (Go `trusted_proxies`, Node `APP_TRUST_PROXY`).
+With 0 the API sees the BFF's IP and still limits per email.
+
+## Pages
+
+| Path | Role |
+|---|---|
+{{- if or (eq .FrameworkID "typescript/next") (eq .FrameworkID "javascript/next")}}
+| `src/proxy` | Per-request CSP with a nonce; redirects `/dashboard` to `/login` without a session cookie |
+| `src/components/*` | `LoginForm`, `Dashboard` (TanStack Query) |
+| {{if eq .Variant "pages"}}`src/pages/*`{{else}}`src/app/*`{{end}} | Routes ({{if eq .Variant "pages"}}`src/pages/api/*` adapt Node req/res to the BFF{{else}}`src/app/api/*` route handlers{{end}}); every page renders per request so the CSP nonce applies |
+{{- else if or (eq .FrameworkID "typescript/sveltekit") (eq .FrameworkID "javascript/sveltekit")}}
+| `vite.config` | SvelteKit config (`sveltekit({...})`): adapter-node and the nonce CSP (`csp.mode: "nonce"`) |
+| `src/hooks.server` | Security headers; redirects `/dashboard` to `/login` without a session cookie |
+| `src/routes/api/**/+server` | BFF routes (thin adapters over `src/server/bff`) |
+| `src/routes/*` | Pages (Svelte 5 runes) |
+{{- else}}
+| `nuxt.config` | Security headers (`routeRules`), dev port |
+| `server/plugins/csp` | Per-request nonce on every rendered `<script>`/`<style>` and the CSP header |
+| `server/api/**` | BFF routes (thin h3 adapters over `src/server/bff`) |
+| `app/middleware/auth.global` | Server-side redirect of `/dashboard` to `/login` without a session cookie |
+| `app/pages/*` | Pages (`useAsyncData` in the browser for user data) |
+{{- end}}
+| `src/lib/api` | Browser client: `/api` calls, envelope unwrapping, CSRF header (state-changing calls always send JSON) |
+| `src/lib/theme`, `src/lib/theme-client`, `ThemeToggle` | Light/dark toggle. The `theme` cookie is allowlisted (`light` or `dark`) and written as `data-theme` on `<html>` by the server (
+{{- if or (eq .FrameworkID "typescript/next") (eq .FrameworkID "javascript/next")}}{{if eq .Variant "pages"}}`src/pages/_document`{{else}}`src/app/layout`{{end}}
+{{- else if or (eq .FrameworkID "typescript/sveltekit") (eq .FrameworkID "javascript/sveltekit")}}`src/hooks.server` and `%theme%` in `src/app.html`
+{{- else}}`server/plugins/theme`{{end}}), never by an inline script (the CSP forbids it). See `docs/design_system.md` |
+
+{{- if or (eq .FrameworkID "typescript/nuxt") (eq .FrameworkID "javascript/nuxt")}}
+## Dependencies
+
+`nuxt`, `vue` and `vue-router` are **devDependencies**: `nuxt build` writes a self-contained `.output/` (server plus
+the runtime packages it traced), and the production image runs only `.output`. `npm audit --omit=dev` therefore
+audits what ships. Known advisories without a fix at the time of generation live only in Nuxt's build/dev toolchain
+and never reach `.output`: `braces` (GHSA-vfj7-8cjw-p6xm, via nitropack's globby) and `node-forge`
+(GHSA-86w9-cpqp-85rv, via listhen's dev HTTPS certificates). Re-check with `npm audit` when upgrading Nuxt.
+
+{{end -}}
+## Testing
+
+- `npm test`: BFF unit tests (sealing, CSRF, path allowlist, login, proxy, refresh) with a mocked API.
+- `make test-e2e`: Playwright against a **production build** and `e2e/mock-api.mjs` — login, protected page, logout,
+  no token in `document.cookie`/storage, no CSP violations; the theme toggle (OS default, override, persistence).
+- `make ui-shots`: the same build, a screenshot of every screen at 375, 768 and 1280 px in light and dark into `ui-shots/`
+  (git-ignored: open them and look); fails on horizontal overflow, console errors or a screen without the toggle.

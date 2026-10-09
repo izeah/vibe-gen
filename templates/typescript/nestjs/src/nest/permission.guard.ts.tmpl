@@ -1,0 +1,50 @@
+import {
+  type CanActivate,
+  type ExecutionContext,
+  Inject,
+  Injectable,
+  SetMetadata,
+} from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
+import type { Response } from "express";
+import { errors } from "../abstraction/error.ts";
+import type { Factory } from "../factory/factory.ts";
+import { ctxOf } from "../middleware/context.ts";
+import { type AuthzService, newAuthzService } from "../service/authz/service.ts";
+import { FACTORY } from "./tokens.ts";
+
+const PERMISSION = "permission";
+
+// Permission marks a route with the permission it needs:
+// @UseGuards(AuthGuard, PermissionGuard) on the controller + @Permission("samples", "read").
+export const Permission = (resource: string, action: string) =>
+  SetMetadata(PERMISSION, { resource, action });
+
+// PermissionGuard allows the route only if one of the user's roles holds resource:action
+// (user_roles / role_permissions tables, cached in Redis) and records the granted scope ("any"/"own") for
+// the service (ownerId). Routes without @Permission only need authentication.
+@Injectable()
+export class PermissionGuard implements CanActivate {
+  private readonly authz: AuthzService;
+
+  constructor(
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(FACTORY) f: Factory,
+  ) {
+    this.authz = newAuthzService(f);
+  }
+
+  async canActivate(ec: ExecutionContext): Promise<boolean> {
+    const need = this.reflector.get<{ resource: string; action: string } | undefined>(
+      PERMISSION,
+      ec.getHandler(),
+    );
+    if (!need) return true;
+    const ctx = ctxOf(ec.switchToHttp().getResponse<Response>());
+    if (!ctx.auth) throw errors.unauthorized();
+    const scope = await this.authz.scope(ctx, ctx.auth.id, need.resource, need.action);
+    if (!scope) throw errors.forbidden("insufficient permissions");
+    ctx.permissionScope = scope;
+    return true;
+  }
+}

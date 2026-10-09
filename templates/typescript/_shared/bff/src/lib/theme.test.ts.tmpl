@@ -1,0 +1,26 @@
+import { expect, test } from "vitest";
+import { themeFrom, themeFromCookieHeader } from "./theme.ts";
+
+test("only light and dark pass, since the value ends up in HTML", () => {
+  expect(themeFrom("light")).toBe("light");
+  expect(themeFrom("dark")).toBe("dark");
+  for (const bad of [
+    undefined,
+    null,
+    "",
+    "Dark",
+    "dark ",
+    "system",
+    '"><script>alert(1)</script>',
+  ]) {
+    expect(themeFrom(bad)).toBeUndefined();
+  }
+});
+
+test("reads only the theme cookie out of a Cookie header", () => {
+  expect(themeFromCookieHeader("a=1; theme=dark; b=2")).toBe("dark");
+  expect(themeFromCookieHeader("theme=light")).toBe("light");
+  expect(themeFromCookieHeader("mytheme=dark")).toBeUndefined();
+  expect(themeFromCookieHeader('theme="><script>')).toBeUndefined();
+  expect(themeFromCookieHeader(undefined)).toBeUndefined();
+});

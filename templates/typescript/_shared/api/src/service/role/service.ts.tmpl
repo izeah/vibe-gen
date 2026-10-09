@@ -1,0 +1,68 @@
+import type { Context } from "../../abstraction/context.ts";
+import { errors } from "../../abstraction/error.ts";
+import type { PaginationInfo } from "../../abstraction/pagination.ts";
+import { isValidPermission } from "../../authz/permission.ts";
+import type {
+  RoleCreateRequest,
+  RoleFindQuery,
+  RoleResponse,
+  RoleSetPermissionsRequest,
+  RoleUpdateRequest,
+} from "../../dto/role.ts";
+import type { Factory } from "../../factory/factory.ts";
+import { type AuthzService, newAuthzService } from "../authz/service.ts";
+import { create } from "./create.ts";
+import { remove } from "./delete.ts";
+import { find } from "./find.ts";
+import { findById } from "./find-by-id.ts";
+import { setPermissions } from "./set-permissions.ts";
+import { update } from "./update.ts";
+
+// RoleService manages roles and their permissions (route permission: roles:manage).
+export type RoleService = {
+  find(ctx: Context, q: RoleFindQuery): Promise<{ data: RoleResponse[]; info: PaginationInfo }>;
+  findById(ctx: Context, id: string): Promise<RoleResponse>;
+  create(ctx: Context, req: RoleCreateRequest): Promise<RoleResponse>;
+  update(ctx: Context, id: string, req: RoleUpdateRequest): Promise<RoleResponse>;
+  delete(ctx: Context, id: string): Promise<void>;
+  setPermissions(ctx: Context, id: string, req: RoleSetPermissionsRequest): Promise<RoleResponse>;
+};
+
+export type Deps = Pick<
+  Factory,
+  "roleRepository" | "rolePermissionRepository" | "userRoleRepository" | "trxManager"
+> & { authzService: AuthzService };
+
+export function newRoleService(f: Factory): RoleService {
+  const d: Deps = {
+    roleRepository: f.roleRepository,
+    rolePermissionRepository: f.rolePermissionRepository,
+    userRoleRepository: f.userRoleRepository,
+    trxManager: f.trxManager,
+    authzService: newAuthzService(f),
+  };
+  return {
+    find: (ctx, q) => find(d, ctx, q),
+    findById: (ctx, id) => findById(d, ctx, id),
+    create: (ctx, req) => create(d, ctx, req),
+    update: (ctx, id, req) => update(d, ctx, id, req),
+    delete: (ctx, id) => remove(d, ctx, id),
+    setPermissions: (ctx, id, req) => setPermissions(d, ctx, id, req),
+  };
+}
+
+// checkPermissions rejects anything outside the catalog and drops duplicates.
+export function checkPermissions(perms: string[]): string[] {
+  const bad = perms.find((p) => !isValidPermission(p));
+  if (bad) throw errors.badRequest(`unknown permission: ${bad}`);
+  return [...new Set(perms)];
+}
+
+// permissionsOf lists a role's permissions.
+export async function permissionsOf(d: Deps, ctx: Context, roleId: string): Promise<string[]> {
+  const rows = await d.rolePermissionRepository.find(ctx, {
+    roleIds: [roleId],
+    sorts: [{ field: "permission", order: "asc" }],
+  });
+  return rows.map((r) => r.permission);
+}

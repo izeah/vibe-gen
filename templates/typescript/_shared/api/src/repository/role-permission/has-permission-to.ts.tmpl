@@ -1,0 +1,13 @@
+import type { Context } from "../../abstraction/context.ts";
+import { exists } from "./exists.ts";
+
+// hasPermissionTo reports whether any of the roles holds the exact permission (no scope
+// resolution: request checks go through the authz service, which also caches).
+export async function hasPermissionTo(
+  ctx: Context,
+  roleIds: string[],
+  permission: string,
+): Promise<boolean> {
+  if (roleIds.length === 0) return false;
+  return exists(ctx, { roleIds, permissions: [permission] });
+}

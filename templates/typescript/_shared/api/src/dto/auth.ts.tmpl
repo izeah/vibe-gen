@@ -1,0 +1,26 @@
+import { z } from "zod";
+import { passwordSchema } from "../pkg/password/password.ts";
+
+export const loginRequest = z.object({
+  email: z.email().max(254),
+  password: passwordSchema,
+});
+export type LoginRequest = z.infer<typeof loginRequest>;
+
+export const refreshRequest = z.object({
+  refresh_token: z.string().min(1).max(4096),
+});
+export type RefreshRequest = z.infer<typeof refreshRequest>;
+
+// TokenPair is what the auth service issues on login and refresh.
+export type TokenPair = {
+  access_token: string;
+  refresh_token: string;
+  expires_in: number;
+};
+
+// LoginResponse is the HTTP body. A BFF keeps both tokens server-side or in HttpOnly cookies,
+// never in browser JavaScript; in AUTH_COOKIE_MODE the refresh token is only sent as a cookie.
+export type LoginResponse = Omit<TokenPair, "refresh_token"> & {
+  refresh_token?: string;
+};

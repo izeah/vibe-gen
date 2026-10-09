@@ -1,0 +1,21 @@
+import { Router } from "express";
+import { requirePermission } from "../../middleware/permission.ts";
+import { create } from "./create.ts";
+import { remove } from "./delete.ts";
+import { find } from "./find.ts";
+import { findById } from "./find-by-id.ts";
+import type { Handler } from "./handler.ts";
+import { update } from "./update.ts";
+
+// Each endpoint needs a permission (roles/role_permissions); with an ":own" grant the service
+// limits the action to the user's own samples.
+export function route(h: Handler): Router {
+  const r = Router();
+  const can = (action: string) => requirePermission(h.authzService, "samples", action);
+  r.get("/", can("read"), find(h));
+  r.get("/:id", can("read"), findById(h));
+  r.post("/", can("create"), create(h));
+  r.put("/:id", can("update"), update(h));
+  r.delete("/:id", can("delete"), remove(h));
+  return r;
+}

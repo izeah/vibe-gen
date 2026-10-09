@@ -1,0 +1,43 @@
+import type { Redis } from "../config/redis.ts";
+import { logger } from "../config/logger.ts";
+
+const PREFIX = "cron:lock:";
+
+// After a run the lock is kept for COOLDOWN_MS instead of deleted: an instance whose clock or
+// event loop is a little late for the same tick then still sees it and skips, so one tick runs
+// once. Schedules must be further apart than the job's duration plus this cooldown.
+const COOLDOWN_MS = 5_000;
+
+// Shorten the lock only if this run still owns it (it may have expired and been taken over).
+const RELEASE = `
+if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('PEXPIRE', KEYS[1], ARGV[2]) end
+return 0
+`;
+
+// withLock runs fn only if no other instance holds the job's lock, so a job never runs twice
+// at the same time when several workers are deployed. Returns { ran: false } when skipped.
+// The TTL must exceed the job's worst-case duration (the lock is not renewed while the job
+// runs); it also frees the lock if a worker dies.
+// ponytail: no renewal heartbeat; add one (owner-checked PEXPIRE) if a job can outlive its TTL.
+export async function withLock<T>(
+  redis: Redis,
+  name: string,
+  owner: string,
+  ttlMs: number,
+  fn: () => Promise<T>,
+): Promise<{ ran: true; result: T } | { ran: false }> {
+  const key = PREFIX + name;
+  const acquired = await redis.set(key, owner, {
+    condition: "NX",
+    expiration: { type: "PX", value: ttlMs },
+  });
+  if (acquired !== "OK") return { ran: false };
+  try {
+    return { ran: true, result: await fn() };
+  } finally {
+    // A failed release must not replace the job's own result or error; the TTL frees the lock.
+    await redis
+      .eval(RELEASE, { keys: [key], arguments: [owner, String(Math.min(COOLDOWN_MS, ttlMs))] })
+      .catch((err: unknown) => logger.warn({ err, job: name }, "lock release failed"));
+  }
+}

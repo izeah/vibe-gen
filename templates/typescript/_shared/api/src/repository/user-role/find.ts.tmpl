@@ -1,0 +1,13 @@
+import { applyFilter } from "../../abstraction/pagination.ts";
+import { type Context, conn } from "../../abstraction/context.ts";
+import {
+  type UserRoleFilter,
+  userRoleSortColumns,
+  userRoleWhere,
+} from "../../dto/user-role.ts";
+import { type UserRole, userRoles } from "../../model/user-role.ts";
+
+export function find(ctx: Context, f: UserRoleFilter = {}): Promise<UserRole[]> {
+  const q = conn(ctx).select().from(userRoles).where(userRoleWhere(f)).$dynamic();
+  return applyFilter(q, f, userRoleSortColumns);
+}

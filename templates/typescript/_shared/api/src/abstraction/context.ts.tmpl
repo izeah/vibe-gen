@@ -1,0 +1,25 @@
+import type { Executor } from "../pkg/database/database.ts";
+import { db } from "../pkg/database/database.ts";
+
+// Roles are not in the token: middleware reads them per request (authz service, cached), so a
+// role change applies at once.
+export type AuthContext = { id: string };
+
+// Context travels from the HTTP layer through services into repositories.
+export type Context = {
+  requestId: string;
+  clientIp?: string; // set by the HTTP layer, never read from the request body
+  auth?: AuthContext; // set by the authentication middleware
+  tx?: Executor; // set by trxManager.withTrx
+  // What requirePermission granted for this route: "any" row, or "own" = only rows the user
+  // created. Services read it through ownerId.
+  permissionScope?: "any" | "own";
+};
+
+// ownerId is the user a query must be limited to (created_by) when the route's permission is
+// scoped to the user's own rows, or undefined when any row is allowed.
+export const ownerId = (ctx: Context): string | undefined =>
+  ctx.permissionScope === "own" ? ctx.auth?.id : undefined;
+
+// conn is what every repository queries through: the active transaction, or the pool.
+export const conn = (ctx: Context): Executor => ctx.tx ?? db;

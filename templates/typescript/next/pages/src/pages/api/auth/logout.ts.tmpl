@@ -1,0 +1,10 @@
+import { logout } from "../../../server/bff/handlers.ts";
+import { toPagesHandler } from "../../../server/bff/next-pages.ts";
+
+export const config = { api: { bodyParser: false } };
+
+export default toPagesHandler((req) =>
+  req.method === "POST"
+    ? logout(req)
+    : Promise.resolve(new Response(null, { status: 405 })),
+);

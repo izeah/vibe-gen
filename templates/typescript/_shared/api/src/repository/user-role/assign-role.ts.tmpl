@@ -1,0 +1,13 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { beforeCreate, userRoles } from "../../model/user-role.ts";
+
+// assignRole gives the user the roles in one insert; roles the user already holds are kept.
+// Returns the number of roles added.
+export async function assignRole(ctx: Context, userId: string, ...roleIds: string[]): Promise<number> {
+  if (roleIds.length === 0) return 0;
+  const res = await conn(ctx)
+    .insert(userRoles)
+    .values(roleIds.map((roleId) => beforeCreate(ctx, { userId, roleId })))
+    .onConflictDoNothing({ target: [userRoles.userId, userRoles.roleId] });
+  return res.rowCount ?? 0;
+}

@@ -1,0 +1,35 @@
+import type { Redis } from "../../pkg/redis/redis.ts";
+
+// Fixed-window attempt counters (e.g. login attempts).
+export type RateLimitRepository = {
+  // hit counts one attempt (starting the window on the first) and returns the new count and the
+  // seconds left. Check the count BEFORE doing the guarded work, so parallel requests cannot
+  // all pass a stale read.
+  hit(key: string, windowSec: number): Promise<{ count: number; ttlSec: number }>;
+  // undo takes back one hit (the attempt turned out not to count).
+  undo(key: string): Promise<void>;
+  reset(key: string): Promise<void>;
+};
+
+// INCR, EXPIRE and TTL in one script: atomic, and a crash can never leave a counter without expiry.
+const HIT = `
+local n = redis.call('INCR', KEYS[1])
+if n == 1 then redis.call('EXPIRE', KEYS[1], ARGV[1]) end
+return {n, redis.call('TTL', KEYS[1])}
+`;
+
+export const newRateLimitRepository = (redis: Redis): RateLimitRepository => ({
+  async hit(key, windowSec) {
+    const [count, ttl] = (await redis.eval(HIT, {
+      keys: [key],
+      arguments: [String(windowSec)],
+    })) as [number, number];
+    return { count: Number(count), ttlSec: Number(ttl) < 0 ? windowSec : Number(ttl) };
+  },
+  async undo(key) {
+    await redis.decr(key);
+  },
+  async reset(key) {
+    await redis.del(key);
+  },
+});

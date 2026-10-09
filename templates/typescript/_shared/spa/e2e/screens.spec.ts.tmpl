@@ -1,0 +1,107 @@
+import { expect, type Page, test } from "@playwright/test";
+
+// `make ui-shots` runs this file. It writes ui-shots/<screen>-<width>-<theme>.png for every screen
+// at 375, 768 and 1280 px in both themes: open the PNGs and look at them. The assertions only catch
+// what a picture cannot show (horizontal overflow, console errors) and that the theme toggle works.
+const WIDTHS = [375, 768, 1280];
+const THEMES = ["light", "dark"] as const;
+const MISSING = "/no-such-page"; // the not-found screen is a 404 on purpose
+
+function watch(page: Page): string[] {
+  const problems: string[] = [];
+  page.on("pageerror", (e) => problems.push(`pageerror: ${e.message}`));
+  page.on("console", (m) => {
+    if (m.type() !== "error") return;
+    // Expected: the deliberate 404, and the 401 a visitor without a session gets from the session probe.
+    const url = m.location().url;
+    if (url.endsWith(MISSING) || m.text().includes("status of 401")) return;
+    problems.push(`console: ${m.text()} (${url})`);
+  });
+  return problems;
+}
+
+async function shoot(page: Page, screen: string, width: number, theme: string) {
+  await expect(
+    page.locator("button.theme-toggle"),
+    `${screen} has no theme toggle`,
+  ).toBeVisible();
+  if (theme === "dark")
+    await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+  const overflow = await page.evaluate(
+    () =>
+      document.documentElement.scrollWidth -
+      document.documentElement.clientWidth,
+  );
+  expect(
+    overflow,
+    `${screen} scrolls horizontally at ${width}px`,
+  ).toBeLessThanOrEqual(0);
+  await page.screenshot({
+    path: `ui-shots/${screen}-${width}-${theme}.png`,
+    fullPage: true,
+  });
+}
+
+for (const width of WIDTHS) {
+  test(`every screen at ${width}px in light and dark`, async ({ browser }) => {
+    const context = await browser.newContext({
+      viewport: { width, height: 800 },
+      colorScheme: "light",
+    });
+    const page = await context.newPage();
+    const problems = watch(page);
+
+    for (const theme of THEMES) {
+      await page.goto("/login");
+      if (theme === "dark") {
+        await page.locator("button.theme-toggle").click();
+        await expect(page.locator("html")).toHaveAttribute(
+          "data-theme",
+          "dark",
+        );
+      }
+      await shoot(page, "login", width, theme);
+
+      await page.getByLabel("Email").fill("admin@example.com");
+      await page.getByLabel("Password").fill("password123");
+      await page.getByRole("button", { name: "Sign in" }).click();
+      await expect(page.getByText("admin@example.com")).toBeVisible();
+      await shoot(page, "dashboard", width, theme);
+
+      await page.getByRole("button", { name: "Sign out" }).click();
+      await expect(page).toHaveURL(/\/login$/);
+      await page.goto(MISSING);
+      await shoot(page, "not-found", width, theme);
+    }
+
+    expect(problems).toEqual([]);
+    await context.close();
+  });
+}
+
+test("a first visit follows the OS; the toggle overrides it and the choice survives a reload", async ({
+  browser,
+}) => {
+  const [dark, light] = await Promise.all([
+    browser.newContext({ colorScheme: "dark" }),
+    browser.newContext({ colorScheme: "light" }),
+  ]);
+  const [d, l] = await Promise.all([dark.newPage(), light.newPage()]);
+  await Promise.all([d.goto("/login"), l.goto("/login")]);
+  const background = (p: Page) =>
+    p.evaluate(() => getComputedStyle(document.body).backgroundColor);
+
+  await expect(d.locator("html")).not.toHaveAttribute("data-theme", /.*/); // no choice yet
+  const toggle = d.locator("button.theme-toggle");
+  await expect(toggle).toHaveAttribute("aria-pressed", "true"); // the OS says dark
+  expect(await background(d)).not.toBe(await background(l));
+
+  await toggle.click(); // against the OS
+  await expect(d.locator("html")).toHaveAttribute("data-theme", "light");
+  await expect(toggle).toHaveAttribute("aria-pressed", "false");
+  expect(await background(d)).toBe(await background(l));
+
+  await d.reload();
+  await expect(d.locator("html")).toHaveAttribute("data-theme", "light"); // the cookie beat the OS
+  await Promise.all([dark.close(), light.close()]);
+});

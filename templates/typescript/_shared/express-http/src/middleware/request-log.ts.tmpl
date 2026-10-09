@@ -1,0 +1,21 @@
+import type { RequestHandler } from "express";
+import { logger } from "../pkg/logger/logger.ts";
+import { ctxOf } from "./context.ts";
+
+// requestLog writes one line per request: no query string (filters may hold PII), no bodies.
+export const requestLog: RequestHandler = (req, res, next) => {
+  const start = performance.now();
+  res.on("finish", () => {
+    logger.info(
+      {
+        request_id: ctxOf(res).requestId,
+        method: req.method,
+        path: new URL(req.originalUrl, "http://localhost").pathname,
+        status: res.statusCode,
+        duration_ms: Math.round(performance.now() - start),
+      },
+      "request",
+    );
+  });
+  next();
+};

@@ -1,0 +1,17 @@
+// Light/dark theme, browser half (uses the DOM; the server-safe half is theme.ts).
+import { type Theme, themeFrom } from "./theme.ts";
+
+// What the page shows now: the explicit choice, else the OS preference.
+export function currentTheme(): Theme {
+  const chosen = themeFrom(document.documentElement.dataset.theme);
+  if (chosen) return chosen;
+  return matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+}
+
+// Applies the choice now and keeps it for a year.
+export function setTheme(theme: Theme): void {
+  document.documentElement.dataset.theme = theme;
+  const secure = location.protocol === "https:" ? "; Secure" : "";
+  // biome-ignore lint/suspicious/noDocumentCookie: a functional preference that JS must write; the Cookie Store API is not in every browser
+  document.cookie = `theme=${theme}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
+}

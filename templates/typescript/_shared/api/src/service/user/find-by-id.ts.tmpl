@@ -1,0 +1,14 @@
+import type { Context } from "../../abstraction/context.ts";
+import { errors } from "../../abstraction/error.ts";
+import { toUserResponse, type UserResponse } from "../../dto/user.ts";
+import { type Deps, rolesOf } from "./service.ts";
+
+export async function findById(
+  d: Deps,
+  ctx: Context,
+  id: string,
+): Promise<UserResponse> {
+  const user = await d.userRepository.findOne(ctx, { ids: [id] });
+  if (!user) throw errors.notFound("user not found");
+  return toUserResponse(user, await rolesOf(d, ctx, user.id));
+}

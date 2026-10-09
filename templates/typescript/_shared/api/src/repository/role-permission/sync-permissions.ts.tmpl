@@ -1,0 +1,21 @@
+import { and, eq, notInArray } from "drizzle-orm";
+import { type Context, conn } from "../../abstraction/context.ts";
+import { rolePermissions } from "../../model/role-permission.ts";
+import { givePermissionTo } from "./give-permission-to.ts";
+
+// syncPermissions replaces the role's whole permission set with perms ([] = none): one delete
+// of the permissions not listed, one insert of the missing ones, atomically (a savepoint when
+// ctx already carries a transaction).
+export async function syncPermissions(ctx: Context, roleId: string, perms: string[]): Promise<void> {
+  await conn(ctx).transaction(async (tx) => {
+    await tx
+      .delete(rolePermissions)
+      .where(
+        and(
+          eq(rolePermissions.roleId, roleId),
+          perms.length ? notInArray(rolePermissions.permission, perms) : undefined,
+        ),
+      );
+    await givePermissionTo({ ...ctx, tx }, roleId, ...perms);
+  });
+}

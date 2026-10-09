@@ -1,0 +1,72 @@
+import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, UseGuards } from "@nestjs/common";
+import type { Context } from "../../abstraction/context.ts";
+import { created, success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import {
+  roleCreateRequest,
+  roleFindQuery,
+  roleIdParams,
+  roleSetPermissionsRequest,
+  roleUpdateRequest,
+} from "../../dto/role.ts";
+import type { Factory } from "../../factory/factory.ts";
+import { AuthGuard } from "../../nest/auth.guard.ts";
+import { Ctx } from "../../nest/ctx.decorator.ts";
+import { Permission, PermissionGuard } from "../../nest/permission.guard.ts";
+import { FACTORY } from "../../nest/tokens.ts";
+import { newRoleService, type RoleService } from "../../service/role/service.ts";
+
+// Role management: every route needs roles:manage.
+@Controller("roles")
+@UseGuards(AuthGuard, PermissionGuard)
+export class RoleController {
+  private readonly roleService: RoleService;
+
+  constructor(@Inject(FACTORY) f: Factory) {
+    this.roleService = newRoleService(f);
+  }
+
+  @Get()
+  @Permission("roles", "manage")
+  async find(@Ctx() ctx: Context, @Query() query: unknown) {
+    const { data, info } = await this.roleService.find(ctx, parse(roleFindQuery, query));
+    return success(data, info);
+  }
+
+  @Get(":id")
+  @Permission("roles", "manage")
+  async findById(@Ctx() ctx: Context, @Param() params: unknown) {
+    const { id } = parse(roleIdParams, params);
+    return success(await this.roleService.findById(ctx, id));
+  }
+
+  @Post()
+  @Permission("roles", "manage")
+  async create(@Ctx() ctx: Context, @Body() body: unknown) {
+    return created(await this.roleService.create(ctx, parse(roleCreateRequest, body)));
+  }
+
+  @Put(":id")
+  @Permission("roles", "manage")
+  async update(@Ctx() ctx: Context, @Param() params: unknown, @Body() body: unknown) {
+    const { id } = parse(roleIdParams, params);
+    return success(await this.roleService.update(ctx, id, parse(roleUpdateRequest, body)));
+  }
+
+  @Put(":id/permissions")
+  @Permission("roles", "manage")
+  async setPermissions(@Ctx() ctx: Context, @Param() params: unknown, @Body() body: unknown) {
+    const { id } = parse(roleIdParams, params);
+    return success(
+      await this.roleService.setPermissions(ctx, id, parse(roleSetPermissionsRequest, body)),
+    );
+  }
+
+  @Delete(":id")
+  @Permission("roles", "manage")
+  async remove(@Ctx() ctx: Context, @Param() params: unknown) {
+    const { id } = parse(roleIdParams, params);
+    await this.roleService.delete(ctx, id);
+    return success();
+  }
+}

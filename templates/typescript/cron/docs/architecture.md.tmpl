@@ -1,0 +1,34 @@
+# Architecture — {{.ProjectTitle}}
+
+Scheduled worker on Node 24{{if .IsTypeScript}} (TypeScript, run directly with type stripping){{end}}: `croner` schedules,
+Drizzle (`pg`) reads/writes PostgreSQL 18, Redis holds per-job locks, `pino` logs JSON.
+
+## Flow
+
+```
+index → testConnection + redis.connect (fail fast) → startScheduler()
+  each tick → execute(entry) → withLock(redis, JOB_NAME) → job.run(runLogger)
+cli/run-job <name> → execute(entry) once → JSON result, exit 0/1
+```
+
+## Layout
+
+| Path | Role |
+|---|---|
+| `src/index` | Startup, graceful shutdown (SIGTERM/SIGINT), crash logging |
+| `src/cli/run-job` | Run one job now (same lock and logging as the scheduler) |
+| `src/config/*` | zod-validated env (`config`), PostgreSQL pool + Drizzle, Redis, pino (secrets and SQL parameters never logged) |
+| `src/models/*` | Drizzle tables mirroring the API project's migrations |
+| `src/jobs/*Job` | One job per file: `JOB_NAME` + `run(log)` |
+| `src/schedulers/cron` | The schedule (pattern, lock TTL), `execute`, start/stop, `getAvailableJobs` |
+| `src/utils/*` | Redis lock |
+
+## Guarantees
+
+- `protect: true`: a slow run is never overlapped by its own next tick on one instance.
+- Redis lock (`cron:lock:<job>`, `SET NX PX`): never overlapped across instances. After a run the lock is kept for a
+  5 s cooldown (owner-checked) instead of deleted, so an instance that is a little late for the same tick skips it:
+  one tick runs once. Keep schedules further apart than the job's duration + 5 s.
+- The lock is not renewed: its TTL (`lockTtlMs`) must exceed the job's worst-case duration.
+- Shutdown (SIGTERM) stops new ticks and waits up to 25 s for running jobs before closing the DB and Redis.
+- Invalid cron patterns throw at startup. `CRON_ENABLED=false` starts without scheduling.

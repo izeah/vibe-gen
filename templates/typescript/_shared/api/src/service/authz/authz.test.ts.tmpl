@@ -1,0 +1,79 @@
+import { describe, expect, test } from "vitest";
+import { TEST_USER_IDS, testFactory } from "../../testutil/factory.ts";
+import { newAuthzService } from "./service.ts";
+
+const ctx = { requestId: "test" };
+const { admin, user } = TEST_USER_IDS as { admin: string; user: string };
+
+describe("authz", () => {
+  test("scopes come from the permissions of the user's roles", async () => {
+    const authz = newAuthzService(testFactory());
+    expect(await authz.scope(ctx, user, "samples", "update")).toBe("own");
+    expect(await authz.scope(ctx, admin, "samples", "update")).toBe("any");
+    expect(await authz.scope(ctx, user, "roles", "manage")).toBeUndefined();
+    expect(await authz.hasAnyRole(ctx, admin, "auditor", "admin")).toBe(true);
+    expect(await authz.hasAnyRole(ctx, user, "admin")).toBe(false);
+  });
+
+  test("several roles: the union of their permissions, any wins over own", async () => {
+    const f = testFactory();
+    f.permissionCache.getUserRoles.mockResolvedValue([
+      { id: "role-user", code: "user" },
+      { id: "role-admin", code: "admin" },
+    ]);
+    const authz = newAuthzService(f);
+    expect(await authz.scope(ctx, "u1", "samples", "delete")).toBe("any");
+    expect(await authz.scope(ctx, "u1", "roles", "manage")).toBe("any");
+  });
+
+  test("cache misses read the database once and refill the cache", async () => {
+    const f = testFactory();
+    f.permissionCache.getUserRoles.mockResolvedValue(undefined);
+    f.permissionCache.getRolePermissions.mockResolvedValue(new Map());
+    f.userRoleRepository.find.mockResolvedValue([{ roleId: "r1" }, { roleId: "r2" }]);
+    f.roleRepository.find.mockResolvedValue([
+      { id: "r1", code: "ops" },
+      { id: "r2", code: "empty" },
+    ]);
+    f.rolePermissionRepository.find.mockResolvedValue([{ roleId: "r1", permission: "roles:manage" }]);
+    expect(await newAuthzService(f).scope(ctx, "u1", "roles", "manage")).toBe("any");
+    expect(f.rolePermissionRepository.find).toHaveBeenCalledTimes(1);
+    expect(f.permissionCache.setUserRoles).toHaveBeenCalledWith(
+      "u1",
+      [
+        { id: "r1", code: "ops" },
+        { id: "r2", code: "empty" },
+      ],
+      60,
+    );
+    expect(f.permissionCache.setRolePermissions).toHaveBeenCalledWith(
+      new Map([
+        ["r1", ["roles:manage"]],
+        ["r2", []],
+      ]),
+      60,
+    );
+  });
+
+  test("Redis down: the check still runs against the database", async () => {
+    const f = testFactory();
+    const down = new Error("ECONNREFUSED");
+    f.permissionCache.getUserRoles.mockRejectedValue(down);
+    f.permissionCache.setUserRoles.mockRejectedValue(down);
+    f.permissionCache.getRolePermissions.mockRejectedValue(down);
+    f.permissionCache.setRolePermissions.mockRejectedValue(down);
+    f.userRoleRepository.find.mockResolvedValue([{ roleId: "r1" }]);
+    f.roleRepository.find.mockResolvedValue([{ id: "r1", code: "user" }]);
+    f.rolePermissionRepository.find.mockResolvedValue([{ roleId: "r1", permission: "samples:read:any" }]);
+    expect(await newAuthzService(f).scope(ctx, "u1", "samples", "read")).toBe("any");
+  });
+
+  test("a user without roles holds nothing", async () => {
+    const f = testFactory();
+    f.permissionCache.getUserRoles.mockResolvedValue(undefined);
+    f.userRoleRepository.find.mockResolvedValue([]);
+    expect(await newAuthzService(f).scope(ctx, "ghost", "samples", "read")).toBeUndefined();
+    expect(f.roleRepository.find).not.toHaveBeenCalled();
+    expect(f.rolePermissionRepository.find).not.toHaveBeenCalled();
+  });
+});

@@ -1,0 +1,18 @@
+import { expect, test } from "vitest";
+import { isValidPermission, resolve } from "./permission.ts";
+
+test("resolve picks the widest scope held", () => {
+  const held = new Set(["samples:update:own", "samples:create", "users:read:any"]);
+  expect(resolve(held, "samples", "update")).toBe("own");
+  expect(resolve(held, "samples", "create")).toBe("any");
+  expect(resolve(held, "users", "read")).toBe("any");
+  expect(resolve(held, "samples", "delete")).toBeUndefined();
+  expect(resolve(held, "roles", "manage")).toBeUndefined();
+  held.add("samples:update:any");
+  expect(resolve(held, "samples", "update")).toBe("any");
+});
+
+test("only catalog permissions are valid", () => {
+  expect(isValidPermission("roles:manage")).toBe(true);
+  expect(isValidPermission("samples:fly:any")).toBe(false);
+});

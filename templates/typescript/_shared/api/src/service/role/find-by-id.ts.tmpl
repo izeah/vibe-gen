@@ -1,0 +1,10 @@
+import type { Context } from "../../abstraction/context.ts";
+import { errors } from "../../abstraction/error.ts";
+import { type RoleResponse, toRoleResponse } from "../../dto/role.ts";
+import { type Deps, permissionsOf } from "./service.ts";
+
+export async function findById(d: Deps, ctx: Context, id: string): Promise<RoleResponse> {
+  const role = await d.roleRepository.findOne(ctx, { ids: [id] });
+  if (!role) throw errors.notFound("role not found");
+  return toRoleResponse(role, await permissionsOf(d, ctx, role.id));
+}

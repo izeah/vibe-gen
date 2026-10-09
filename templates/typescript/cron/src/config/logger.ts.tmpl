@@ -1,0 +1,39 @@
+import { DrizzleQueryError } from "drizzle-orm";
+import pino, { type Logger } from "pino";
+import { config } from "./config.ts";
+
+// Drizzle puts the bound parameters (emails, password hashes) into the error message and stack,
+// and Postgres puts row values into `detail`: log the SQL and the error code only.
+function serializeErr(e: unknown) {
+  if (!(e instanceof DrizzleQueryError)) return pino.stdSerializers.err(e as Error);
+  const cause = e.cause as Record<string, unknown> | undefined;
+  const safe = new Error(`Failed query: ${e.query}`);
+  safe.name = "DrizzleQueryError";
+  safe.stack = [
+    `${safe.name}: ${safe.message}`,
+    ...(e.stack ?? "").split("\n").filter((l) => l.startsWith("    at ")),
+  ].join("\n");
+  return {
+    ...pino.stdSerializers.err(safe),
+    cause: cause && {
+      message: cause.message,
+      code: cause.code,
+      constraint: cause.constraint,
+      table: cause.table,
+      column: cause.column,
+    },
+  };
+}
+
+// Structured JSON logs. Never log PII (emails, names) or secrets: log IDs and counts.
+export const logger = pino({
+  level: config.LOG_LEVEL,
+  base: { service: config.APP_NAME },
+  serializers: { err: serializeErr },
+  redact: {
+    paths: ["*.password", "*.token", "*.secret", "*.email", "*.authorization"],
+    censor: "[REDACTED]",
+  },
+});
+
+export type { Logger };

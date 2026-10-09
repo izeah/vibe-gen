@@ -1,0 +1,8 @@
+import { createParamDecorator, type ExecutionContext } from "@nestjs/common";
+import type { Response } from "express";
+import { ctxOf } from "../middleware/context.ts";
+
+// @Ctx() injects the request Context created by the context middleware.
+export const Ctx = createParamDecorator((_data: unknown, ec: ExecutionContext) =>
+  ctxOf(ec.switchToHttp().getResponse<Response>()),
+);

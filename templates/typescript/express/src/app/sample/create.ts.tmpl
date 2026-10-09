@@ -1,0 +1,16 @@
+import type { RequestHandler } from "express";
+import { created } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { sampleCreateRequest } from "../../dto/sample.ts";
+import { ctxOf } from "../../middleware/context.ts";
+import type { Handler } from "./handler.ts";
+
+// POST /v1/samples
+export const create =
+  (h: Handler): RequestHandler =>
+  async (req, res) => {
+    const body = parse(sampleCreateRequest, req.body);
+    res
+      .status(201)
+      .json(created(await h.sampleService.create(ctxOf(res), body)));
+  };

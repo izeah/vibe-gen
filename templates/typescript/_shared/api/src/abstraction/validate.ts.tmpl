@@ -1,0 +1,22 @@
+import type * as z from "zod";
+import { errors } from "./error.ts";
+
+type FieldError = { field: string; tag: string; param: string; message: string };
+
+// parse validates untrusted input (body, params, query) against a zod schema and throws a
+// 400 listing the invalid fields. Validation messages never echo the submitted values.
+export function parse<T extends z.ZodType>(schema: T, input: unknown): z.output<T> {
+  const res = schema.safeParse(input);
+  if (res.success) return res.data;
+  const description: Record<string, FieldError> = {};
+  for (const issue of res.error.issues) {
+    const field = issue.path.join(".") || "body";
+    description[field.toLowerCase()] ??= {
+      field,
+      tag: issue.code,
+      param: "",
+      message: issue.message,
+    };
+  }
+  throw errors.badRequest("bad request", description);
+}

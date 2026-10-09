@@ -1,0 +1,65 @@
+# Architecture — {{.ProjectTitle}}
+
+NestJS 12 API on Node 24 (TypeScript compiled with `tsc` to `dist/`, Express platform). PostgreSQL 18 through
+Drizzle (`pg` driver), Redis for refresh-token rotation and login rate limits, RS256 JWTs (`jose`).
+The HTTP contract matches the Go templates (paths, envelopes, field names), so a frontend or BFF works with either.
+
+## Request flow
+
+```
+HTTP → Express middleware (context, request log, security headers, CORS?, JSON body limit)
+     → Nest router (/v1 via RouterModule) → AuthGuard → PermissionGuard (@Permission) / RoleGuard (@Roles)
+     → app/<domain>/<domain>.controller (parse + validate input, @Ctx())
+     → service/<domain>/<method> (business rules, errors.*)
+     → repository/<entity>/<method> (Drizzle via conn(ctx)) → PostgreSQL
+     → repository/redis/* → Redis
+```
+
+## Layout
+
+| Path | Role |
+|---|---|
+| `src/main` | Startup: connect Redis + check DB (fail fast), listen, graceful shutdown |
+| `src/app` | `createApp(factory)` — the Nest app without listening (tests use it) |
+| `src/app.module` | `appModule(factory)`: controllers, `FACTORY` provider, `/v1` RouterModule |
+| `src/nest/*` | `AuthGuard`, `PermissionGuard` + `@Permission`, `RoleGuard` + `@Roles`, `@Ctx()`, `AllExceptionsFilter`, `FACTORY` token |
+| `src/config/config` | Environment variables validated by zod at import |
+| `src/factory/factory` | Wires repositories, keys, trxManager; tests build their own with mocks |
+| `src/middleware/*` | context, security headers, CORS, authentication, authorization, request log, errors |
+| `src/app/<domain>/<domain>.controller` | Thin controllers: parse input, call the shared service |
+| `src/service/<domain>/*` | `service` (type + constructor), one file per method |
+| `src/repository/<entity>/*` | The 12 standard methods, one file each (`user-role` / `role-permission` add assign/revoke/sync methods) |
+| `src/repository/redis/*` | Refresh-token families (Lua CAS), rate-limit counters, permission cache (`authz:user:<id>`, `authz:role:<id>`) |
+| `src/model/*` | Drizzle tables mirroring `migrations/`, `beforeCreate`/`beforeUpdate` hooks |
+| `src/dto/*` | zod request schemas, filters + sort allowlists, response mappers |
+| `src/abstraction/*` | Context, entity/audit helpers, pagination, errors, response envelopes, `parse` |
+| `src/pkg/*` | database, redis, logger (pino), auth-token, password (bcrypt), trxmanager |
+| `migrations/` | SQL source of truth (golang-migrate) |
+
+## Endpoints
+
+| Method | Path | Auth (permission held by one of the user's roles) |
+|---|---|---|
+| GET | `/v1/health` | public |
+| POST | `/v1/auth/login`, `/v1/auth/refresh`, `/v1/auth/logout` | public (refresh token in body for refresh/logout) |
+| GET | `/v1/users/me` | access token |
+| GET, PUT | `/v1/users/:id` | `users:read` / `users:update` |
+| POST | `/v1/users` | `users:create` (the new user gets the `user` role) |
+| PUT | `/v1/users/:id/roles` | `roles:manage` (replaces the user's roles) |
+| GET, POST | `/v1/samples` | `samples:read` / `samples:create` |
+| GET, PUT, DELETE | `/v1/samples/:id` | `samples:read` / `samples:update` / `samples:delete` (`:own` = only your rows) |
+| GET, POST | `/v1/roles` | `roles:manage` |
+| GET, PUT, DELETE | `/v1/roles/:id`, PUT `/v1/roles/:id/permissions` | `roles:manage` (`code` is immutable) |
+
+API docs (outside `APP_ENV=production`): OpenAPI 3.1 at `/openapi.json`, Swagger UI at `/swagger/` (local
+`swagger-ui-dist`, no CDN; its install-time analytics are disabled with `scarfSettings` in `package.json`). The
+document is generated from the request zod schemas listed in `src/openapi/openapi.ts`.
+
+`APP_BASE_PATH` (optional) prefixes every route when the API itself must serve under a path; usually the reverse
+proxy adds the prefix instead.
+
+## Testing
+
+- `npm test`: unit + HTTP tests with mocked repositories (no database, no Redis).
+- `npm run test:integration`: Redis Lua scripts and repositories against the local Docker services only
+  (`make pg-start redis-start migrate-up`).

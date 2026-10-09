@@ -1,0 +1,92 @@
+import {
+  createPrivateKey,
+  createPublicKey,
+  type KeyObject,
+} from "node:crypto";
+import { readFileSync } from "node:fs";
+import { jwtVerify, SignJWT } from "jose";
+
+// Token types. Access tokens authorize API calls; refresh tokens are only accepted by
+// /auth/refresh and /auth/logout. verify() rejects a token of the wrong type.
+export const TYPE_ACCESS = "access";
+export const TYPE_REFRESH = "refresh";
+export type TokenType = typeof TYPE_ACCESS | typeof TYPE_REFRESH;
+
+export type Keys = { privateKey: KeyObject; publicKey: KeyObject };
+
+// The claims one login/refresh shares between its access and refresh token (newAuthToken).
+export type AuthTokenInput = {
+  subject: string; // user UUID; claims carry no PII and no roles
+  tokenId: string; // access token jti
+  refreshTokenId?: string; // refresh token jti (registered in the refresh family store)
+  familyId?: string; // refresh rotation family (refresh tokens only)
+  issuer: string; // doubles as the audience
+  ttlSec: number; // access token lifetime
+};
+
+export type AuthToken = {
+  // accessToken signs typ=access, jti=tokenId, expiring after input.ttlSec.
+  accessToken(privateKey: KeyObject): Promise<string>;
+  // refreshToken signs typ=refresh, jti=refreshTokenId, fid=familyId, expiring after ttlSec.
+  refreshToken(ttlSec: number, privateKey: KeyObject): Promise<string>;
+};
+
+export type Claims = {
+  sub: string;
+  jti: string;
+  typ: TokenType;
+  fid?: string;
+  exp: number;
+};
+
+export function loadKeys(privatePath: string, publicPath: string): Keys {
+  return {
+    privateKey: createPrivateKey(readFileSync(privatePath)),
+    publicKey: createPublicKey(readFileSync(publicPath)),
+  };
+}
+
+// newAuthToken prepares one login/refresh; sign its tokens with accessToken / refreshToken
+// (same shape as the Go templates: authtoken.New(...).AccessToken / .RefreshToken). Claim
+// names match Go (typ, fid). No role: roles are read per request, so a change applies at once.
+export function newAuthToken(input: AuthTokenInput): AuthToken {
+  const sign = (payload: Record<string, string>, jti: string, ttlSec: number, key: KeyObject) =>
+    new SignJWT(payload)
+      .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+      .setSubject(input.subject)
+      .setJti(jti)
+      .setIssuer(input.issuer)
+      .setAudience(input.issuer)
+      .setIssuedAt()
+      .setExpirationTime(`${ttlSec}s`)
+      .sign(key);
+  return {
+    accessToken: (privateKey) => sign({ typ: TYPE_ACCESS }, input.tokenId, input.ttlSec, privateKey),
+    async refreshToken(ttlSec, privateKey) {
+      if (!input.refreshTokenId || !input.familyId) {
+        throw new Error("auth token: refresh token needs refreshTokenId and familyId");
+      }
+      return sign({ typ: TYPE_REFRESH, fid: input.familyId }, input.refreshTokenId, ttlSec, privateKey);
+    },
+  };
+}
+
+// verify checks the signature (RS256 only), expiry, issuer, audience and token type.
+export async function verify(
+  token: string,
+  publicKey: KeyObject,
+  issuer: string,
+  typ: TokenType,
+): Promise<Claims> {
+  const { payload } = await jwtVerify(token, publicKey, {
+    algorithms: ["RS256"],
+    issuer,
+    audience: issuer,
+    clockTolerance: 5,
+    requiredClaims: ["exp", "sub", "jti"],
+  });
+  if (payload.typ !== typ) {
+    throw new Error(`invalid token: want type ${typ}`);
+  }
+  return payload as Claims;
+}

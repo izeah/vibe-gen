@@ -1,0 +1,28 @@
+import type { Context } from "../../abstraction/context.ts";
+import { errors } from "../../abstraction/error.ts";
+import type { UserResponse, UserSetRolesRequest } from "../../dto/user.ts";
+import type { Deps } from "./service.ts";
+import { findById } from "./find-by-id.ts";
+
+// setRoles replaces the user's whole role set (route permission: roles:manage) and drops the
+// user's cached roles, so the change applies to the next request.
+export async function setRoles(
+  d: Deps,
+  ctx: Context,
+  id: string,
+  req: UserSetRolesRequest,
+): Promise<UserResponse> {
+  const roleIds = [...new Set(req.role_ids)];
+  await d.trxManager.withTrx(ctx, async (tx) => {
+    // Lock the user row: concurrent replacements of the same set run one after the other.
+    if (!(await d.userRepository.findOne(tx, { ids: [id], forUpdate: true }))) {
+      throw errors.notFound("user not found");
+    }
+    if (roleIds.length && (await d.roleRepository.count(tx, { ids: roleIds })) !== roleIds.length) {
+      throw errors.badRequest("unknown role id");
+    }
+    await d.userRoleRepository.reassignRole(tx, id, roleIds);
+  });
+  await d.authzService.invalidateUsers(id);
+  return findById(d, ctx, id);
+}

@@ -1,0 +1,12 @@
+import { and, eq, inArray } from "drizzle-orm";
+import { type Context, conn } from "../../abstraction/context.ts";
+import { userRoles } from "../../model/user-role.ts";
+
+// revokeRole takes the roles away from the user (hard delete); returns the number removed.
+export async function revokeRole(ctx: Context, userId: string, ...roleIds: string[]): Promise<number> {
+  if (roleIds.length === 0) return 0;
+  const res = await conn(ctx)
+    .delete(userRoles)
+    .where(and(eq(userRoles.userId, userId), inArray(userRoles.roleId, roleIds)));
+  return res.rowCount ?? 0;
+}

@@ -1,0 +1,7 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type UserFilter, userWhere } from "../../dto/user.ts";
+import { users } from "../../model/user.ts";
+
+export function count(ctx: Context, f: UserFilter = {}): Promise<number> {
+  return conn(ctx).$count(users, userWhere(f));
+}

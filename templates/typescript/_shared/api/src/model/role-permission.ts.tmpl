@@ -1,0 +1,34 @@
+import { pgTable, uuid, varchar } from "drizzle-orm/pg-core";
+import type { Context } from "../abstraction/context.ts";
+import {
+  type Creatable,
+  createAudit,
+  entityColumns,
+  updateAudit,
+} from "../abstraction/entity.ts";
+import { roles } from "./role.ts";
+
+// role_permissions grants one catalog permission (authz/permission.ts) to a role.
+// Mirrors migrations/000003_create_roles_tables.up.sql.
+export const rolePermissions = pgTable("role_permissions", {
+  ...entityColumns(),
+  roleId: uuid("role_id")
+    .notNull()
+    .references(() => roles.id, { onDelete: "cascade" }),
+  permission: varchar("permission", { length: 64 }).notNull(),
+});
+
+export type RolePermission = typeof rolePermissions.$inferSelect;
+type Insert = typeof rolePermissions.$inferInsert;
+export type NewRolePermission = Creatable<Insert>;
+export type RolePermissionEntity = Pick<RolePermission, "roleId" | "permission">;
+
+export const beforeCreate = (ctx: Context, e: NewRolePermission): Insert => ({
+  ...e,
+  ...createAudit(ctx),
+});
+
+export const beforeUpdate = (
+  ctx: Context,
+  e: Partial<RolePermissionEntity>,
+): Partial<Insert> => ({ ...e, ...updateAudit(ctx) });

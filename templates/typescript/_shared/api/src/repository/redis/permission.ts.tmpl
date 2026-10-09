@@ -1,0 +1,59 @@
+import type { Redis } from "../../pkg/redis/redis.ts";
+
+const USER = "authz:user:";
+const ROLE = "authz:role:";
+
+// A role as cached for a user: the id keys its permission set, the code is what requireRole
+// matches.
+export type CachedRole = { id: string; code: string };
+
+// Caches which roles each user holds (authz:user:<id>) and each role's permission set
+// (authz:role:<id>). Two levels: a permission change touches one role key, not every user
+// holding the role.
+export type PermissionCache = {
+  // getUserRoles returns the cached roles, or undefined on a cache miss.
+  getUserRoles(userId: string): Promise<CachedRole[] | undefined>;
+  setUserRoles(userId: string, roles: CachedRole[], ttlSec: number): Promise<void>;
+  // getRolePermissions returns the cached sets of the given roles in one MGET; roles not
+  // cached are absent from the map.
+  getRolePermissions(roleIds: string[]): Promise<Map<string, string[]>>;
+  setRolePermissions(sets: Map<string, string[]>, ttlSec: number): Promise<void>;
+  // delUsers / delRoles drop cached entries, so the next request reads the database.
+  delUsers(...userIds: string[]): Promise<void>;
+  delRoles(...roleIds: string[]): Promise<void>;
+};
+
+export const newPermissionCache = (redis: Redis): PermissionCache => ({
+  async getUserRoles(userId) {
+    const raw = await redis.get(USER + userId);
+    return raw === null ? undefined : (JSON.parse(raw) as CachedRole[]);
+  },
+  async setUserRoles(userId, roles, ttlSec) {
+    await redis.set(USER + userId, JSON.stringify(roles), {
+      expiration: { type: "EX", value: ttlSec },
+    });
+  },
+  async getRolePermissions(roleIds) {
+    const sets = new Map<string, string[]>();
+    if (roleIds.length === 0) return sets;
+    const vals = await redis.mGet(roleIds.map((id) => ROLE + id));
+    vals.forEach((raw, i) => {
+      const id = roleIds[i];
+      if (raw !== null && id !== undefined) sets.set(id, JSON.parse(raw) as string[]);
+    });
+    return sets;
+  },
+  async setRolePermissions(sets, ttlSec) {
+    const tx = redis.multi();
+    for (const [id, perms] of sets) {
+      tx.set(ROLE + id, JSON.stringify(perms), { expiration: { type: "EX", value: ttlSec } });
+    }
+    await tx.exec();
+  },
+  async delUsers(...userIds) {
+    if (userIds.length) await redis.del(userIds.map((id) => USER + id));
+  },
+  async delRoles(...roleIds) {
+    if (roleIds.length) await redis.del(roleIds.map((id) => ROLE + id));
+  },
+});

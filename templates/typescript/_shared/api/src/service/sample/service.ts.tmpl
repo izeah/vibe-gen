@@ -1,0 +1,42 @@
+import type { Context } from "../../abstraction/context.ts";
+import type { PaginationInfo } from "../../abstraction/pagination.ts";
+import type {
+  SampleCreateRequest,
+  SampleFindQuery,
+  SampleResponse,
+  SampleUpdateRequest,
+} from "../../dto/sample.ts";
+import type { Factory } from "../../factory/factory.ts";
+import { create } from "./create.ts";
+import { remove } from "./delete.ts";
+import { find } from "./find.ts";
+import { findById } from "./find-by-id.ts";
+import { update } from "./update.ts";
+
+export type SampleService = {
+  find(
+    ctx: Context,
+    q: SampleFindQuery,
+  ): Promise<{ data: SampleResponse[]; info: PaginationInfo }>;
+  findById(ctx: Context, id: string): Promise<SampleResponse>;
+  create(ctx: Context, req: SampleCreateRequest): Promise<SampleResponse>;
+  update(
+    ctx: Context,
+    id: string,
+    req: SampleUpdateRequest,
+  ): Promise<SampleResponse>;
+  delete(ctx: Context, id: string): Promise<void>;
+};
+
+export type Deps = Pick<Factory, "sampleRepository">;
+
+export function newSampleService(f: Factory): SampleService {
+  const d: Deps = { sampleRepository: f.sampleRepository };
+  return {
+    find: (ctx, q) => find(d, ctx, q),
+    findById: (ctx, id) => findById(d, ctx, id),
+    create: (ctx, req) => create(d, ctx, req),
+    update: (ctx, id, req) => update(d, ctx, id, req),
+    delete: (ctx, id) => remove(d, ctx, id),
+  };
+}

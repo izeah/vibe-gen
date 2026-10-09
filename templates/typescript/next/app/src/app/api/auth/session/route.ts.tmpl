@@ -1,0 +1,3 @@
+import { session } from "../../../../server/bff/handlers.ts";
+
+export const GET = (req: Request) => session(req);

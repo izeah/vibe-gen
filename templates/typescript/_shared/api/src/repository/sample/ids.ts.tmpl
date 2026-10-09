@@ -1,0 +1,11 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type SampleFilter, sampleWhere } from "../../dto/sample.ts";
+import { samples } from "../../model/sample.ts";
+
+export async function ids(ctx: Context, f: SampleFilter): Promise<string[]> {
+  const rows = await conn(ctx)
+    .select({ id: samples.id })
+    .from(samples)
+    .where(sampleWhere(f));
+  return rows.map((r) => r.id);
+}

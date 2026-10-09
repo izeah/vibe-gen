@@ -1,0 +1,32 @@
+import { STATUS_CODES } from "node:http";
+import { type ArgumentsHost, Catch, type ExceptionFilter, HttpException } from "@nestjs/common";
+import type { Response } from "express";
+import { AppError } from "../abstraction/error.ts";
+import { failure } from "../abstraction/response.ts";
+import { ctxOf } from "../middleware/context.ts";
+import { toAppError } from "../middleware/error.ts";
+import { logger } from "../pkg/logger/logger.ts";
+
+// AllExceptionsFilter writes every error in the shared envelope. Only AppError messages reach
+// the client; anything else is logged server-side and answered with a generic 500.
+@Catch()
+export class AllExceptionsFilter implements ExceptionFilter {
+  catch(err: unknown, host: ArgumentsHost): void {
+    const res = host.switchToHttp().getResponse<Response>();
+    const e = err instanceof HttpException ? fromHttpException(err) : toAppError(err);
+    if (e.status >= 500) {
+      logger.error({ err, request_id: ctxOf(res)?.requestId }, "request failed");
+    }
+    res.status(e.status).json(failure(e));
+  }
+}
+
+// Nest's own exceptions (unknown route, body parser) never pass their message through: it can
+// hold parser internals. The original cause is mapped like any other error when it is known.
+function fromHttpException(err: HttpException): AppError {
+  const cause = err.cause instanceof Error ? toAppError(err.cause) : undefined;
+  if (cause && cause.status < 500) return cause;
+  const status = err.getStatus();
+  const message = status === 404 ? "route not found" : (STATUS_CODES[status] ?? "error").toLowerCase();
+  return new AppError(status, message);
+}

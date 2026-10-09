@@ -1,0 +1,167 @@
+import { describe, expect, test } from "vitest";
+import { createApp } from "./app.ts";
+import {
+  newAuthToken,
+  TYPE_ACCESS,
+  type TokenType,
+} from "./pkg/auth-token/auth-token.ts";
+import { TEST_USER_IDS, testFactory, testUser } from "./testutil/factory.ts";
+
+const f = testFactory();
+const app = createApp(f);
+
+const token = (role: string, typ: TokenType = TYPE_ACCESS) => {
+  const t = newAuthToken({
+    subject: TEST_USER_IDS[role] ?? "",
+    tokenId: "t",
+    refreshTokenId: "r",
+    familyId: "fam",
+    issuer: f.config.APP_NAME,
+    ttlSec: 60,
+  });
+  return typ === TYPE_ACCESS ? t.accessToken(f.keys.privateKey) : t.refreshToken(60, f.keys.privateKey);
+};
+
+const call = async (
+  path: string,
+  init: RequestInit & { role?: string; bearer?: string } = {},
+) => {
+  const headers = new Headers(init.headers);
+  const bearer = init.bearer ?? (init.role && (await token(init.role)));
+  if (bearer) headers.set("authorization", `Bearer ${bearer}`);
+  if (init.body) headers.set("content-type", "application/json");
+  const res = await app.request(`/v1${path}`, { ...init, headers });
+  return { res, body: await res.json() };
+};
+
+describe("http", () => {
+  test("security headers and request id", async () => {
+    const { res, body } = await call("/health", {
+      headers: { "x-request-id": "bad id <script>" },
+    });
+    expect(body).toEqual({
+      meta: { success: true, message: "OK" },
+      data: { status: "ok" },
+    });
+    expect(res.headers.get("content-security-policy")).toContain(
+      "default-src 'none'",
+    );
+    expect(res.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(res.headers.get("x-powered-by")).toBeNull();
+    expect(res.headers.get("x-request-id")).toMatch(/^[0-9a-f-]{36}$/);
+  });
+
+  test("unknown route and malformed JSON use the error envelope", async () => {
+    expect((await call("/nope")).res.status).toBe(404);
+    const { res, body } = await call("/auth/login", {
+      method: "POST",
+      body: "{not json",
+    });
+    expect(res.status).toBe(400);
+    expect(body.meta).toEqual({ success: false, message: "invalid JSON body" });
+  });
+
+  test("validation lists fields without echoing values", async () => {
+    const { res, body } = await call("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ email: "not-an-email", password: "x" }),
+    });
+    expect(res.status).toBe(400);
+    expect(Object.keys(body.description).sort()).toEqual(["email", "password"]);
+    expect(JSON.stringify(body)).not.toContain("not-an-email");
+  });
+
+  test("protected routes need an access token", async () => {
+    expect((await call("/users/me")).res.status).toBe(401);
+    const refresh = await token("user", "refresh");
+    expect((await call("/users/me", { bearer: refresh })).res.status).toBe(401);
+    f.userRepository.findOne.mockResolvedValue(testUser());
+    f.userRoleRepository.find.mockResolvedValue([{ roleId: "r-user" }]);
+    f.roleRepository.find.mockResolvedValue([{ id: "r-user", code: "user", name: "User" }]);
+    const { res, body } = await call("/users/me", { role: "user" });
+    expect(res.status).toBe(200);
+    expect(body.data).not.toHaveProperty("password");
+    expect(body.data.roles).toEqual([{ id: "r-user", code: "user", name: "User" }]);
+  });
+
+  test("user management is admin-only", async () => {
+    const newUser = JSON.stringify({
+      name: "Eve",
+      email: "eve@example.com",
+      password: "password123",
+      role: "admin",
+    });
+    const asUser = await call("/users", {
+      method: "POST",
+      role: "user",
+      body: newUser,
+    });
+    expect(asUser.res.status).toBe(403);
+    expect(f.userRepository.create).not.toHaveBeenCalled();
+
+    // "role" in the body is ignored: a new user gets the default role only.
+    f.userRepository.create.mockResolvedValue([testUser()]);
+    f.roleRepository.findOne.mockResolvedValue({ id: "r-user", code: "user", name: "User" });
+    const asAdmin = await call("/users", {
+      method: "POST",
+      role: "admin",
+      body: newUser,
+    });
+    expect(asAdmin.res.status).toBe(201);
+    expect(asAdmin.body.data.roles).toEqual([{ id: "r-user", code: "user", name: "User" }]);
+    expect(f.userRoleRepository.assignRole).toHaveBeenCalledWith(
+      expect.anything(),
+      testUser().id,
+      "r-user",
+    );
+  });
+
+  test("changing a user's roles needs roles:manage and applies at once", async () => {
+    const id = testUser().id;
+    const roles = JSON.stringify({ role_ids: ["0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a99"] });
+    const asUser = await call(`/users/${id}/roles`, { method: "PUT", role: "user", body: roles });
+    expect(asUser.res.status).toBe(403);
+    expect(f.userRoleRepository.reassignRole).not.toHaveBeenCalled();
+
+    f.userRepository.findOne.mockResolvedValue(testUser());
+    f.roleRepository.count.mockResolvedValue(1);
+    f.userRoleRepository.find.mockResolvedValue([]);
+    const asAdmin = await call(`/users/${id}/roles`, { method: "PUT", role: "admin", body: roles });
+    expect(asAdmin.res.status).toBe(200);
+    expect(f.userRoleRepository.reassignRole).toHaveBeenCalledWith(expect.anything(), id, [
+      "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a99",
+    ]);
+    expect(f.permissionCache.delUsers).toHaveBeenCalledWith(id);
+  });
+
+  test("list endpoints are paginated with an allowlisted sort", async () => {
+    f.sampleRepository.count.mockResolvedValue(0);
+    f.sampleRepository.find.mockResolvedValue([]);
+    const { body } = await call(
+      "/samples?page_size=500&sort_by=name&sort=asc",
+      { role: "user" },
+    );
+    expect(body.meta.info).toMatchObject({ page: 1, page_size: 100 });
+    expect(f.sampleRepository.find.mock.calls[0]?.[1]).toMatchObject({
+      pagination: { page: 1, page_size: 100, sort_by: "name", sort: "asc" },
+    });
+  });
+
+  test("an invalid id is a 400, not a database error", async () => {
+    const { res } = await call("/samples/not-a-uuid", { role: "user" });
+    expect(res.status).toBe(400);
+  });
+
+  test("OpenAPI and Swagger UI outside production", async () => {
+    const raw = (path: string) => app.request(path);
+    const spec = await raw("/openapi.json");
+    expect(spec.status).toBe(200);
+    expect((await spec.json()).paths).toHaveProperty("/v1/users/me");
+    const ui = await raw("/swagger/");
+    expect(ui.status).toBe(200);
+    expect(ui.headers.get("content-security-policy")).toContain("default-src 'self'");
+    expect((await raw("/swagger/..%2F..%2Fpackage.json")).status).toBe(404);
+    const api = await raw("/v1/health");
+    expect(api.headers.get("content-security-policy")).toContain("default-src 'none'");
+  });
+});

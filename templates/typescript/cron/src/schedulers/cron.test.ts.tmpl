@@ -1,0 +1,19 @@
+import { Cron } from "croner";
+import { expect, test } from "vitest";
+import { findJob, getAvailableJobs, schedule } from "./cron.ts";
+
+test("every job has a valid pattern, a unique name and a lock TTL", () => {
+  const names = getAvailableJobs();
+  expect(new Set(names).size).toBe(names.length);
+  for (const e of schedule) {
+    const c = new Cron(e.pattern, { paused: true });
+    expect(c.nextRun()).toBeInstanceOf(Date);
+    c.stop();
+    expect(e.lockTtlMs).toBeGreaterThan(0);
+  }
+});
+
+test("findJob only knows registered jobs", () => {
+  expect(findJob("sampleReport")?.job.JOB_NAME).toBe("sampleReport");
+  expect(findJob("constructor")).toBeUndefined();
+});

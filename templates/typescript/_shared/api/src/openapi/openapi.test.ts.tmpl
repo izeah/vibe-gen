@@ -1,0 +1,35 @@
+import { expect, test } from "vitest";
+import { CATALOG } from "../authz/permission.ts";
+import { config } from "../config/config.ts";
+import { openapiDocument, operations } from "./openapi.ts";
+import { swaggerAsset } from "./swagger-ui.ts";
+
+test("every operation is unique and documented", () => {
+  const keys = operations.map((o) => `${o.method} ${o.path}`);
+  expect(new Set(keys).size).toBe(keys.length);
+  const doc = openapiDocument(config);
+  const login = doc.paths["/v1/auth/login"]?.post as {
+    requestBody: { content: { "application/json": { schema: { required: string[] } } } };
+  };
+  expect(login.requestBody.content["application/json"].schema.required).toEqual([
+    "email",
+    "password",
+  ]);
+});
+
+test("every documented permission exists in the catalog", () => {
+  for (const op of operations.filter((o) => o.permission)) {
+    const p = String(op.permission);
+    expect(
+      CATALOG.some((c) => c === p || c === `${p}:any` || c === `${p}:own`),
+      p,
+    ).toBe(true);
+  }
+});
+
+test("swagger assets are an allowlist", async () => {
+  expect(await swaggerAsset("../../package.json", "/openapi.json")).toBeUndefined();
+  expect(await swaggerAsset("constructor", "/openapi.json")).toBeUndefined();
+  expect((await swaggerAsset("", "/openapi.json"))?.type).toContain("text/html");
+  expect(String((await swaggerAsset("swagger-initializer.js", "/x.json"))?.body)).toContain('"/x.json"');
+});

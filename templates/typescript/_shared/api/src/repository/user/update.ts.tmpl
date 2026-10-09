@@ -1,0 +1,16 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type UserFilter, userWhere } from "../../dto/user.ts";
+import { beforeUpdate, type UserEntity, users } from "../../model/user.ts";
+
+// update writes every domain column of e to the matching rows; returns the row count.
+export async function update(
+  ctx: Context,
+  f: UserFilter,
+  e: UserEntity,
+): Promise<number> {
+  const res = await conn(ctx)
+    .update(users)
+    .set(await beforeUpdate(ctx, e))
+    .where(userWhere(f));
+  return res.rowCount ?? 0;
+}

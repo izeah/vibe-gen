@@ -1,0 +1,25 @@
+import { sql } from "drizzle-orm";
+import { type Context, conn } from "../../abstraction/context.ts";
+import { updateAudit } from "../../abstraction/entity.ts";
+import { beforeCreate, type NewRole, roles } from "../../model/role.ts";
+
+// updateOrInsert upserts rows by id in one statement; returns the affected row count.
+export async function updateOrInsert(
+  ctx: Context,
+  rows: NewRole[],
+): Promise<number> {
+  if (rows.length === 0) return 0;
+  const values = await Promise.all(rows.map((r) => beforeCreate(ctx, r)));
+  const res = await conn(ctx)
+    .insert(roles)
+    .values(values)
+    .onConflictDoUpdate({
+      target: roles.id,
+      set: {
+        description: sql`excluded.description`,
+        isSystem: sql`excluded.is_system`,
+        ...updateAudit(ctx),
+      },
+    });
+  return res.rowCount ?? 0;
+}

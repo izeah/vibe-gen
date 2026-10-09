@@ -1,0 +1,65 @@
+import { Body, Controller, HttpCode, Inject, Post, Req, Res } from "@nestjs/common";
+import type { Request, Response } from "express";
+import type { Context } from "../../abstraction/context.ts";
+import { clear, deliver, guard, refreshTokenOf } from "../../abstraction/auth-cookie.ts";
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { loginRequest } from "../../dto/auth.ts";
+import type { Factory } from "../../factory/factory.ts";
+import { cookieIO } from "../../middleware/cookie-io.ts";
+import { Ctx } from "../../nest/ctx.decorator.ts";
+import { FACTORY } from "../../nest/tokens.ts";
+import { type AuthService, newAuthService } from "../../service/auth/service.ts";
+
+// Public. In AUTH_COOKIE_MODE the refresh token travels only in the HttpOnly cookie.
+@Controller("auth")
+export class AuthController {
+  private readonly authService: AuthService;
+
+  constructor(@Inject(FACTORY) private readonly f: Factory) {
+    this.authService = newAuthService(f);
+  }
+
+  @Post("login")
+  @HttpCode(200)
+  async login(
+    @Ctx() ctx: Context,
+    @Body() body: unknown,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const io = cookieIO(req, res);
+    guard(this.f.config, io);
+    const tokens = await this.authService.login(ctx, parse(loginRequest, body));
+    return success(deliver(this.f.config, io, tokens));
+  }
+
+  @Post("refresh")
+  @HttpCode(200)
+  async refresh(
+    @Ctx() ctx: Context,
+    @Body() body: unknown,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const io = cookieIO(req, res);
+    guard(this.f.config, io);
+    const token = await refreshTokenOf(this.f.config, io, async () => body);
+    return success(deliver(this.f.config, io, await this.authService.refresh(ctx, token)));
+  }
+
+  @Post("logout")
+  @HttpCode(200)
+  async logout(
+    @Ctx() ctx: Context,
+    @Body() body: unknown,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const io = cookieIO(req, res);
+    guard(this.f.config, io);
+    clear(this.f.config, io); // always drop the cookie, even if the token is invalid
+    await this.authService.logout(ctx, await refreshTokenOf(this.f.config, io, async () => body));
+    return success();
+  }
+}

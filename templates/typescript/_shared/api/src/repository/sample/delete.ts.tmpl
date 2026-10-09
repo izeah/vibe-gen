@@ -1,0 +1,10 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type SampleFilter, sampleWhere } from "../../dto/sample.ts";
+import { samples } from "../../model/sample.ts";
+
+// deleteRows hard-deletes the matching rows (soft-deleted rows only with withDeleted: true).
+// Prefer softDelete; never expose this through an endpoint unless a feature needs it.
+export async function deleteRows(ctx: Context, f: SampleFilter): Promise<number> {
+  const res = await conn(ctx).delete(samples).where(sampleWhere(f));
+  return res.rowCount ?? 0;
+}

@@ -1,0 +1,10 @@
+import { proxy } from "../../server/bff/handlers.ts";
+import { toPagesHandler } from "../../server/bff/next-pages.ts";
+
+export const config = { api: { bodyParser: false } };
+
+// Everything else under /api goes to the backend API (allowlisted prefixes only; the
+// API's /v1/auth/* is blocked). The raw, still-encoded path is used, never decoded params.
+export default toPagesHandler((req) =>
+  proxy(req, new URL(req.url).pathname.slice("/api".length)),
+);

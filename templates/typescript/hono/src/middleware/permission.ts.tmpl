@@ -1,0 +1,18 @@
+import { createMiddleware } from "hono/factory";
+import { errors } from "../abstraction/error.ts";
+import type { AuthzService } from "../service/authz/service.ts";
+import type { Env } from "./env.ts";
+
+// requirePermission allows the route only if one of the user's roles holds resource:action
+// (user_roles / role_permissions tables, cached in Redis) and records the granted scope ("any"/"own") for the
+// service (ownerId). Use after authentication.
+export function requirePermission(authz: AuthzService, resource: string, action: string) {
+  return createMiddleware<Env>(async (c, next) => {
+    const ctx = c.var.ctx;
+    if (!ctx.auth) throw errors.unauthorized();
+    const scope = await authz.scope(ctx, ctx.auth.id, resource, action);
+    if (!scope) throw errors.forbidden("insufficient permissions");
+    ctx.permissionScope = scope;
+    await next();
+  });
+}

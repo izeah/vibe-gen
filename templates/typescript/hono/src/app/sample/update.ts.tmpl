@@ -1,0 +1,15 @@
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { sampleIdParams, sampleUpdateRequest } from "../../dto/sample.ts";
+import type { C } from "../../middleware/env.ts";
+import { body as readBody } from "../../middleware/error.ts";
+import type { Handler } from "./handler.ts";
+
+// PUT /v1/samples/:id
+export const update =
+  (h: Handler) =>
+  async (c: C) => {
+    const { id } = parse(sampleIdParams, c.req.param());
+    const body = parse(sampleUpdateRequest, await readBody(c));
+    return c.json(success(await h.sampleService.update(c.var.ctx, id, body)));
+  };

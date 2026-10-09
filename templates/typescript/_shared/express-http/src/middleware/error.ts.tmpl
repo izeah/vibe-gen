@@ -1,0 +1,39 @@
+import type { ErrorRequestHandler, RequestHandler } from "express";
+import { AppError, errors } from "../abstraction/error.ts";
+import { failure } from "../abstraction/response.ts";
+import { logger } from "../pkg/logger/logger.ts";
+import { ctxOf } from "./context.ts";
+
+export const notFound: RequestHandler = () => {
+  throw errors.notFound("route not found");
+};
+
+// errorHandler turns every error into the JSON envelope. Only AppError messages reach the
+// client; anything else is logged server-side and answered with a generic 500.
+export const errorHandler: ErrorRequestHandler = (err, _req, res, next) => {
+  if (res.headersSent) return next(err);
+  const e = toAppError(err);
+  if (e.status >= 500) {
+    logger.error(
+      { err, request_id: ctxOf(res)?.requestId },
+      "request failed",
+    );
+  }
+  res.status(e.status).json(failure(e));
+};
+
+// toAppError maps any thrown value to an AppError (also used by Nest's exception filter).
+export function toAppError(err: unknown): AppError {
+  if (err instanceof AppError) return err;
+  // express.json() errors
+  switch ((err as { type?: string }).type) {
+    case "entity.parse.failed":
+      return errors.badRequest("invalid JSON body");
+    case "entity.too.large":
+      return errors.payloadTooLarge();
+    case "encoding.unsupported":
+    case "charset.unsupported":
+      return new AppError(415, "unsupported media type");
+  }
+  return errors.internal(err);
+}

@@ -1,0 +1,4 @@
+import { session } from "../../../../server/bff/handlers.ts";
+import type { RequestHandler } from "./$types";
+
+export const GET: RequestHandler = ({ request }) => session(request);

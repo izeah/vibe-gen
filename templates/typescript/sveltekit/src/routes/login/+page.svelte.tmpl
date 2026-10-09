@@ -1,0 +1,46 @@
+<script lang="ts">
+  import { goto } from "$app/navigation";
+  import { ApiError, login } from "../../lib/api.ts";
+
+  // Native form, labelled fields, one error region announced to screen readers.
+  let error = $state("");
+  let pending = $state(false);
+
+  async function submit(e: SubmitEvent) {
+    e.preventDefault();
+    const form = new FormData(e.currentTarget as HTMLFormElement);
+    pending = true;
+    error = "";
+    try {
+      await login(String(form.get("email")), String(form.get("password")));
+      await goto("/dashboard", { replaceState: true });
+    } catch (err) {
+      error = err instanceof ApiError ? err.message : "Could not reach the server. Check your connection and try again.";
+    } finally {
+      pending = false;
+    }
+  }
+</script>
+
+<main>
+  <form class="card stack" onsubmit={submit}>
+    <h1>Sign in</h1>
+    <label class="field">
+      <span>Email</span>
+      <input name="email" type="email" autocomplete="username" required />
+    </label>
+    <label class="field">
+      <span>Password</span>
+      <input
+        name="password"
+        type="password"
+        autocomplete="current-password"
+        minlength="8"
+        maxlength="72"
+        required
+      />
+    </label>
+    <p class="error" role="alert" aria-live="polite">{error}</p>
+    <button type="submit" disabled={pending}>{pending ? "Signing in…" : "Sign in"}</button>
+  </form>
+</main>

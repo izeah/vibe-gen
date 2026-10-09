@@ -1,0 +1,21 @@
+import { and, eq, notInArray } from "drizzle-orm";
+import { type Context, conn } from "../../abstraction/context.ts";
+import { userRoles } from "../../model/user-role.ts";
+import { assignRole } from "./assign-role.ts";
+
+// reassignRole replaces the user's whole role set with roleIds ([] = no roles): one delete of
+// the roles not listed, one insert of the missing ones, atomically (a savepoint when ctx
+// already carries a transaction).
+export async function reassignRole(ctx: Context, userId: string, roleIds: string[]): Promise<void> {
+  await conn(ctx).transaction(async (tx) => {
+    await tx
+      .delete(userRoles)
+      .where(
+        and(
+          eq(userRoles.userId, userId),
+          roleIds.length ? notInArray(userRoles.roleId, roleIds) : undefined,
+        ),
+      );
+    await assignRole({ ...ctx, tx }, userId, ...roleIds);
+  });
+}

@@ -1,0 +1,70 @@
+import { randomUUID } from "node:crypto";
+import { errors } from "../../abstraction/error.ts";
+import type { TokenPair } from "../../dto/auth.ts";
+import type { Factory } from "../../factory/factory.ts";
+import type { User } from "../../model/user.ts";
+import {
+  type Claims,
+  newAuthToken,
+  TYPE_REFRESH,
+  verify,
+} from "../../pkg/auth-token/auth-token.ts";
+
+export type Deps = Pick<
+  Factory,
+  | "userRepository"
+  | "refreshTokenRepository"
+  | "rateLimitRepository"
+  | "keys"
+  | "config"
+>;
+
+export const refreshTtlMs = (d: Deps): number =>
+  d.config.AUTH_REFRESH_TOKEN_TTL_MIN * 60_000;
+
+// issueTokens signs a new access/refresh pair. refreshJti must already be registered as the
+// current token of familyId (save on login, rotate on refresh).
+export async function issueTokens(
+  d: Deps,
+  user: User,
+  familyId: string,
+  refreshJti: string,
+): Promise<TokenPair> {
+  const accessTtlSec = d.config.AUTH_ACCESS_TOKEN_TTL_MIN * 60;
+  const token = newAuthToken({
+    subject: user.id,
+    tokenId: randomUUID(),
+    refreshTokenId: refreshJti,
+    familyId,
+    issuer: d.config.APP_NAME,
+    ttlSec: accessTtlSec,
+  });
+  const [access, refreshToken] = await Promise.all([
+    token.accessToken(d.keys.privateKey),
+    token.refreshToken(d.config.AUTH_REFRESH_TOKEN_TTL_MIN * 60, d.keys.privateKey),
+  ]);
+  return {
+    access_token: access,
+    refresh_token: refreshToken,
+    expires_in: accessTtlSec,
+  };
+}
+
+// verifyRefresh validates a refresh token (signature, expiry, iss/aud, typ=refresh, family).
+export async function verifyRefresh(
+  d: Deps,
+  token: string,
+): Promise<Claims & { fid: string }> {
+  try {
+    const claims = await verify(
+      token,
+      d.keys.publicKey,
+      d.config.APP_NAME,
+      TYPE_REFRESH,
+    );
+    if (claims.fid) return { ...claims, fid: claims.fid };
+  } catch {
+    // fall through: every failure is the same 401 to the client
+  }
+  throw errors.unauthorized("invalid refresh token");
+}

@@ -1,0 +1,14 @@
+import type { RequestHandler } from "express";
+import { errors } from "../../abstraction/error.ts";
+import { success } from "../../abstraction/response.ts";
+import { ctxOf } from "../../middleware/context.ts";
+import type { Handler } from "./handler.ts";
+
+// GET /v1/users/me: the caller's own profile.
+export const me =
+  (h: Handler): RequestHandler =>
+  async (_req, res) => {
+    const ctx = ctxOf(res);
+    if (!ctx.auth) throw errors.unauthorized();
+    res.json(success(await h.userService.findById(ctx, ctx.auth.id)));
+  };

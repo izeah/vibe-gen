@@ -1,0 +1,16 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type RoleFilter, roleWhere } from "../../dto/role.ts";
+import { beforeUpdate, type RoleEntity, roles } from "../../model/role.ts";
+
+// updates writes only the given columns to the matching rows; returns the row count.
+export async function updates(
+  ctx: Context,
+  f: RoleFilter,
+  values: Partial<RoleEntity>,
+): Promise<number> {
+  const res = await conn(ctx)
+    .update(roles)
+    .set(await beforeUpdate(ctx, values))
+    .where(roleWhere(f));
+  return res.rowCount ?? 0;
+}

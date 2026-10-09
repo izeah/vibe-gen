@@ -1,0 +1,13 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type RoleFilter, roleWhere } from "../../dto/role.ts";
+import { type Role, roles } from "../../model/role.ts";
+
+// findOne returns the first match without ordering (like GORM Take), or undefined.
+export async function findOne(
+  ctx: Context,
+  f: RoleFilter,
+): Promise<Role | undefined> {
+  const q = conn(ctx).select().from(roles).where(roleWhere(f)).limit(1).$dynamic();
+  const [row] = await (f.forUpdate ? q.for("update") : q);
+  return row;
+}

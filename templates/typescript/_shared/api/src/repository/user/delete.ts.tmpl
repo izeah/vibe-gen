@@ -1,0 +1,10 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type UserFilter, userWhere } from "../../dto/user.ts";
+import { users } from "../../model/user.ts";
+
+// deleteRows hard-deletes the matching rows (soft-deleted rows only with withDeleted: true).
+// Prefer softDelete; never expose this through an endpoint unless a feature needs it.
+export async function deleteRows(ctx: Context, f: UserFilter): Promise<number> {
+  const res = await conn(ctx).delete(users).where(userWhere(f));
+  return res.rowCount ?? 0;
+}

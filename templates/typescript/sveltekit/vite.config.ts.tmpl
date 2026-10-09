@@ -1,0 +1,39 @@
+import adapter from "@sveltejs/adapter-node";
+import { sveltekit } from "@sveltejs/kit/vite";
+import { defineConfig, loadEnv } from "vite";
+
+export default defineConfig(({ command, mode }) => {
+  // The BFF reads process.env (as in production, where `npm start` loads .env). The dev server
+  // runs in this process, so load .env into it here.
+  if (command === "serve") Object.assign(process.env, loadEnv(mode, process.cwd(), ""));
+  return {
+    plugins: [
+      sveltekit({
+        adapter: adapter(),
+        // SvelteKit adds a per-request nonce to its own scripts and styles.
+        csp: {
+          mode: "nonce",
+          directives: {
+            "default-src": ["self"],
+            "script-src": ["self"],
+            // SvelteKit's route announcer (screen-reader live region) sets one fixed inline style:
+            // allow exactly that hash, not 'unsafe-inline'. If an upgrade changes it, the E2E CSP
+            // check fails: take the new hash from the browser console.
+            "style-src": [
+              "self",
+              "unsafe-hashes",
+              "sha256-S8qMpvofolR8Mpjy4kQvEm7m1q8clzU4dfDH0AmvZjo=",
+            ],
+            "img-src": ["self", "data:"],
+            "connect-src": ["self"],
+            "object-src": ["none"],
+            "base-uri": ["self"],
+            "form-action": ["self"],
+            "frame-ancestors": ["none"],
+          },
+        },
+      }),
+    ],
+    server: { port: 3001, strictPort: true },
+  };
+});

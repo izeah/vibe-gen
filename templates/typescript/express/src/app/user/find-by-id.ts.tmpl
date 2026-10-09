@@ -1,0 +1,14 @@
+import type { RequestHandler } from "express";
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { userIdParams } from "../../dto/user.ts";
+import { ctxOf } from "../../middleware/context.ts";
+import type { Handler } from "./handler.ts";
+
+// GET /v1/users/:id (admin)
+export const findById =
+  (h: Handler): RequestHandler =>
+  async (req, res) => {
+    const { id } = parse(userIdParams, req.params);
+    res.json(success(await h.userService.findById(ctxOf(res), id)));
+  };

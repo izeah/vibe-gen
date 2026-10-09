@@ -1,0 +1,19 @@
+import type { AppError } from "./error.ts";
+import type { PaginationInfo } from "./pagination.ts";
+
+// Response envelopes. The shape matches the Go templates so a frontend works with either.
+export const success = (data?: unknown, info?: PaginationInfo) => ({
+  meta: { success: true, message: "OK", ...(info && { info }) },
+  data,
+});
+
+export const created = (data?: unknown) => ({
+  meta: { success: true, message: "Created" },
+  data,
+});
+
+export const failure = (e: AppError) => ({
+  meta: { success: false, message: e.message },
+  data: null,
+  ...(e.description !== undefined && { description: e.description }),
+});

@@ -1,0 +1,25 @@
+import { drizzle } from "drizzle-orm/node-postgres";
+import pg from "pg";
+import { config } from "./config.ts";
+
+// The pool connects lazily on the first query.
+export const pool = new pg.Pool({
+  host: config.DB_HOST,
+  port: config.DB_PORT,
+  user: config.DB_USER,
+  password: config.DB_PASS,
+  database: config.DB_NAME,
+  max: config.DB_MAX_CONNS,
+  connectionTimeoutMillis: 5_000,
+  statement_timeout: 5 * 60_000,
+  ssl:
+    config.DB_SSLMODE === "disable"
+      ? false
+      : { rejectUnauthorized: config.DB_SSLMODE === "verify-full" },
+});
+
+export const db = drizzle({ client: pool });
+
+export async function testConnection(): Promise<void> {
+  await pool.query("select 1");
+}

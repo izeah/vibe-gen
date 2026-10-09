@@ -1,0 +1,14 @@
+import type { Context } from "../../abstraction/context.ts";
+import type { RefreshRequest } from "../../dto/auth.ts";
+import { type Deps, verifyRefresh } from "./token.ts";
+
+// logout revokes the session family of the given refresh token. Access tokens already issued
+// stay valid until they expire (short-lived by design).
+export async function logout(
+  d: Deps,
+  _ctx: Context,
+  req: RefreshRequest,
+): Promise<void> {
+  const claims = await verifyRefresh(d, req.refresh_token);
+  await d.refreshTokenRepository.revoke(claims.fid);
+}

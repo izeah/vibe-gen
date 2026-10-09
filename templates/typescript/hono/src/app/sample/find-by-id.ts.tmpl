@@ -1,0 +1,13 @@
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { sampleIdParams } from "../../dto/sample.ts";
+import type { C } from "../../middleware/env.ts";
+import type { Handler } from "./handler.ts";
+
+// GET /v1/samples/:id
+export const findById =
+  (h: Handler) =>
+  async (c: C) => {
+    const { id } = parse(sampleIdParams, c.req.param());
+    return c.json(success(await h.sampleService.findById(c.var.ctx, id)));
+  };

@@ -1,0 +1,38 @@
+import { pgTable, uuid } from "drizzle-orm/pg-core";
+import type { Context } from "../abstraction/context.ts";
+import {
+  type Creatable,
+  createAudit,
+  entityColumns,
+  updateAudit,
+} from "../abstraction/entity.ts";
+import { roles } from "./role.ts";
+import { users } from "./user.ts";
+
+// user_roles assigns one role to a user (a user holds any number of roles); both columns are
+// foreign keys (.references), the TypeScript side of the Go "// relation" fields.
+// Mirrors migrations/000003_create_roles_tables.up.sql.
+export const userRoles = pgTable("user_roles", {
+  ...entityColumns(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  roleId: uuid("role_id")
+    .notNull()
+    .references(() => roles.id, { onDelete: "restrict" }),
+});
+
+export type UserRole = typeof userRoles.$inferSelect;
+type Insert = typeof userRoles.$inferInsert;
+export type NewUserRole = Creatable<Insert>;
+export type UserRoleEntity = Pick<UserRole, "userId" | "roleId">;
+
+export const beforeCreate = (ctx: Context, e: NewUserRole): Insert => ({
+  ...e,
+  ...createAudit(ctx),
+});
+
+export const beforeUpdate = (
+  ctx: Context,
+  e: Partial<UserRoleEntity>,
+): Partial<Insert> => ({ ...e, ...updateAudit(ctx) });

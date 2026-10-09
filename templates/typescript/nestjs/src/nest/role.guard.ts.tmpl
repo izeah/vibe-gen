@@ -1,0 +1,47 @@
+import {
+  type CanActivate,
+  type ExecutionContext,
+  Inject,
+  Injectable,
+  SetMetadata,
+} from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
+import type { Response } from "express";
+import { errors } from "../abstraction/error.ts";
+import type { Factory } from "../factory/factory.ts";
+import { ctxOf } from "../middleware/context.ts";
+import { type AuthzService, newAuthzService } from "../service/authz/service.ts";
+import { FACTORY } from "./tokens.ts";
+
+const ROLES = "roles";
+
+// Roles marks a route with the roles (roles.code) that may call it:
+// @UseGuards(AuthGuard, RoleGuard) on the controller + @Roles("admin").
+export const Roles = (...codes: string[]) => SetMetadata(ROLES, codes);
+
+// RoleGuard allows the route only if the user holds one of the roles (by roles.code, the
+// immutable handle). Prefer @Permission: it lets admins change who may do what without a
+// deploy. Use @Roles for flags that really are about the role itself. Routes without @Roles
+// only need authentication.
+@Injectable()
+export class RoleGuard implements CanActivate {
+  private readonly authz: AuthzService;
+
+  constructor(
+    @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(FACTORY) f: Factory,
+  ) {
+    this.authz = newAuthzService(f);
+  }
+
+  async canActivate(ec: ExecutionContext): Promise<boolean> {
+    const codes = this.reflector.get<string[] | undefined>(ROLES, ec.getHandler());
+    if (!codes) return true;
+    const ctx = ctxOf(ec.switchToHttp().getResponse<Response>());
+    if (!ctx.auth) throw errors.unauthorized();
+    if (!(await this.authz.hasAnyRole(ctx, ctx.auth.id, ...codes))) {
+      throw errors.forbidden("insufficient role");
+    }
+    return true;
+  }
+}

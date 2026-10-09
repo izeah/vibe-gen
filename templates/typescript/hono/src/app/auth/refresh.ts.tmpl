@@ -1,0 +1,18 @@
+import {
+  deliver,
+  guard,
+  refreshTokenOf,
+} from "../../abstraction/auth-cookie.ts";
+import { success } from "../../abstraction/response.ts";
+import type { C } from "../../middleware/env.ts";
+import { body as readBody } from "../../middleware/error.ts";
+import { cookieIO, type Handler } from "./handler.ts";
+
+// POST /v1/auth/refresh (refresh token from the body, or only from the cookie in cookie mode)
+export const refresh = (h: Handler) => async (c: C) => {
+  const io = cookieIO(c);
+  guard(h.config, io);
+  const body = await refreshTokenOf(h.config, io, () => readBody(c));
+  const tokens = await h.authService.refresh(c.var.ctx, body);
+  return c.json(success(deliver(h.config, io, tokens)));
+};

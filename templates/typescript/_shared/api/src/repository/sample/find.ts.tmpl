@@ -1,0 +1,13 @@
+import { applyFilter } from "../../abstraction/pagination.ts";
+import { type Context, conn } from "../../abstraction/context.ts";
+import {
+  type SampleFilter,
+  sampleSortColumns,
+  sampleWhere,
+} from "../../dto/sample.ts";
+import { type Sample, samples } from "../../model/sample.ts";
+
+export function find(ctx: Context, f: SampleFilter = {}): Promise<Sample[]> {
+  const q = conn(ctx).select().from(samples).where(sampleWhere(f)).$dynamic();
+  return applyFilter(q, f, sampleSortColumns);
+}

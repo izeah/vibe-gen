@@ -1,0 +1,23 @@
+import { createMiddleware } from "hono/factory";
+import { SWAGGER_CSP } from "../openapi/swagger-ui.ts";
+import type { Env } from "./env.ts";
+
+// securityHeaders sets defensive headers. API routes are JSON, so the CSP denies everything;
+// only the Swagger UI (non-production) gets a same-origin policy.
+export const securityHeaders = (swaggerPrefix: string) =>
+  createMiddleware<Env>(async (c, next) => {
+  await next();
+  const h = c.res.headers;
+  h.set("X-Content-Type-Options", "nosniff");
+  h.set("X-Frame-Options", "DENY");
+  h.set("X-XSS-Protection", "0");
+  h.set("Strict-Transport-Security", "max-age=31536000");
+  h.set(
+    "Content-Security-Policy",
+    c.req.path.startsWith(swaggerPrefix)
+      ? SWAGGER_CSP
+      : "default-src 'none'; frame-ancestors 'none'",
+  );
+  h.set("Referrer-Policy", "no-referrer");
+  h.set("Cache-Control", "no-store");
+  });

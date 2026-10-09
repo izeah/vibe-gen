@@ -1,0 +1,45 @@
+<script setup lang="ts">
+import { ApiError, api, logout, type User } from "../../src/lib/api.ts";
+
+// A protected page: the BFF attaches the access token (and refreshes it) on /api/v1/*.
+// Fetched in the browser (server: false): the BFF call needs the user's cookies.
+const { data, error, status } = await useAsyncData(
+  "me",
+  () => api<User>("/v1/users/me"),
+  { server: false },
+);
+const unauthorized = computed(
+  () => error.value?.cause instanceof ApiError
+    ? error.value.cause.status === 401
+    : error.value?.statusCode === 401,
+);
+watch(unauthorized, (yes) => {
+  if (yes) void navigateTo("/login", { replace: true });
+}, { immediate: true });
+
+async function signOut() {
+  await logout().catch(() => undefined);
+  await navigateTo("/login", { replace: true });
+}
+</script>
+
+<template>
+  <main>
+    <section class="card stack" :aria-busy="status === 'pending'">
+      <h1>Dashboard</h1>
+      <p v-if="status === 'pending'">Loading your profile…</p>
+      <p v-if="error && !unauthorized" class="error" role="alert">
+        Could not load your profile. Try again later.
+      </p>
+      <dl v-if="data" class="profile">
+        <dt>Name</dt>
+        <dd v-text="data.name" />
+        <dt>Email</dt>
+        <dd v-text="data.email" />
+        <dt>Roles</dt>
+        <dd v-text="data.roles.map((r) => r.name).join(', ')" />
+      </dl>
+      <button type="button" @click="signOut">Sign out</button>
+    </section>
+  </main>
+</template>

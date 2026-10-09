@@ -1,0 +1,56 @@
+// create-admin creates the first admin account (user management endpoints are admin-only,
+// so the first admin cannot be created through the API). Run it through the Makefile, which
+// reads the password without echoing it:
+//
+//   make create-admin EMAIL=admin@example.com
+import { text } from "node:stream/consumers";
+import { parseArgs } from "node:util";
+import { z } from "zod";
+import type { Context } from "../src/abstraction/context.ts";
+import { isUniqueViolation } from "../src/abstraction/error.ts";
+import { pool } from "../src/pkg/database/database.ts";
+import { hashPassword, passwordSchema } from "../src/pkg/password/password.ts";
+import { trxManager } from "../src/pkg/trxmanager/trxmanager.ts";
+import { roleRepository } from "../src/repository/role/repository.ts";
+import { userRepository } from "../src/repository/user/repository.ts";
+import { userRoleRepository } from "../src/repository/user-role/repository.ts";
+
+const { values } = parseArgs({
+  options: {
+    email: { type: "string" },
+    name: { type: "string", default: "Admin" },
+  },
+});
+// The password comes from stdin so it never shows up in shell history or `ps`.
+const input = z
+  .object({
+    email: z.email().max(254),
+    name: z.string().trim().min(1).max(100),
+    password: passwordSchema,
+  })
+  .safeParse({ ...values, password: (await text(process.stdin)).replace(/\r?\n$/, "") });
+if (!input.success) {
+  console.error(input.error.issues.map((i) => `${i.path.join(".")}: ${i.message}`).join("\n"));
+  process.exit(1);
+}
+
+const ctx: Context = { requestId: "create-admin" };
+try {
+  // One transaction: the user and its admin role (user_roles) exist together or not at all.
+  // The model hooks set the audit columns.
+  const password = await hashPassword(input.data.password);
+  const user = await trxManager.withTrx(ctx, async (tx) => {
+    const admin = await roleRepository.findOne(tx, { codes: ["admin"] });
+    if (!admin) throw new Error("admin role not found (run make migrate-up first)");
+    const [row] = await userRepository.create(tx, { ...input.data, password });
+    if (!row) throw new Error("create admin: no row returned");
+    await userRoleRepository.assignRole(tx, row.id, admin.id);
+    return row;
+  });
+  console.log(`admin created: id=${user.id}`);
+} catch (err) {
+  console.error(isUniqueViolation(err) ? "email already registered" : err);
+  process.exitCode = 1;
+} finally {
+  await pool.end();
+}

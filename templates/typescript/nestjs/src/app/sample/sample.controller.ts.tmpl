@@ -1,0 +1,63 @@
+import { Body, Controller, Delete, Get, Inject, Param, Post, Put, Query, UseGuards } from "@nestjs/common";
+import type { Context } from "../../abstraction/context.ts";
+import { created, success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import {
+  sampleCreateRequest,
+  sampleFindQuery,
+  sampleIdParams,
+  sampleUpdateRequest,
+} from "../../dto/sample.ts";
+import type { Factory } from "../../factory/factory.ts";
+import { AuthGuard } from "../../nest/auth.guard.ts";
+import { Ctx } from "../../nest/ctx.decorator.ts";
+import { Permission, PermissionGuard } from "../../nest/permission.guard.ts";
+import { FACTORY } from "../../nest/tokens.ts";
+import { newSampleService, type SampleService } from "../../service/sample/service.ts";
+
+// Each route needs a permission (roles/role_permissions); with an ":own" grant the service
+// limits the action to the user's own samples.
+@Controller("samples")
+@UseGuards(AuthGuard, PermissionGuard)
+export class SampleController {
+  private readonly sampleService: SampleService;
+
+  constructor(@Inject(FACTORY) f: Factory) {
+    this.sampleService = newSampleService(f);
+  }
+
+  @Get()
+  @Permission("samples", "read")
+  async find(@Ctx() ctx: Context, @Query() query: unknown) {
+    const { data, info } = await this.sampleService.find(ctx, parse(sampleFindQuery, query));
+    return success(data, info);
+  }
+
+  @Get(":id")
+  @Permission("samples", "read")
+  async findById(@Ctx() ctx: Context, @Param() params: unknown) {
+    const { id } = parse(sampleIdParams, params);
+    return success(await this.sampleService.findById(ctx, id));
+  }
+
+  @Post()
+  @Permission("samples", "create")
+  async create(@Ctx() ctx: Context, @Body() body: unknown) {
+    return created(await this.sampleService.create(ctx, parse(sampleCreateRequest, body)));
+  }
+
+  @Put(":id")
+  @Permission("samples", "update")
+  async update(@Ctx() ctx: Context, @Param() params: unknown, @Body() body: unknown) {
+    const { id } = parse(sampleIdParams, params);
+    return success(await this.sampleService.update(ctx, id, parse(sampleUpdateRequest, body)));
+  }
+
+  @Delete(":id")
+  @Permission("samples", "delete")
+  async remove(@Ctx() ctx: Context, @Param() params: unknown) {
+    const { id } = parse(sampleIdParams, params);
+    await this.sampleService.delete(ctx, id);
+    return success();
+  }
+}

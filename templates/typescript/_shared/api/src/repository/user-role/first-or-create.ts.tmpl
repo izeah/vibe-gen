@@ -1,0 +1,19 @@
+import type { Context } from "../../abstraction/context.ts";
+import type { UserRoleFilter } from "../../dto/user-role.ts";
+import type { NewUserRole, UserRole } from "../../model/user-role.ts";
+import { create } from "./create.ts";
+import { findOne } from "./find-one.ts";
+
+// firstOrCreate returns the first row matching f, or inserts data. A unique constraint must
+// back f when callers can race (concurrent inserts then fail instead of duplicating).
+export async function firstOrCreate(
+  ctx: Context,
+  f: UserRoleFilter,
+  data: NewUserRole,
+): Promise<UserRole> {
+  const found = await findOne(ctx, f);
+  if (found) return found;
+  const [row] = await create(ctx, data);
+  if (!row) throw new Error("firstOrCreate: insert returned no row");
+  return row;
+}

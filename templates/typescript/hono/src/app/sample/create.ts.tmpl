@@ -1,0 +1,14 @@
+import { created } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { sampleCreateRequest } from "../../dto/sample.ts";
+import type { C } from "../../middleware/env.ts";
+import { body as readBody } from "../../middleware/error.ts";
+import type { Handler } from "./handler.ts";
+
+// POST /v1/samples
+export const create =
+  (h: Handler) =>
+  async (c: C) => {
+    const body = parse(sampleCreateRequest, await readBody(c));
+    return c.json(created(await h.sampleService.create(c.var.ctx, body)), 201);
+  };

@@ -1,0 +1,63 @@
+import { Body, Controller, Get, Inject, Param, Post, Put, UseGuards } from "@nestjs/common";
+import type { Context } from "../../abstraction/context.ts";
+import { errors } from "../../abstraction/error.ts";
+import { created, success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import {
+  userCreateRequest,
+  userIdParams,
+  userSetRolesRequest,
+  userUpdateRequest,
+} from "../../dto/user.ts";
+import type { Factory } from "../../factory/factory.ts";
+import { AuthGuard } from "../../nest/auth.guard.ts";
+import { Ctx } from "../../nest/ctx.decorator.ts";
+import { Permission, PermissionGuard } from "../../nest/permission.guard.ts";
+import { FACTORY } from "../../nest/tokens.ts";
+import { newUserService, type UserService } from "../../service/user/service.ts";
+
+// Any authenticated user may read their own profile; managing other users needs a permission
+// (users:*), which the seed grants to admin only. Changing a user's roles needs roles:manage:
+// users:update alone must not let anyone grant themselves admin.
+@Controller("users")
+@UseGuards(AuthGuard, PermissionGuard)
+export class UserController {
+  private readonly userService: UserService;
+
+  constructor(@Inject(FACTORY) f: Factory) {
+    this.userService = newUserService(f);
+  }
+
+  @Get("me")
+  async me(@Ctx() ctx: Context) {
+    if (!ctx.auth) throw errors.unauthorized();
+    return success(await this.userService.findById(ctx, ctx.auth.id));
+  }
+
+  @Get(":id")
+  @Permission("users", "read")
+  async findById(@Ctx() ctx: Context, @Param() params: unknown) {
+    const { id } = parse(userIdParams, params);
+    return success(await this.userService.findById(ctx, id));
+  }
+
+  @Post()
+  @Permission("users", "create")
+  async create(@Ctx() ctx: Context, @Body() body: unknown) {
+    return created(await this.userService.create(ctx, parse(userCreateRequest, body)));
+  }
+
+  @Put(":id")
+  @Permission("users", "update")
+  async update(@Ctx() ctx: Context, @Param() params: unknown, @Body() body: unknown) {
+    const { id } = parse(userIdParams, params);
+    return success(await this.userService.update(ctx, id, parse(userUpdateRequest, body)));
+  }
+
+  @Put(":id/roles")
+  @Permission("roles", "manage")
+  async setRoles(@Ctx() ctx: Context, @Param() params: unknown, @Body() body: unknown) {
+    const { id } = parse(userIdParams, params);
+    return success(await this.userService.setRoles(ctx, id, parse(userSetRolesRequest, body)));
+  }
+}

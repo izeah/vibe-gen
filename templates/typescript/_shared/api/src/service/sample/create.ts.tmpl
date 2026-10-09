@@ -1,0 +1,17 @@
+import type { Context } from "../../abstraction/context.ts";
+import {
+  type SampleCreateRequest,
+  type SampleResponse,
+  toSampleResponse,
+} from "../../dto/sample.ts";
+import type { Deps } from "./service.ts";
+
+export async function create(
+  d: Deps,
+  ctx: Context,
+  req: SampleCreateRequest,
+): Promise<SampleResponse> {
+  const [sample] = await d.sampleRepository.create(ctx, req);
+  if (!sample) throw new Error("create sample: no row returned");
+  return toSampleResponse(sample);
+}

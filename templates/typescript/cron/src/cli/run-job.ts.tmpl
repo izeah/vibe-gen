@@ -1,0 +1,32 @@
+// run-job runs one job now (still under its lock): make run-job JOB=sampleReport
+import { pool, testConnection } from "../config/database.ts";
+import { redis } from "../config/redis.ts";
+import { execute, findJob, getAvailableJobs } from "../schedulers/cron.ts";
+
+const name = process.argv[2];
+const entry = name ? findJob(name) : undefined;
+if (!entry) {
+  console.error(
+    `usage: npm run run-job -- <job>\navailable jobs: ${getAvailableJobs().join(", ")}`,
+  );
+  process.exit(1);
+}
+
+await Promise.all([testConnection(), redis.connect()]);
+const start = performance.now();
+let code = 0;
+try {
+  const result = await execute(entry);
+  console.log(
+    JSON.stringify(
+      { job: name, result, duration_ms: Math.round(performance.now() - start) },
+      // Drizzle returns bigint columns (e.g. created_at), which JSON.stringify rejects.
+      (_k, v: unknown) => (typeof v === "bigint" ? v.toString() : v),
+    ),
+  );
+} catch {
+  code = 1; // details already logged by execute
+} finally {
+  await Promise.allSettled([pool.end(), redis.close()]);
+}
+process.exit(code);

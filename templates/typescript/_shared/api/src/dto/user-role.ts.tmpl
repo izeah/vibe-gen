@@ -1,0 +1,20 @@
+import { and, inArray, isNull, type SQL } from "drizzle-orm";
+import type { Filter, SortColumns } from "../abstraction/pagination.ts";
+import { userRoles } from "../model/user-role.ts";
+
+// userRoleSortColumns is the ORDER BY allowlist for UserRoleFilter (API field → column).
+export const userRoleSortColumns: SortColumns = {
+  created_at: userRoles.createdAt,
+};
+
+export type UserRoleFilter = Filter & { ids?: string[]; userIds?: string[]; roleIds?: string[] };
+
+export function userRoleWhere(f: UserRoleFilter): SQL | undefined {
+  return and(
+    f.withDeleted ? undefined : isNull(userRoles.deletedAt),
+    f.ids ? inArray(userRoles.id, f.ids) : undefined,
+    f.userIds ? inArray(userRoles.userId, f.userIds) : undefined,
+    f.roleIds ? inArray(userRoles.roleId, f.roleIds) : undefined,
+    ...(f.where ?? []),
+  );
+}

@@ -1,0 +1,32 @@
+import { type CanActivate, type ExecutionContext, Inject, Injectable } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { errors } from "../abstraction/error.ts";
+import type { Factory } from "../factory/factory.ts";
+import { ctxOf } from "../middleware/context.ts";
+import { TYPE_ACCESS, verify } from "../pkg/auth-token/auth-token.ts";
+import { FACTORY } from "./tokens.ts";
+
+// AuthGuard requires a valid access token (Bearer) and sets ctx.auth.
+// Refresh tokens are rejected here (typ check).
+@Injectable()
+export class AuthGuard implements CanActivate {
+  constructor(@Inject(FACTORY) private readonly f: Factory) {}
+
+  async canActivate(ec: ExecutionContext): Promise<boolean> {
+    const http = ec.switchToHttp();
+    const header = http.getRequest<Request>().get("authorization") ?? "";
+    if (!header.startsWith("Bearer ")) throw errors.unauthorized();
+    try {
+      const claims = await verify(
+        header.slice("Bearer ".length),
+        this.f.keys.publicKey,
+        this.f.config.APP_NAME,
+        TYPE_ACCESS,
+      );
+      ctxOf(http.getResponse<Response>()).auth = { id: claims.sub };
+    } catch {
+      throw errors.unauthorized("invalid or expired token");
+    }
+    return true;
+  }
+}

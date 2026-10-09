@@ -1,0 +1,18 @@
+<script setup lang="ts">
+import { ref } from "vue";
+import { currentTheme, setTheme } from "../../lib/theme.ts";
+
+// One labelled button; the state lives in aria-pressed. public/theme.js ran before Vue, so the
+// attribute is already right when this renders.
+const dark = ref(currentTheme() === "dark");
+
+function toggle() {
+  const next = dark.value ? "light" : "dark";
+  setTheme(next);
+  dark.value = next === "dark";
+}
+</script>
+
+<template>
+  <button type="button" class="theme-toggle" :aria-pressed="dark" @click="toggle">Dark mode</button>
+</template>

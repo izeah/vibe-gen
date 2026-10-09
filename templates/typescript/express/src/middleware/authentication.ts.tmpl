@@ -1,0 +1,31 @@
+import type { RequestHandler } from "express";
+import { errors } from "../abstraction/error.ts";
+import type { Factory } from "../factory/factory.ts";
+import {
+  type Claims,
+  TYPE_ACCESS,
+  verify,
+} from "../pkg/auth-token/auth-token.ts";
+import { ctxOf } from "./context.ts";
+
+// authentication requires a valid access token (Bearer) and sets ctx.auth.
+// Refresh tokens are rejected here (typ check).
+export function authentication(f: Factory): RequestHandler {
+  return async (req, res, next) => {
+    const header = req.get("authorization") ?? "";
+    if (!header.startsWith("Bearer ")) throw errors.unauthorized();
+    let claims: Claims;
+    try {
+      claims = await verify(
+        header.slice("Bearer ".length),
+        f.keys.publicKey,
+        f.config.APP_NAME,
+        TYPE_ACCESS,
+      );
+    } catch {
+      throw errors.unauthorized("invalid or expired token");
+    }
+    ctxOf(res).auth = { id: claims.sub };
+    next();
+  };
+}

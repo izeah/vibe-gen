@@ -1,0 +1,44 @@
+// Minimal stand-in for the backend API so the browser flow can be tested without Go/Node API,
+// database or Redis. Same JSON contract as the real templates (meta/data envelope).
+import { createServer } from "node:http";
+
+const USER = { id: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", name: "Test Admin", email: "admin@example.com", roles: [{ id: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a01", code: "admin", name: "Admin" }] };
+let seq = 0;
+const tokens = new Map(); // access token -> true
+let currentRefresh = "";
+
+const b64 = (o) => Buffer.from(JSON.stringify(o)).toString("base64url");
+const pair = () => {
+  seq++;
+  const access = `access-${seq}`;
+  currentRefresh = `h.${b64({ exp: Math.floor(Date.now() / 1000) + 3600 })}.refresh-${seq}`;
+  tokens.set(access, true);
+  return { access_token: access, refresh_token: currentRefresh, expires_in: 900 };
+};
+const send = (res, status, data, message = "OK") => {
+  res.writeHead(status, { "content-type": "application/json" });
+  res.end(JSON.stringify({ meta: { success: status < 400, message }, data }));
+};
+
+createServer(async (req, res) => {
+  let raw = "";
+  for await (const chunk of req) raw += chunk;
+  const body = raw ? JSON.parse(raw) : {};
+  const auth = (req.headers.authorization ?? "").replace("Bearer ", "");
+  if (req.method === "POST" && req.url === "/v1/auth/login") {
+    return body.email === USER.email && body.password === "password123"
+      ? send(res, 200, pair())
+      : send(res, 401, null, "invalid credentials");
+  }
+  if (req.method === "POST" && req.url === "/v1/auth/refresh") {
+    return body.refresh_token === currentRefresh ? send(res, 200, pair()) : send(res, 401, null, "session expired");
+  }
+  if (req.method === "POST" && req.url === "/v1/auth/logout") {
+    currentRefresh = "";
+    return send(res, 200, null);
+  }
+  if (req.url === "/v1/users/me") {
+    return tokens.has(auth) ? send(res, 200, USER) : send(res, 401, null, "unauthorized");
+  }
+  send(res, 404, null, "route not found");
+}).listen(Number(process.env.MOCK_API_PORT ?? 3999));

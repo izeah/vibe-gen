@@ -1,0 +1,19 @@
+import { and, count, eq, isNull } from "drizzle-orm";
+import { db } from "../config/database.ts";
+import type { Logger } from "../config/logger.ts";
+import { samples } from "../models/sample.ts";
+
+// One file per job: export JOB_NAME and run(), then register it in schedulers/cron.ts.
+export const JOB_NAME = "sampleReport";
+
+// run counts active samples. Real jobs: query in bulk, never one query per row (N+1), and
+// keep each run idempotent so a retry or a manual `make run-job` is always safe.
+export async function run(log: Logger): Promise<{ active: number }> {
+  const [row] = await db
+    .select({ active: count() })
+    .from(samples)
+    .where(and(eq(samples.status, "active"), isNull(samples.deletedAt)));
+  const active = row?.active ?? 0;
+  log.info({ action: "count_active_samples", active }, "sample report");
+  return { active };
+}

@@ -1,0 +1,11 @@
+import { createBrowserRouter, Navigate } from "react-router";
+import { DashboardPage } from "./pages/DashboardPage.tsx";
+import { LoginPage } from "./pages/LoginPage.tsx";
+import { NotFoundPage } from "./pages/NotFoundPage.tsx";
+
+export const router = createBrowserRouter([
+  { path: "/", element: <Navigate to="/dashboard" replace /> },
+  { path: "/login", element: <LoginPage /> },
+  { path: "/dashboard", element: <DashboardPage /> },
+  { path: "*", element: <NotFoundPage /> },
+]);

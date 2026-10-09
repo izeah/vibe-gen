@@ -1,0 +1,18 @@
+import type { RequestHandler } from "express";
+import { clear, guard, refreshTokenOf } from "../../abstraction/auth-cookie.ts";
+import { success } from "../../abstraction/response.ts";
+import { ctxOf } from "../../middleware/context.ts";
+import { cookieIO } from "../../middleware/cookie-io.ts";
+import type { Handler } from "./handler.ts";
+
+// POST /v1/auth/logout
+export const logout =
+  (h: Handler): RequestHandler =>
+  async (req, res) => {
+    const io = cookieIO(req, res);
+    guard(h.config, io);
+    clear(h.config, io); // always drop the cookie, even if the token is invalid
+    const body = await refreshTokenOf(h.config, io, async () => req.body);
+    await h.authService.logout(ctxOf(res), body);
+    res.json(success());
+  };

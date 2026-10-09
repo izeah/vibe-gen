@@ -1,0 +1,11 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type RolePermissionFilter, rolePermissionWhere } from "../../dto/role.ts";
+import { rolePermissions } from "../../model/role-permission.ts";
+
+export async function ids(ctx: Context, f: RolePermissionFilter): Promise<string[]> {
+  const rows = await conn(ctx)
+    .select({ id: rolePermissions.id })
+    .from(rolePermissions)
+    .where(rolePermissionWhere(f));
+  return rows.map((r) => r.id);
+}

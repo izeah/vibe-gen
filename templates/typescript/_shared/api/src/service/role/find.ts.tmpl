@@ -1,0 +1,30 @@
+import type { Context } from "../../abstraction/context.ts";
+import { page, type PaginationInfo } from "../../abstraction/pagination.ts";
+import { type RoleFindQuery, type RoleResponse, toRoleResponse } from "../../dto/role.ts";
+import type { Deps } from "./service.ts";
+
+export async function find(
+  d: Deps,
+  ctx: Context,
+  q: RoleFindQuery,
+): Promise<{ data: RoleResponse[]; info: PaginationInfo }> {
+  const f = { pagination: q };
+  const [count, rows] = await Promise.all([
+    d.roleRepository.count(ctx, f),
+    d.roleRepository.find(ctx, f),
+  ]);
+  const res = page(q, count, rows);
+  // Permissions of every listed role in one query (no per-role lookups), grouped in memory.
+  const byRole = new Map<string, string[]>();
+  if (res.data.length) {
+    const perms = await d.rolePermissionRepository.find(ctx, {
+      roleIds: res.data.map((r) => r.id),
+      sorts: [{ field: "permission", order: "asc" }],
+    });
+    for (const p of perms) byRole.set(p.roleId, [...(byRole.get(p.roleId) ?? []), p.permission]);
+  }
+  return {
+    data: res.data.map((r) => toRoleResponse(r, byRole.get(r.id) ?? [])),
+    info: res.info,
+  };
+}

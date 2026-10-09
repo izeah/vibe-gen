@@ -1,0 +1,19 @@
+import { sql } from "drizzle-orm";
+import { bigint, pgTable, text, uuid, varchar } from "drizzle-orm/pg-core";
+
+// samples mirrors the API's migration (000002_create_samples_table). The API project owns the
+// schema and its migrations; this worker only reads and writes rows.
+export const samples = pgTable("samples", {
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`uuidv7()`),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description").notNull().default(""),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+  createdAt: bigint("created_at", { mode: "bigint" }).notNull(),
+  createdBy: uuid("created_by").notNull(),
+  updatedAt: bigint("updated_at", { mode: "bigint" }),
+  updatedBy: uuid("updated_by"),
+  deletedAt: bigint("deleted_at", { mode: "bigint" }),
+  deletedBy: uuid("deleted_by"),
+});

@@ -1,0 +1,101 @@
+import { and, inArray, isNull, type SQL } from "drizzle-orm";
+import { z } from "zod";
+import { toRFC3339 } from "../abstraction/entity.ts";
+import {
+  type Filter,
+  paginationQuery,
+  type SortColumns,
+} from "../abstraction/pagination.ts";
+import { type Role, roles } from "../model/role.ts";
+import { rolePermissions } from "../model/role-permission.ts";
+
+// roleSortColumns is the ORDER BY allowlist for RoleFilter (API field → column).
+export const roleSortColumns: SortColumns = {
+  code: roles.code,
+  name: roles.name,
+  created_at: roles.createdAt,
+};
+
+export type RoleFilter = Filter & { ids?: string[]; codes?: string[] };
+
+export function roleWhere(f: RoleFilter): SQL | undefined {
+  return and(
+    f.withDeleted ? undefined : isNull(roles.deletedAt),
+    f.ids ? inArray(roles.id, f.ids) : undefined,
+    f.codes ? inArray(roles.code, f.codes) : undefined,
+    ...(f.where ?? []),
+  );
+}
+
+export const rolePermissionSortColumns: SortColumns = {
+  permission: rolePermissions.permission,
+};
+
+export type RolePermissionFilter = Filter & {
+  ids?: string[];
+  roleIds?: string[];
+  permissions?: string[];
+};
+
+export function rolePermissionWhere(f: RolePermissionFilter): SQL | undefined {
+  return and(
+    f.withDeleted ? undefined : isNull(rolePermissions.deletedAt),
+    f.ids ? inArray(rolePermissions.id, f.ids) : undefined,
+    f.roleIds ? inArray(rolePermissions.roleId, f.roleIds) : undefined,
+    f.permissions ? inArray(rolePermissions.permission, f.permissions) : undefined,
+    ...(f.where ?? []),
+  );
+}
+
+export const roleFindQuery = paginationQuery;
+export type RoleFindQuery = z.infer<typeof roleFindQuery>;
+
+export const roleIdParams = z.object({ id: z.uuid() });
+
+const permissions = z.array(z.string().max(64)).max(100);
+
+const roleName = z.string().trim().min(1).max(100);
+
+export const roleCreateRequest = z.object({
+  // The stable handle, never updated; same rule as the roles.code CHECK constraint.
+  code: z
+    .string()
+    .regex(/^[a-z][a-z0-9_]{1,49}$/, "snake_case: lowercase letters, digits or _ (2-50, starting with a letter)"),
+  name: roleName,
+  description: z.string().max(255).default(""),
+  permissions: permissions.default([]),
+});
+export type RoleCreateRequest = z.infer<typeof roleCreateRequest>;
+
+// id and code are immutable (code and clients branch on the code); only display text changes.
+export const roleUpdateRequest = z.object({
+  name: roleName,
+  description: z.string().max(255).default(""),
+});
+export type RoleUpdateRequest = z.infer<typeof roleUpdateRequest>;
+
+// Replaces the whole permission set.
+export const roleSetPermissionsRequest = z.object({ permissions });
+export type RoleSetPermissionsRequest = z.infer<typeof roleSetPermissionsRequest>;
+
+export type RoleResponse = {
+  id: string;
+  code: string;
+  name: string;
+  description: string;
+  is_system: boolean;
+  permissions: string[];
+  created_at: string;
+  updated_at?: string;
+};
+
+export const toRoleResponse = (m: Role, perms: string[]): RoleResponse => ({
+  id: m.id,
+  code: m.code,
+  name: m.name,
+  description: m.description,
+  is_system: m.isSystem,
+  permissions: perms,
+  created_at: toRFC3339(m.createdAt),
+  updated_at: m.updatedAt === null ? undefined : toRFC3339(m.updatedAt),
+});

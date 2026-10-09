@@ -1,0 +1,6 @@
+import type { Context } from "../../abstraction/context.ts";
+import { exists } from "./exists.ts";
+
+// hasRole reports whether the user holds the role.
+export const hasRole = (ctx: Context, userId: string, roleId: string): Promise<boolean> =>
+  exists(ctx, { userIds: [userId], roleIds: [roleId] });

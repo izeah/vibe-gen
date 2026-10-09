@@ -1,0 +1,39 @@
+import "reflect-metadata";
+import { NestFactory } from "@nestjs/core";
+import type { NestExpressApplication } from "@nestjs/platform-express";
+import { appModule } from "./app.module.ts";
+import { docs } from "./delivery/docs.ts";
+import type { Factory } from "./factory/factory.ts";
+import { AllExceptionsFilter } from "./nest/exception.filter.ts";
+import { context } from "./middleware/context.ts";
+import { cors } from "./middleware/cors.ts";
+import { requestLog } from "./middleware/request-log.ts";
+import { securityHeaders } from "./middleware/security.ts";
+
+// createApp builds the Nest app (Express platform) without listening, so tests can drive it.
+export async function createApp(f: Factory): Promise<NestExpressApplication> {
+  const app = await NestFactory.create<NestExpressApplication>(appModule(f), {
+    bodyParser: false,
+    logger: ["error", "warn"],
+  });
+  const base = f.config.APP_BASE_PATH;
+  app.disable("x-powered-by");
+  app.set("trust proxy", trustProxy(f.config.APP_TRUST_PROXY));
+  app.use(context, requestLog, securityHeaders(`${base}/swagger`));
+  if (f.config.APP_CORS_ALLOW_ORIGIN.length > 0) {
+    app.use(cors(f.config.APP_CORS_ALLOW_ORIGIN, f.config.AUTH_COOKIE_MODE));
+  }
+  app.useBodyParser("json", { limit: f.config.APP_BODY_LIMIT });
+  if (base) app.setGlobalPrefix(base.slice(1));
+  app.useGlobalFilters(new AllExceptionsFilter());
+  // OpenAPI + Swagger UI: /openapi.json and /swagger/ (not in production).
+  if (f.config.APP_ENV !== "production") docs(app.getHttpAdapter().getInstance(), f.config);
+  return app;
+}
+
+// "" trusts no proxy (X-Forwarded-For ignored), "1" one hop, else a list of proxy IPs/subnets.
+function trustProxy(v: string): boolean | number | string[] {
+  if (!v) return false;
+  if (/^\d+$/.test(v)) return Number(v);
+  return v.split(",").map((s) => s.trim());
+}

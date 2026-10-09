@@ -1,0 +1,16 @@
+import { deliver, guard } from "../../abstraction/auth-cookie.ts";
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { loginRequest } from "../../dto/auth.ts";
+import type { C } from "../../middleware/env.ts";
+import { body as readBody } from "../../middleware/error.ts";
+import { cookieIO, type Handler } from "./handler.ts";
+
+// POST /v1/auth/login
+export const login = (h: Handler) => async (c: C) => {
+  const io = cookieIO(c);
+  guard(h.config, io);
+  const body = parse(loginRequest, await readBody(c));
+  const tokens = await h.authService.login(c.var.ctx, body);
+  return c.json(success(deliver(h.config, io, tokens)));
+};

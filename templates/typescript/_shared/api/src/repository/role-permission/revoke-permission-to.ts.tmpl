@@ -1,0 +1,17 @@
+import { and, eq, inArray } from "drizzle-orm";
+import { type Context, conn } from "../../abstraction/context.ts";
+import { rolePermissions } from "../../model/role-permission.ts";
+
+// revokePermissionTo takes the permissions away from the role (hard delete); returns the
+// number removed.
+export async function revokePermissionTo(
+  ctx: Context,
+  roleId: string,
+  ...perms: string[]
+): Promise<number> {
+  if (perms.length === 0) return 0;
+  const res = await conn(ctx)
+    .delete(rolePermissions)
+    .where(and(eq(rolePermissions.roleId, roleId), inArray(rolePermissions.permission, perms)));
+  return res.rowCount ?? 0;
+}

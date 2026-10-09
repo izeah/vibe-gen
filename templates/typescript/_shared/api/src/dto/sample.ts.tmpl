@@ -1,0 +1,81 @@
+import { and, eq, ilike, inArray, isNull, type SQL } from "drizzle-orm";
+import { z } from "zod";
+import { DEFAULT_SYSTEM_USER_ID, toRFC3339 } from "../abstraction/entity.ts";
+import {
+  escapeLike,
+  type Filter,
+  paginationQuery,
+  type SortColumns,
+} from "../abstraction/pagination.ts";
+import { type Sample, samples } from "../model/sample.ts";
+
+// sampleSortColumns is the ORDER BY allowlist for SampleFilter (API field → column).
+export const sampleSortColumns: SortColumns = {
+  id: samples.id,
+  name: samples.name,
+  status: samples.status,
+  created_at: samples.createdAt,
+  updated_at: samples.updatedAt,
+};
+
+export type SampleFilter = Filter & {
+  ids?: string[];
+  name?: string; // case-insensitive contains
+  status?: string;
+  createdBy?: string; // set by the service for "own" permissions, never from the request
+};
+
+export function sampleWhere(f: SampleFilter): SQL | undefined {
+  return and(
+    f.withDeleted ? undefined : isNull(samples.deletedAt),
+    f.ids ? inArray(samples.id, f.ids) : undefined,
+    f.name ? ilike(samples.name, `%${escapeLike(f.name)}%`) : undefined,
+    f.status ? eq(samples.status, f.status) : undefined,
+    f.createdBy ? eq(samples.createdBy, f.createdBy) : undefined,
+    ...(f.where ?? []),
+  );
+}
+
+// GET /samples query: pagination + filters.
+export const sampleFindQuery = paginationQuery.extend({
+  name: z.string().max(100).optional(),
+  status: z.string().max(20).optional(),
+});
+export type SampleFindQuery = z.infer<typeof sampleFindQuery>;
+
+export const sampleIdParams = z.object({ id: z.uuid() });
+
+export const sampleCreateRequest = z.object({
+  name: z.string().trim().min(1).max(100),
+  description: z.string().max(500).default(""),
+});
+export type SampleCreateRequest = z.infer<typeof sampleCreateRequest>;
+
+export const sampleUpdateRequest = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+});
+export type SampleUpdateRequest = z.infer<typeof sampleUpdateRequest>;
+
+export type SampleResponse = {
+  id: string;
+  name: string;
+  description: string;
+  status: string;
+  created_at: string;
+  updated_at?: string;
+  created_by?: string;
+  updated_by?: string;
+};
+
+export const toSampleResponse = (m: Sample): SampleResponse => ({
+  id: m.id,
+  name: m.name,
+  description: m.description,
+  status: m.status,
+  created_at: toRFC3339(m.createdAt),
+  updated_at: m.updatedAt === null ? undefined : toRFC3339(m.updatedAt),
+  created_by:
+    m.createdBy === DEFAULT_SYSTEM_USER_ID ? undefined : m.createdBy,
+  updated_by: m.updatedBy ?? undefined,
+});

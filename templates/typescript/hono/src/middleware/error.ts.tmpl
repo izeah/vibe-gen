@@ -1,0 +1,27 @@
+import type { ErrorHandler, NotFoundHandler } from "hono";
+import { AppError, errors } from "../abstraction/error.ts";
+import { failure } from "../abstraction/response.ts";
+import { logger } from "../pkg/logger/logger.ts";
+import type { C, Env } from "./env.ts";
+
+export const notFound: NotFoundHandler<Env> = (c) =>
+  c.json(failure(errors.notFound("route not found")), 404);
+
+// errorHandler turns every error into the JSON envelope. Only AppError messages reach the
+// client; anything else is logged server-side and answered with a generic 500.
+export const errorHandler: ErrorHandler<Env> = (err, c) => {
+  const e = err instanceof AppError ? err : errors.internal(err);
+  if (e.status >= 500) {
+    logger.error({ err, request_id: c.var.ctx?.requestId }, "request failed");
+  }
+  return c.json(failure(e), e.status as 400);
+};
+
+// body reads a JSON request body; a malformed body is a 400, not a 500.
+export async function body(c: C): Promise<unknown> {
+  try {
+    return await c.req.json();
+  } catch {
+    throw errors.badRequest("invalid JSON body");
+  }
+}

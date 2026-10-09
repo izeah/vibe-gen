@@ -1,0 +1,15 @@
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { userIdParams, userUpdateRequest } from "../../dto/user.ts";
+import type { C } from "../../middleware/env.ts";
+import { body as readBody } from "../../middleware/error.ts";
+import type { Handler } from "./handler.ts";
+
+// PUT /v1/users/:id (admin)
+export const update =
+  (h: Handler) =>
+  async (c: C) => {
+    const { id } = parse(userIdParams, c.req.param());
+    const body = parse(userUpdateRequest, await readBody(c));
+    return c.json(success(await h.userService.update(c.var.ctx, id, body)));
+  };

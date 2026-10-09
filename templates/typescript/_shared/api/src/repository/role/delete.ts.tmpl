@@ -1,0 +1,10 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type RoleFilter, roleWhere } from "../../dto/role.ts";
+import { roles } from "../../model/role.ts";
+
+// deleteRows hard-deletes the matching rows (soft-deleted rows only with withDeleted: true).
+// Prefer softDelete; never expose this through an endpoint unless a feature needs it.
+export async function deleteRows(ctx: Context, f: RoleFilter): Promise<number> {
+  const res = await conn(ctx).delete(roles).where(roleWhere(f));
+  return res.rowCount ?? 0;
+}

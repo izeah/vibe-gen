@@ -1,0 +1,14 @@
+import type { RequestHandler } from "express";
+import { created } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { userCreateRequest } from "../../dto/user.ts";
+import { ctxOf } from "../../middleware/context.ts";
+import type { Handler } from "./handler.ts";
+
+// POST /v1/users (admin)
+export const create =
+  (h: Handler): RequestHandler =>
+  async (req, res) => {
+    const body = parse(userCreateRequest, req.body);
+    res.status(201).json(created(await h.userService.create(ctxOf(res), body)));
+  };

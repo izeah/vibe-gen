@@ -1,0 +1,14 @@
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { sampleFindQuery } from "../../dto/sample.ts";
+import type { C } from "../../middleware/env.ts";
+import type { Handler } from "./handler.ts";
+
+// GET /v1/samples?page=&page_size=&sort_by=&sort=&name=&status=
+export const find =
+  (h: Handler) =>
+  async (c: C) => {
+    const query = parse(sampleFindQuery, c.req.query());
+    const { data, info } = await h.sampleService.find(c.var.ctx, query);
+    return c.json(success(data, info));
+  };

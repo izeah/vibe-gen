@@ -1,0 +1,11 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type UserRoleFilter, userRoleWhere } from "../../dto/user-role.ts";
+import { userRoles } from "../../model/user-role.ts";
+
+export async function ids(ctx: Context, f: UserRoleFilter): Promise<string[]> {
+  const rows = await conn(ctx)
+    .select({ id: userRoles.id })
+    .from(userRoles)
+    .where(userRoleWhere(f));
+  return rows.map((r) => r.id);
+}

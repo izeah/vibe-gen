@@ -1,0 +1,12 @@
+import { createClient } from "redis";
+import { config } from "./config.ts";
+import { logger } from "./logger.ts";
+
+// Call `await redis.connect()` once at startup.
+export const redis = createClient({
+  url: `${config.REDIS_TLS ? "rediss" : "redis"}://${config.REDIS_ADDRESS}`,
+  password: config.REDIS_PASSWORD || undefined,
+});
+redis.on("error", (err: Error) => logger.error({ err }, "redis error"));
+
+export type Redis = typeof redis;

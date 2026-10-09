@@ -1,0 +1,25 @@
+import { type Context, ownerId } from "../../abstraction/context.ts";
+import { page, type PaginationInfo } from "../../abstraction/pagination.ts";
+import {
+  type SampleFilter,
+  type SampleFindQuery,
+  type SampleResponse,
+  toSampleResponse,
+} from "../../dto/sample.ts";
+import type { Deps } from "./service.ts";
+
+export async function find(
+  d: Deps,
+  ctx: Context,
+  q: SampleFindQuery,
+): Promise<{ data: SampleResponse[]; info: PaginationInfo }> {
+  const { name, status, ...pagination } = q;
+  // "own" permission: list only the user's rows.
+  const f: SampleFilter = { name, status, pagination, createdBy: ownerId(ctx) };
+  const [count, rows] = await Promise.all([
+    d.sampleRepository.count(ctx, f),
+    d.sampleRepository.find(ctx, f),
+  ]);
+  const res = page(pagination, count, rows);
+  return { data: res.data.map(toSampleResponse), info: res.info };
+}

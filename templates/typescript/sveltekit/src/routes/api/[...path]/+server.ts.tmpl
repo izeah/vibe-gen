@@ -1,0 +1,13 @@
+import { proxy } from "../../../server/bff/handlers.ts";
+import type { RequestHandler } from "./$types";
+
+// Everything else under /api goes to the backend API (allowlisted prefixes only; the
+// API's /v1/auth/* is blocked). The raw, still-encoded path is used, never decoded params.
+const handle: RequestHandler = ({ request }) =>
+  proxy(request, new URL(request.url).pathname.slice("/api".length));
+
+export const GET = handle;
+export const POST = handle;
+export const PUT = handle;
+export const PATCH = handle;
+export const DELETE = handle;

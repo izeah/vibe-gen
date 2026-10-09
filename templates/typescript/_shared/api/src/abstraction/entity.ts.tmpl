@@ -1,0 +1,48 @@
+import { sql } from "drizzle-orm";
+import { bigint, uuid } from "drizzle-orm/pg-core";
+import type { Context } from "./context.ts";
+
+// Used as creator/updater when no authenticated user is in the context (same as Go).
+export const DEFAULT_SYSTEM_USER_ID = "018b1234-5678-7abc-8def-123456789a01";
+
+// entityColumns are the standard primary key and audit columns of every table.
+// Timestamps are Unix nanoseconds (BIGINT, UTC); deleted_at IS NULL means active.
+export const entityColumns = () => ({
+  id: uuid("id")
+    .primaryKey()
+    .default(sql`uuidv7()`),
+  createdAt: bigint("created_at", { mode: "bigint" }).notNull(),
+  createdBy: uuid("created_by").notNull(),
+  updatedAt: bigint("updated_at", { mode: "bigint" }),
+  updatedBy: uuid("updated_by"),
+  deletedAt: bigint("deleted_at", { mode: "bigint" }),
+  deletedBy: uuid("deleted_by"),
+});
+
+// ponytail: millisecond precision scaled to nanoseconds; use process.hrtime if ordering
+// within the same millisecond ever matters.
+export const nowNano = (): bigint => BigInt(Date.now()) * 1_000_000n;
+
+const actor = (ctx: Context): string => ctx.auth?.id ?? DEFAULT_SYSTEM_USER_ID;
+
+export const createAudit = (ctx: Context) => ({
+  createdAt: nowNano(),
+  createdBy: actor(ctx),
+});
+export const updateAudit = (ctx: Context) => ({
+  updatedAt: nowNano(),
+  updatedBy: actor(ctx),
+});
+export const deleteAudit = (ctx: Context) => ({
+  deletedAt: nowNano(),
+  deletedBy: actor(ctx),
+});
+
+// Creatable makes the audit columns optional on insert input: beforeCreate fills them.
+export type Creatable<T extends { createdAt: unknown; createdBy: unknown }> =
+  Omit<T, "createdAt" | "createdBy"> &
+    Partial<Pick<T, "createdAt" | "createdBy">>;
+
+// toRFC3339 formats a Unix-nano timestamp like Go's time.RFC3339 (second precision, UTC).
+export const toRFC3339 = (ns: bigint): string =>
+  new Date(Number(ns / 1_000_000n)).toISOString().replace(/\.\d{3}Z$/, "Z");

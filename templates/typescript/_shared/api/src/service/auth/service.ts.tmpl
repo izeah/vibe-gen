@@ -1,0 +1,32 @@
+import type { Context } from "../../abstraction/context.ts";
+import type {
+  LoginRequest,
+  TokenPair,
+  RefreshRequest,
+} from "../../dto/auth.ts";
+import type { Factory } from "../../factory/factory.ts";
+import { login } from "./login.ts";
+import { logout } from "./logout.ts";
+import { refresh } from "./refresh.ts";
+import type { Deps } from "./token.ts";
+
+export type AuthService = {
+  login(ctx: Context, req: LoginRequest): Promise<TokenPair>;
+  refresh(ctx: Context, req: RefreshRequest): Promise<TokenPair>;
+  logout(ctx: Context, req: RefreshRequest): Promise<void>;
+};
+
+export function newAuthService(f: Factory): AuthService {
+  const d: Deps = {
+    userRepository: f.userRepository,
+    refreshTokenRepository: f.refreshTokenRepository,
+    rateLimitRepository: f.rateLimitRepository,
+    keys: f.keys,
+    config: f.config,
+  };
+  return {
+    login: (ctx, req) => login(d, ctx, req),
+    refresh: (ctx, req) => refresh(d, ctx, req),
+    logout: (ctx, req) => logout(d, ctx, req),
+  };
+}

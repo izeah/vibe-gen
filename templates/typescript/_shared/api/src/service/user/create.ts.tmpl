@@ -1,0 +1,33 @@
+import type { Context } from "../../abstraction/context.ts";
+import { errors, isUniqueViolation } from "../../abstraction/error.ts";
+import { DEFAULT_ROLE_CODE } from "../../authz/permission.ts";
+import {
+  toUserResponse,
+  type UserCreateRequest,
+  type UserResponse,
+} from "../../dto/user.ts";
+import { hashPassword } from "../../pkg/password/password.ts";
+import type { Deps } from "./service.ts";
+
+// create creates a user holding the default role (DEFAULT_ROLE_CODE). Other roles are assigned
+// through PUT /v1/users/:id/roles, which needs roles:manage.
+export async function create(
+  d: Deps,
+  ctx: Context,
+  req: UserCreateRequest,
+): Promise<UserResponse> {
+  const password = await hashPassword(req.password);
+  // Errors inside the transaction are already client-facing errors: no catch needed here.
+  return d.trxManager.withTrx(ctx, async (tx) => {
+    // The model hook lowercases the email and sets the audit columns.
+    const [user] = await d.userRepository.create(tx, { ...req, password }).catch((err: unknown) => {
+      // users_email_lower_key: the database decides (no check-then-insert race).
+      throw isUniqueViolation(err) ? errors.duplicate("email already registered") : err;
+    });
+    if (!user) throw new Error("create user: no row returned");
+    // Default role deleted: the user starts without roles (no permissions).
+    const role = await d.roleRepository.findOne(tx, { codes: [DEFAULT_ROLE_CODE] });
+    if (role) await d.userRoleRepository.assignRole(tx, user.id, role.id);
+    return toUserResponse(user, role ? [role] : []);
+  });
+}

@@ -1,0 +1,65 @@
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { useNavigate } from "react-router";
+import { ApiError, api, logout, type User } from "../lib/auth.ts";
+
+// A protected page: api() attaches the in-memory access token and refreshes it on 401.
+export function DashboardPage() {
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [signOutError, setSignOutError] = useState("");
+  const me = useQuery({
+    queryKey: ["users", "me"],
+    queryFn: () => api<User>("/v1/users/me"),
+    retry: false,
+  });
+  const unauthorized = me.error instanceof ApiError && me.error.status === 401;
+
+  useEffect(() => {
+    if (unauthorized) navigate("/login", { replace: true });
+  }, [unauthorized, navigate]);
+
+  async function signOut() {
+    try {
+      await logout();
+    } catch {
+      // The session may still be alive on the server: say so instead of pretending.
+      setSignOutError("Could not sign out. Check your connection and try again.");
+      return;
+    }
+    queryClient.clear(); // no cached profile for the next user of this browser
+    navigate("/login", { replace: true });
+  }
+
+  return (
+    <main>
+      <section className="card stack" aria-busy={me.isPending}>
+        <h1>Dashboard</h1>
+        {me.isPending && <p>Loading your profile…</p>}
+        {me.isError && !unauthorized && (
+          <p className="error" role="alert">
+            Could not load your profile. Try again later.
+          </p>
+        )}
+        {me.data && (
+          <dl className="profile">
+            <dt>Name</dt>
+            <dd>{me.data.name}</dd>
+            <dt>Email</dt>
+            <dd>{me.data.email}</dd>
+            <dt>Roles</dt>
+            <dd>{me.data.roles.map((r) => r.name).join(", ")}</dd>
+          </dl>
+        )}
+        {signOutError && (
+          <p className="error" role="alert">
+            {signOutError}
+          </p>
+        )}
+        <button type="button" onClick={signOut}>
+          Sign out
+        </button>
+      </section>
+    </main>
+  );
+}

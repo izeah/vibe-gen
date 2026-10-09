@@ -1,0 +1,10 @@
+# Never send secrets or local state into the build context (`COPY . .` in the Dockerfile).
+.env
+.env.*
+!.env.example
+node_modules
+.svelte-kit
+build
+.git
+playwright-report
+test-results

@@ -1,0 +1,142 @@
+import { z } from "zod";
+import type { Config } from "../config/config.ts";
+import { loginRequest, refreshRequest } from "../dto/auth.ts";
+import {
+  roleCreateRequest,
+  roleFindQuery,
+  roleIdParams,
+  roleSetPermissionsRequest,
+  roleUpdateRequest,
+} from "../dto/role.ts";
+import {
+  sampleCreateRequest,
+  sampleFindQuery,
+  sampleIdParams,
+  sampleUpdateRequest,
+} from "../dto/sample.ts";
+import {
+  userCreateRequest,
+  userIdParams,
+  userSetRolesRequest,
+  userUpdateRequest,
+} from "../dto/user.ts";
+
+// The OpenAPI document is built from the same zod schemas that validate requests, so it
+// cannot drift from the code. Add an entry here for every new route (path uses {param}).
+type Operation = {
+  method: "get" | "post" | "put" | "delete";
+  path: string;
+  tag: string;
+  summary: string;
+  // Bearer token required; permission = what one of the user's roles must hold.
+  auth?: true;
+  permission?: string;
+  params?: z.ZodObject;
+  query?: z.ZodObject;
+  body?: z.ZodType;
+  status?: number;
+  cookieAuth?: boolean; // refresh token comes from the cookie in AUTH_COOKIE_MODE
+};
+
+export const operations: Operation[] = [
+  { method: "get", path: "/v1/health", tag: "health", summary: "Health check" },
+  { method: "post", path: "/v1/auth/login", tag: "auth", summary: "Login", body: loginRequest },
+  { method: "post", path: "/v1/auth/refresh", tag: "auth", summary: "Rotate the refresh token", body: refreshRequest, cookieAuth: true },
+  { method: "post", path: "/v1/auth/logout", tag: "auth", summary: "Revoke the session", body: refreshRequest, cookieAuth: true },
+  { method: "get", path: "/v1/users/me", tag: "user", summary: "Current user", auth: true },
+  { method: "get", path: "/v1/users/{id}", tag: "user", summary: "Get user", auth: true, permission: "users:read", params: userIdParams },
+  { method: "post", path: "/v1/users", tag: "user", summary: "Create user", auth: true, permission: "users:create", body: userCreateRequest, status: 201 },
+  { method: "put", path: "/v1/users/{id}", tag: "user", summary: "Update user", auth: true, permission: "users:update", params: userIdParams, body: userUpdateRequest },
+  { method: "put", path: "/v1/users/{id}/roles", tag: "user", summary: "Replace user roles", auth: true, permission: "roles:manage", params: userIdParams, body: userSetRolesRequest },
+  { method: "get", path: "/v1/samples", tag: "sample", summary: "List samples", auth: true, permission: "samples:read", query: sampleFindQuery },
+  { method: "get", path: "/v1/samples/{id}", tag: "sample", summary: "Get sample", auth: true, permission: "samples:read", params: sampleIdParams },
+  { method: "post", path: "/v1/samples", tag: "sample", summary: "Create sample", auth: true, permission: "samples:create", body: sampleCreateRequest, status: 201 },
+  { method: "put", path: "/v1/samples/{id}", tag: "sample", summary: "Update sample", auth: true, permission: "samples:update", params: sampleIdParams, body: sampleUpdateRequest },
+  { method: "delete", path: "/v1/samples/{id}", tag: "sample", summary: "Delete sample (soft)", auth: true, permission: "samples:delete", params: sampleIdParams },
+  { method: "get", path: "/v1/roles", tag: "role", summary: "List roles", auth: true, permission: "roles:manage", query: roleFindQuery },
+  { method: "get", path: "/v1/roles/{id}", tag: "role", summary: "Get role", auth: true, permission: "roles:manage", params: roleIdParams },
+  { method: "post", path: "/v1/roles", tag: "role", summary: "Create role", auth: true, permission: "roles:manage", body: roleCreateRequest, status: 201 },
+  { method: "put", path: "/v1/roles/{id}", tag: "role", summary: "Update role name/description", auth: true, permission: "roles:manage", params: roleIdParams, body: roleUpdateRequest },
+  { method: "put", path: "/v1/roles/{id}/permissions", tag: "role", summary: "Replace role permissions", auth: true, permission: "roles:manage", params: roleIdParams, body: roleSetPermissionsRequest },
+  { method: "delete", path: "/v1/roles/{id}", tag: "role", summary: "Delete role", auth: true, permission: "roles:manage", params: roleIdParams },
+];
+
+type JsonSchema = Record<string, unknown> & {
+  properties?: Record<string, unknown>;
+  required?: string[];
+};
+
+const schema = (s: z.ZodType): JsonSchema => {
+  const { $schema: _, ...rest } = z.toJSONSchema(s, { io: "input" }) as JsonSchema;
+  return rest;
+};
+
+const parameters = (s: z.ZodObject | undefined, where: "path" | "query") => {
+  if (!s) return [];
+  const js = schema(s);
+  return Object.entries(js.properties ?? {}).map(([name, prop]) => ({
+    name,
+    in: where,
+    required: where === "path" || (js.required ?? []).includes(name),
+    schema: prop,
+  }));
+};
+
+const envelope = (success: boolean) => ({
+  "application/json": {
+    schema: {
+      type: "object",
+      properties: {
+        meta: {
+          type: "object",
+          properties: {
+            success: { const: success },
+            message: { type: "string" },
+            ...(success && { info: { type: "object" } }),
+          },
+        },
+        data: {},
+        ...(!success && { description: { type: "object" } }),
+      },
+    },
+  },
+});
+
+export function openapiDocument(cfg: Config) {
+  const paths: Record<string, Record<string, unknown>> = {};
+  for (const op of operations) {
+    const responses: Record<string, unknown> = {
+      [op.status ?? 200]: { description: "OK", content: envelope(true) },
+      400: { description: "Invalid input", content: envelope(false) },
+    };
+    if (op.auth) responses[401] = { description: "Missing or invalid access token", content: envelope(false) };
+    if (op.permission) {
+      responses[403] = {
+        description: `Role lacks ${op.permission} (any or own scope)`,
+        content: envelope(false),
+      };
+    }
+    const path = paths[op.path] ?? {};
+    paths[op.path] = path;
+    path[op.method] = {
+      tags: [op.tag],
+      summary: op.summary,
+      ...(op.permission && { description: `Requires permission \`${op.permission}\`.` }),
+      ...(op.auth && { security: [{ bearerAuth: [] }] }),
+      parameters: [...parameters(op.params, "path"), ...parameters(op.query, "query")],
+      ...(op.body && !(op.cookieAuth && cfg.AUTH_COOKIE_MODE) && {
+        requestBody: { required: true, content: { "application/json": { schema: schema(op.body) } } },
+      }),
+      responses,
+    };
+  }
+  return {
+    openapi: "3.1.0",
+    info: { title: `${cfg.APP_NAME} API`, version: "v1" },
+    servers: [{ url: cfg.APP_BASE_PATH || "/" }],
+    components: {
+      securitySchemes: { bearerAuth: { type: "http", scheme: "bearer", bearerFormat: "JWT" } },
+    },
+    paths,
+  };
+}

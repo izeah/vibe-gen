@@ -1,0 +1,7 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type RoleFilter, roleWhere } from "../../dto/role.ts";
+import { roles } from "../../model/role.ts";
+
+export function count(ctx: Context, f: RoleFilter = {}): Promise<number> {
+  return conn(ctx).$count(roles, roleWhere(f));
+}

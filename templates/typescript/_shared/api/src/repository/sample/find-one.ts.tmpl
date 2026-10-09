@@ -1,0 +1,13 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type SampleFilter, sampleWhere } from "../../dto/sample.ts";
+import { type Sample, samples } from "../../model/sample.ts";
+
+// findOne returns the first match without ordering (like GORM Take), or undefined.
+export async function findOne(
+  ctx: Context,
+  f: SampleFilter,
+): Promise<Sample | undefined> {
+  const q = conn(ctx).select().from(samples).where(sampleWhere(f)).limit(1).$dynamic();
+  const [row] = await (f.forUpdate ? q.for("update") : q);
+  return row;
+}

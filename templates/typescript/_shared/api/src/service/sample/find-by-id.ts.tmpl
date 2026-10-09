@@ -1,0 +1,17 @@
+import { type Context, ownerId } from "../../abstraction/context.ts";
+import { errors } from "../../abstraction/error.ts";
+import { type SampleResponse, toSampleResponse } from "../../dto/sample.ts";
+import type { Deps } from "./service.ts";
+
+export async function findById(
+  d: Deps,
+  ctx: Context,
+  id: string,
+): Promise<SampleResponse> {
+  const sample = await d.sampleRepository.findOne(ctx, {
+    ids: [id],
+    createdBy: ownerId(ctx),
+  });
+  if (!sample) throw errors.notFound("sample not found");
+  return toSampleResponse(sample);
+}

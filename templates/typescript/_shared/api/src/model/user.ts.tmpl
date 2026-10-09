@@ -1,0 +1,45 @@
+import { pgTable, varchar } from "drizzle-orm/pg-core";
+import type { Context } from "../abstraction/context.ts";
+import {
+  type Creatable,
+  createAudit,
+  entityColumns,
+  updateAudit,
+} from "../abstraction/entity.ts";
+
+// users mirrors migrations/000001_create_users_table.up.sql. The SQL migration is the
+// source of truth: change the schema with `make migrate-create`, then update this table.
+// Roles: user_roles (model/user-role.ts).
+export const users = pgTable("users", {
+  ...entityColumns(),
+  name: varchar("name", { length: 100 }).notNull(),
+  email: varchar("email", { length: 254 }).notNull(),
+  password: varchar("password", { length: 72 }).notNull(), // bcrypt hash
+});
+
+export type User = typeof users.$inferSelect;
+type Insert = typeof users.$inferInsert;
+export type NewUser = Creatable<Insert>;
+// UserEntity holds the domain columns (no id/audit columns).
+export type UserEntity = Pick<User, "name" | "email" | "password">;
+
+// beforeCreate sets the audit columns. The password must already be hashed (hashPassword).
+export async function beforeCreate(ctx: Context, e: NewUser): Promise<Insert> {
+  return {
+    ...e,
+    ...createAudit(ctx),
+    email: e.email.trim().toLowerCase(),
+  };
+}
+
+// beforeUpdate sets updated_at/updated_by.
+export async function beforeUpdate(
+  ctx: Context,
+  e: Partial<UserEntity>,
+): Promise<Partial<Insert>> {
+  return {
+    ...e,
+    ...updateAudit(ctx),
+    ...(e.email !== undefined && { email: e.email.trim().toLowerCase() }),
+  };
+}

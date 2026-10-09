@@ -1,0 +1,14 @@
+<script setup lang="ts">
+import type { NuxtError } from "#app";
+import ThemeToggle from "./components/atoms/ThemeToggle.vue";
+
+const props = defineProps({ error: { type: Object as () => NuxtError, required: true } });
+</script>
+
+<template>
+  <ThemeToggle />
+  <main class="card stack">
+    <h1 v-text="props.error.statusCode === 404 ? 'Page not found' : `This page could not be loaded (error ${props.error.statusCode})`" />
+    <p><NuxtLink to="/dashboard">Go to the dashboard</NuxtLink></p>
+  </main>
+</template>

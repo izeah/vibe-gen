@@ -1,0 +1,12 @@
+import type { Request, Response } from "express";
+import { CSRF_HEADER, type CookieIO } from "../abstraction/auth-cookie.ts";
+
+// cookieIO exposes what the cookie-mode helpers need (abstraction/auth-cookie).
+export const cookieIO = (req: Request, res: Response): CookieIO => ({
+  origin: req.get("origin"),
+  csrf: req.get(CSRF_HEADER),
+  cookieHeader: req.get("cookie"),
+  setCookie: (value) => {
+    res.append("Set-Cookie", value);
+  },
+});

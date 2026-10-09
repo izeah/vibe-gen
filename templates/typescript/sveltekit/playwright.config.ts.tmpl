@@ -1,0 +1,25 @@
+import { defineConfig, devices } from "@playwright/test";
+
+// E2E against a production build (the dev server is not what ships) and the
+// mock API (e2e/mock-api.mjs): no real backend needed.
+// First run: npx playwright install chromium
+export default defineConfig({
+  testDir: "e2e",
+  workers: 1, // the mock API keeps a single session: specs must not log in at the same time
+  use: { baseURL: "http://localhost:3001" },
+  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  webServer: [
+    { command: "node e2e/mock-api.mjs", port: 3999, reuseExistingServer: false },
+    {
+      command: "npm run build && npm start",
+      url: "http://localhost:3001/login",
+      timeout: 180_000,
+      reuseExistingServer: false,
+      env: {
+        API_BASE_URL: "http://localhost:3999",
+        APP_ORIGIN: "http://localhost:3001",
+        BFF_COOKIE_SECRET: "e2e-only-secret-e2e-only-secret-1234",
+      },
+    },
+  ],
+});

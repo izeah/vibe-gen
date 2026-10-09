@@ -1,0 +1,34 @@
+# Architecture — {{.ProjectTitle}}
+
+{{.Framework}} on Vite (static files, no server of its own). It calls the API directly, so the API runs in
+**`AUTH_COOKIE_MODE`** (see `docs/security.md`, "SPA without a BFF").
+
+```
+Browser ──(Bearer, from memory)──────────────▶ API /v1/*
+        ──(HttpOnly refresh cookie, CSRF hdr)─▶ API /v1/auth/{login,refresh,logout}
+```
+
+- **Same site required:** this app and the API share a registrable domain (`app.example.com` + `api.example.com`).
+  Different domains cannot work (third-party cookies are blocked): use Next, Nuxt or SvelteKit (BFF) instead.
+- `src/lib/auth` keeps the access token **only in memory**; a reload restores it with `/v1/auth/refresh` (one
+  refresh in flight at a time). No token in `localStorage`, `sessionStorage` or a readable cookie.
+- `public/theme.js` applies the saved theme (`theme` cookie, `light` or `dark`) to `<html data-theme>` before the first
+  paint: a blocking script file, because the CSP forbids inline scripts. `src/lib/theme` and `ThemeToggle` switch and
+  persist it; without a choice the OS preference decides (see `docs/design_system.md`).
+- Accepted trade-off: an XSS on this page can use the access token while the tab is open. The CSP (`<meta>` injected
+  at build, full headers in `nginx.conf`), no `dangerouslySetInnerHTML`/`v-html`, and no third-party scripts matter.
+
+## Development
+
+`make run` serves on http://localhost:5173 and proxies `/v1` to `API_PROXY_TARGET`, so the cookie flows same-origin.
+Configure the API with `AUTH_COOKIE_MODE=true` and `APP_CORS_ALLOW_ORIGIN=http://localhost:5173`.
+In production set `VITE_API_BASE_URL` (public, build time) to the API origin.
+
+## Testing
+
+- `npm test`: the auth client (memory token, single-flight refresh, 401 retry) with a mocked `fetch`.
+- `make test-e2e`: Playwright against the production build (`vite preview`) and `e2e/mock-api.mjs` in cookie mode:
+  login, reload keeps the session, logout, no token in JS-readable storage, no CSP violations; the theme toggle (OS default,
+  override, persistence).
+- `make ui-shots`: the same build, a screenshot of every screen at 375, 768 and 1280 px in light and dark into `ui-shots/`
+  (git-ignored: open them and look); fails on horizontal overflow, console errors or a screen without the toggle.

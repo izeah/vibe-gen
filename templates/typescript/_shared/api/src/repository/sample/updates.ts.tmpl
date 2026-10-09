@@ -1,0 +1,16 @@
+import { type Context, conn } from "../../abstraction/context.ts";
+import { type SampleFilter, sampleWhere } from "../../dto/sample.ts";
+import { beforeUpdate, type SampleEntity, samples } from "../../model/sample.ts";
+
+// updates writes only the given columns to the matching rows; returns the row count.
+export async function updates(
+  ctx: Context,
+  f: SampleFilter,
+  values: Partial<SampleEntity>,
+): Promise<number> {
+  const res = await conn(ctx)
+    .update(samples)
+    .set(await beforeUpdate(ctx, values))
+    .where(sampleWhere(f));
+  return res.rowCount ?? 0;
+}

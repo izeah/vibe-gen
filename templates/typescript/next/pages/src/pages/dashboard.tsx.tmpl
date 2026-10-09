@@ -1,0 +1,15 @@
+import { useRouter } from "next/router";
+import { useCallback } from "react";
+import { Dashboard } from "../components/Dashboard.tsx";
+
+export default function DashboardPage() {
+  const router = useRouter();
+  const toLogin = useCallback(() => {
+    void router.replace("/login");
+  }, [router]);
+  return (
+    <main>
+      <Dashboard onSignedOut={toLogin} />
+    </main>
+  );
+}

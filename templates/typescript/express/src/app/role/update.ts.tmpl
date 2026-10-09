@@ -1,0 +1,15 @@
+import type { RequestHandler } from "express";
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { roleIdParams, roleUpdateRequest } from "../../dto/role.ts";
+import { ctxOf } from "../../middleware/context.ts";
+import type { Handler } from "./handler.ts";
+
+// PUT /v1/roles/:id
+export const update =
+  (h: Handler): RequestHandler =>
+  async (req, res) => {
+    const { id } = parse(roleIdParams, req.params);
+    const body = parse(roleUpdateRequest, req.body);
+    res.json(success(await h.roleService.update(ctxOf(res), id, body)));
+  };

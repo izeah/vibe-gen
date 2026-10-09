@@ -1,0 +1,20 @@
+import { CSRF_HEADER, type CookieIO } from "../../abstraction/auth-cookie.ts";
+import type { Config } from "../../config/config.ts";
+import type { Factory } from "../../factory/factory.ts";
+import type { C } from "../../middleware/env.ts";
+import { type AuthService, newAuthService } from "../../service/auth/service.ts";
+
+export type Handler = { authService: AuthService; config: Config };
+
+export const newHandler = (f: Factory): Handler => ({
+  authService: newAuthService(f),
+  config: f.config,
+});
+
+// cookieIO exposes what the cookie-mode helpers need (abstraction/auth-cookie).
+export const cookieIO = (c: C): CookieIO => ({
+  origin: c.req.header("origin"),
+  csrf: c.req.header(CSRF_HEADER),
+  cookieHeader: c.req.header("cookie"),
+  setCookie: (value) => c.header("Set-Cookie", value, { append: true }),
+});

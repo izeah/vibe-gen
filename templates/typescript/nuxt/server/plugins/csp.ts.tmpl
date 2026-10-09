@@ -1,0 +1,33 @@
+import { randomBytes } from "node:crypto";
+
+// A fresh nonce per page, added to the <script>/<style> tags Nuxt itself emits (head, payload,
+// entry) and to the CSP header. Never to html.body: that is the app's rendered markup, and a
+// nonce there would bless any script that reaches it (e.g. through v-html).
+// Dev also allows inline styles (Vite injects them at runtime); production does not.
+export default defineNitroPlugin((nitro) => {
+  nitro.hooks.hook("render:html", (html, { event }) => {
+    const nonce = randomBytes(16).toString("base64");
+    const tag = (parts: string[]) =>
+      parts.map((p) =>
+        p
+          // nosemgrep: javascript.lang.security.audit.unknown-value-with-script-tag.unknown-value-with-script-tag -- nonce is 16 random bytes, base64 only
+          .replace(/<script\b/g, `<script nonce="${nonce}"`)
+          .replace(/<style\b/g, `<style nonce="${nonce}"`),
+      );
+    html.head = tag(html.head);
+    html.bodyPrepend = tag(html.bodyPrepend);
+    html.bodyAppend = tag(html.bodyAppend);
+    const csp = [
+      "default-src 'self'",
+      `script-src 'self' 'nonce-${nonce}'`,
+      `style-src 'self' ${import.meta.dev ? "'unsafe-inline'" : `'nonce-${nonce}'`}`,
+      "img-src 'self' data:",
+      "connect-src 'self'",
+      "object-src 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+      "frame-ancestors 'none'",
+    ].join("; ");
+    setResponseHeader(event, "content-security-policy", csp);
+  });
+});

@@ -1,0 +1,14 @@
+import { created } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { userCreateRequest } from "../../dto/user.ts";
+import type { C } from "../../middleware/env.ts";
+import { body as readBody } from "../../middleware/error.ts";
+import type { Handler } from "./handler.ts";
+
+// POST /v1/users (admin)
+export const create =
+  (h: Handler) =>
+  async (c: C) => {
+    const body = parse(userCreateRequest, await readBody(c));
+    return c.json(created(await h.userService.create(c.var.ctx, body)), 201);
+  };

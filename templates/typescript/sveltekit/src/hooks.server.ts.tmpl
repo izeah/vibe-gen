@@ -1,0 +1,33 @@
+import type { Handle } from "@sveltejs/kit/hooks";
+import { themeFrom } from "./lib/theme.ts";
+
+// Routes that need a session; without the session cookie the user is sent to /login.
+// (Only a presence check: the API still authorizes every call.)
+const PROTECTED = ["/dashboard"];
+
+const SECURITY_HEADERS: Record<string, string> = {
+  "X-Content-Type-Options": "nosniff",
+  "X-Frame-Options": "DENY",
+  "Referrer-Policy": "strict-origin-when-cross-origin",
+  "Strict-Transport-Security": "max-age=31536000",
+  "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+};
+
+export const handle: Handle = async ({ event, resolve }) => {
+  const path = event.url.pathname;
+  if (
+    PROTECTED.some((p) => path === p || path.startsWith(`${p}/`)) &&
+    !event.cookies.get("__Host-session")
+  ) {
+    return new Response(null, { status: 303, headers: { location: "/login" } });
+  }
+  // %theme% in app.html: the cookie is allowlisted to light|dark before it becomes an attribute;
+  // none means the OS preference decides (CSS).
+  const theme = themeFrom(event.cookies.get("theme"));
+  const res = await resolve(event, {
+    transformPageChunk: ({ html }) =>
+      html.replace("%theme%", theme ? `data-theme="${theme}"` : ""),
+  });
+  for (const [k, v] of Object.entries(SECURITY_HEADERS)) res.headers.set(k, v);
+  return res;
+};

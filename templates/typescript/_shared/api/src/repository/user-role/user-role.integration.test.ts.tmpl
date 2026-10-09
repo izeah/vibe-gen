@@ -1,0 +1,52 @@
+import { randomUUID } from "node:crypto";
+import { afterAll, expect, test } from "vitest";
+import type { Context } from "../../abstraction/context.ts";
+import { pool } from "../../pkg/database/database.ts";
+import { trxManager } from "../../pkg/trxmanager/trxmanager.ts";
+import { roleRepository } from "../role/repository.ts";
+import { userRepository } from "../user/repository.ts";
+import { userRoleRepository as repo } from "./repository.ts";
+
+// Needs the local Docker PostgreSQL with migrations applied: make pg-start migrate-up.
+afterAll(() => pool.end());
+
+const admin: Context = { requestId: "test", auth: { id: randomUUID() } };
+
+// Runs in a transaction that is rolled back, so the database stays clean.
+const rollback = (fn: (ctx: Context) => Promise<void>) =>
+  trxManager
+    .withTrx(admin, async (ctx) => {
+      await fn(ctx);
+      throw new Error("rollback");
+    })
+    .catch((e: Error) => {
+      if (e.message !== "rollback") throw e;
+    });
+
+test("assign, has, revoke and reassign roles", () =>
+  rollback(async (ctx) => {
+    const [u] = await userRepository.create(ctx, {
+      name: "IT",
+      email: `it-${randomUUID()}@example.com`,
+      password: "a".repeat(64),
+    });
+    const seeded = await roleRepository.find(ctx, { codes: ["admin", "user"] });
+    const adminRole = seeded.find((r) => r.code === "admin");
+    const userRole = seeded.find((r) => r.code === "user");
+    if (!u || !adminRole || !userRole) throw new Error("seed roles missing: make migrate-up");
+    const held = async () =>
+      (await repo.find(ctx, { userIds: [u.id] })).map((r) => r.roleId).sort();
+
+    expect(await repo.assignRole(ctx, u.id, userRole.id, userRole.id)).toBe(1); // duplicates kept once
+    expect(await repo.assignRole(ctx, u.id, userRole.id)).toBe(0); // already held
+    expect(await repo.hasRole(ctx, u.id, userRole.id)).toBe(true);
+    expect(await repo.hasRole(ctx, u.id, adminRole.id)).toBe(false);
+
+    await repo.reassignRole(ctx, u.id, [adminRole.id, userRole.id]);
+    expect(await held()).toEqual([adminRole.id, userRole.id].sort());
+    await repo.reassignRole(ctx, u.id, [adminRole.id]);
+    expect(await held()).toEqual([adminRole.id]);
+
+    expect(await repo.revokeRole(ctx, u.id, adminRole.id)).toBe(1);
+    expect(await held()).toEqual([]);
+  }));

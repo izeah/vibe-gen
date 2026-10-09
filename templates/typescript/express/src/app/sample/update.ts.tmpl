@@ -1,0 +1,15 @@
+import type { RequestHandler } from "express";
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { sampleIdParams, sampleUpdateRequest } from "../../dto/sample.ts";
+import { ctxOf } from "../../middleware/context.ts";
+import type { Handler } from "./handler.ts";
+
+// PUT /v1/samples/:id
+export const update =
+  (h: Handler): RequestHandler =>
+  async (req, res) => {
+    const { id } = parse(sampleIdParams, req.params);
+    const body = parse(sampleUpdateRequest, req.body);
+    res.json(success(await h.sampleService.update(ctxOf(res), id, body)));
+  };

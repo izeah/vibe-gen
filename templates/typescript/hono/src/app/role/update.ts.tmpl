@@ -1,0 +1,15 @@
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { roleIdParams, roleUpdateRequest } from "../../dto/role.ts";
+import type { C } from "../../middleware/env.ts";
+import { body as readBody } from "../../middleware/error.ts";
+import type { Handler } from "./handler.ts";
+
+// PUT /v1/roles/:id
+export const update =
+  (h: Handler) =>
+  async (c: C) => {
+    const { id } = parse(roleIdParams, c.req.param());
+    const body = parse(roleUpdateRequest, await readBody(c));
+    return c.json(success(await h.roleService.update(c.var.ctx, id, body)));
+  };

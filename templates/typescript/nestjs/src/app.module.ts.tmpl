@@ -1,0 +1,26 @@
+import { Module, type Type } from "@nestjs/common";
+import { RouterModule } from "@nestjs/core";
+import { AuthController } from "./app/auth/auth.controller.ts";
+import { HealthController } from "./app/health/health.controller.ts";
+import { RoleController } from "./app/role/role.controller.ts";
+import { SampleController } from "./app/sample/sample.controller.ts";
+import { UserController } from "./app/user/user.controller.ts";
+import type { Factory } from "./factory/factory.ts";
+import { AuthGuard } from "./nest/auth.guard.ts";
+import { PermissionGuard } from "./nest/permission.guard.ts";
+import { RoleGuard } from "./nest/role.guard.ts";
+import { FACTORY } from "./nest/tokens.ts";
+
+// appModule wires the controllers to a Factory (tests pass one with mocked repositories).
+// Controllers declare relative paths; the /v1 group lives here (plus APP_BASE_PATH in app.ts).
+export function appModule(f: Factory): Type {
+  @Module({
+    controllers: [HealthController, AuthController, UserController, SampleController, RoleController],
+    providers: [{ provide: FACTORY, useValue: f }, AuthGuard, PermissionGuard, RoleGuard],
+  })
+  class V1Module {}
+
+  @Module({ imports: [V1Module, RouterModule.register([{ path: "v1", module: V1Module }])] })
+  class AppModule {}
+  return AppModule;
+}

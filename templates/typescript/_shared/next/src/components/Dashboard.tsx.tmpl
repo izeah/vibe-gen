@@ -1,0 +1,49 @@
+"use client";
+
+import { useQuery } from "@tanstack/react-query";
+import { useEffect } from "react";
+import { ApiError, api, logout, type User } from "../lib/api.ts";
+
+// A protected page: the BFF attaches the access token (and refreshes it) on /api/v1/*.
+export function Dashboard({ onSignedOut }: { onSignedOut: () => void }) {
+  const me = useQuery({
+    queryKey: ["users", "me"],
+    queryFn: () => api<User>("/v1/users/me"),
+    retry: false,
+  });
+  const unauthorized = me.error instanceof ApiError && me.error.status === 401;
+
+  useEffect(() => {
+    if (unauthorized) onSignedOut();
+  }, [unauthorized, onSignedOut]);
+
+  async function signOut() {
+    await logout().catch(() => undefined);
+    onSignedOut();
+  }
+
+  return (
+    <section className="card stack" aria-busy={me.isPending}>
+      <h1>Dashboard</h1>
+      {me.isPending && <p>Loading your profile…</p>}
+      {me.isError && !unauthorized && (
+        <p className="error" role="alert">
+          Could not load your profile. Try again later.
+        </p>
+      )}
+      {me.data && (
+        <dl className="profile">
+          <dt>Name</dt>
+          <dd>{me.data.name}</dd>
+          <dt>Email</dt>
+          <dd>{me.data.email}</dd>
+          <dt>Roles</dt>
+          <dd>{me.data.roles.map((r) => r.name).join(", ")}</dd>
+        </dl>
+      )}
+      <button type="button" onClick={signOut}>
+        Sign out
+      </button>
+    </section>
+  );
+}

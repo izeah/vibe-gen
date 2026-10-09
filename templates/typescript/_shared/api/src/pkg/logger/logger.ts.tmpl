@@ -1,0 +1,47 @@
+import { DrizzleQueryError } from "drizzle-orm";
+import pino from "pino";
+import { config } from "../../config/config.ts";
+
+// Drizzle puts the bound parameters (emails, password hashes) into the error message and stack,
+// and Postgres puts row values into `detail`: log the SQL and the error code only.
+function serializeErr(e: unknown) {
+  if (!(e instanceof DrizzleQueryError)) return pino.stdSerializers.err(e as Error);
+  const cause = e.cause as Record<string, unknown> | undefined;
+  const safe = new Error(`Failed query: ${e.query}`);
+  safe.name = "DrizzleQueryError";
+  safe.stack = [
+    `${safe.name}: ${safe.message}`,
+    ...(e.stack ?? "").split("\n").filter((l) => l.startsWith("    at ")),
+  ].join("\n");
+  return {
+    ...pino.stdSerializers.err(safe),
+    cause: cause && {
+      message: cause.message,
+      code: cause.code,
+      constraint: cause.constraint,
+      table: cause.table,
+      column: cause.column,
+    },
+  };
+}
+
+// Structured JSON logs. Never log request/response bodies, tokens or PII (emails, names):
+// log IDs instead. The redact list is a safety net, not a license to log objects blindly.
+export const logger = pino({
+  level: config.LOG_LEVEL,
+  base: { service: config.APP_NAME },
+  serializers: { err: serializeErr },
+  redact: {
+    paths: [
+      "*.authorization",
+      "*.cookie",
+      "*.password",
+      "*.token",
+      "*.access_token",
+      "*.refresh_token",
+      "*.secret",
+      "*.email",
+    ],
+    censor: "[REDACTED]",
+  },
+});

@@ -1,0 +1,22 @@
+import type { RequestHandler } from "express";
+import { errors } from "../abstraction/error.ts";
+import type { AuthzService } from "../service/authz/service.ts";
+import { ctxOf } from "./context.ts";
+
+// requirePermission allows the route only if one of the user's roles holds resource:action
+// (user_roles / role_permissions tables, cached in Redis) and records the granted scope ("any"/"own") for the
+// service (ownerId). Use after authentication.
+export function requirePermission(
+  authz: AuthzService,
+  resource: string,
+  action: string,
+): RequestHandler {
+  return async (_req, res, next) => {
+    const ctx = ctxOf(res);
+    if (!ctx.auth) throw errors.unauthorized();
+    const scope = await authz.scope(ctx, ctx.auth.id, resource, action);
+    if (!scope) throw errors.forbidden("insufficient permissions");
+    ctx.permissionScope = scope;
+    next();
+  };
+}

@@ -1,0 +1,13 @@
+import type { Factory } from "../../factory/factory.ts";
+import { type AuthzService, newAuthzService } from "../../service/authz/service.ts";
+import {
+  newSampleService,
+  type SampleService,
+} from "../../service/sample/service.ts";
+
+export type Handler = { sampleService: SampleService; authzService: AuthzService };
+
+export const newHandler = (f: Factory): Handler => ({
+  sampleService: newSampleService(f),
+  authzService: newAuthzService(f),
+});

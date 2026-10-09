@@ -1,0 +1,55 @@
+import { PgDialect } from "drizzle-orm/pg-core";
+import { describe, expect, test } from "vitest";
+import { sampleSortColumns } from "../dto/sample.ts";
+import { escapeLike, orderBy, page, paginationQuery } from "./pagination.ts";
+
+const dialect = new PgDialect();
+const render = (items: { field: string; order?: string }[]) =>
+  orderBy(sampleSortColumns, items).map((s) => dialect.sqlToQuery(s).sql);
+
+describe("orderBy allowlist", () => {
+  test("maps allowlisted fields to columns", () => {
+    expect(
+      render([
+        { field: "name", order: "DESC" },
+        { field: "created_at", order: "asc" },
+      ]),
+    ).toEqual(['"samples"."name" desc', '"samples"."created_at" asc']);
+  });
+
+  test("drops unknown and prototype fields", () => {
+    expect(
+      render([
+        { field: "password; DROP TABLE samples" },
+        { field: "constructor" },
+        { field: "__proto__" },
+        { field: "toString" },
+      ]),
+    ).toEqual([]);
+  });
+});
+
+describe("pagination query", () => {
+  test("defaults and clamps", () => {
+    expect(paginationQuery.parse({})).toEqual({ page: 1, page_size: 10 });
+    expect(paginationQuery.parse({ page: "0", page_size: "100000" })).toEqual({
+      page: 1,
+      page_size: 100,
+    });
+  });
+
+  test("rejects an unknown sort direction", () => {
+    expect(paginationQuery.safeParse({ sort: "sideways" }).success).toBe(false);
+  });
+
+  test("page trims the look-ahead row", () => {
+    const p = paginationQuery.parse({ page_size: "2" });
+    const res = page(p, 3, ["a", "b", "c"]);
+    expect(res.data).toEqual(["a", "b"]);
+    expect(res.info).toMatchObject({ pages: 2, count: 3, more_records: true });
+  });
+});
+
+test("escapeLike neutralizes wildcards", () => {
+  expect(escapeLike("50%_off\\")).toBe("50\\%\\_off\\\\");
+});

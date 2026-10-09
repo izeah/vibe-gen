@@ -1,0 +1,41 @@
+import { count } from "./count.ts";
+import { create } from "./create.ts";
+import { deleteRows } from "./delete.ts";
+import { exists } from "./exists.ts";
+import { find } from "./find.ts";
+import { findOne } from "./find-one.ts";
+import { firstOrCreate } from "./first-or-create.ts";
+import { givePermissionTo } from "./give-permission-to.ts";
+import { hasPermissionTo } from "./has-permission-to.ts";
+import { ids } from "./ids.ts";
+import { revokePermissionTo } from "./revoke-permission-to.ts";
+import { softDelete } from "./soft-delete.ts";
+import { syncPermissions } from "./sync-permissions.ts";
+import { update } from "./update.ts";
+import { updateOrInsert } from "./update-or-insert.ts";
+import { updates } from "./updates.ts";
+
+// The 12 standard repository methods (one file each), plus the permission methods
+// (hasPermissionTo, givePermissionTo, revokePermissionTo, syncPermissions). They are a
+// deliberate, ready-to-use API: keep them even when unused, and do not expose them as
+// endpoints just to "use" them.
+export const rolePermissionRepository = {
+  find,
+  findOne,
+  count,
+  create,
+  update,
+  updates,
+  updateOrInsert,
+  softDelete,
+  firstOrCreate,
+  exists,
+  delete: deleteRows,
+  ids,
+  hasPermissionTo,
+  givePermissionTo,
+  revokePermissionTo,
+  syncPermissions,
+};
+
+export type RolePermissionRepository = typeof rolePermissionRepository;

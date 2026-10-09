@@ -1,0 +1,37 @@
+import { config } from "./config/config.ts";
+import { pool, testConnection } from "./config/database.ts";
+import { logger } from "./config/logger.ts";
+import { redis } from "./config/redis.ts";
+import {
+  getAvailableJobs,
+  startScheduler,
+  stopScheduler,
+} from "./schedulers/cron.ts";
+
+// Fail fast if a dependency is unreachable.
+await Promise.all([testConnection(), redis.connect()]);
+
+const crons = config.CRON_ENABLED ? startScheduler() : [];
+logger.info(
+  { jobs: getAvailableJobs(), enabled: config.CRON_ENABLED },
+  `${config.APP_NAME} started`,
+);
+
+async function shutdown(signal: string, code = 0): Promise<void> {
+  logger.info({ signal }, "shutting down");
+  // Running jobs get this long to finish; keep it below the orchestrator's kill grace period.
+  setTimeout(() => process.exit(1), 25_000).unref();
+  await stopScheduler(crons);
+  await Promise.allSettled([pool.end(), redis.close()]);
+  process.exit(code);
+}
+process.once("SIGTERM", () => shutdown("SIGTERM"));
+process.once("SIGINT", () => shutdown("SIGINT"));
+process.on("uncaughtException", (err) => {
+  logger.fatal({ err }, "uncaught exception");
+  void shutdown("uncaughtException", 1);
+});
+process.on("unhandledRejection", (err) => {
+  logger.fatal({ err }, "unhandled rejection");
+  void shutdown("unhandledRejection", 1);
+});

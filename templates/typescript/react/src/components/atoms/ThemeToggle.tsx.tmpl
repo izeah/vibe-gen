@@ -1,0 +1,25 @@
+import { useState } from "react";
+import { currentTheme, setTheme } from "../../lib/theme.ts";
+
+// One labelled button; the state lives in aria-pressed. public/theme.js ran before React, so the
+// attribute is already right when this renders.
+export function ThemeToggle() {
+  const [dark, setDark] = useState(() => currentTheme() === "dark");
+
+  function toggle() {
+    const next = dark ? "light" : "dark";
+    setTheme(next);
+    setDark(next === "dark");
+  }
+
+  return (
+    <button
+      type="button"
+      className="theme-toggle"
+      aria-pressed={dark}
+      onClick={toggle}
+    >
+      Dark mode
+    </button>
+  );
+}

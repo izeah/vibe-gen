@@ -1,0 +1,79 @@
+import { and, ilike, inArray, isNull, type SQL } from "drizzle-orm";
+import { z } from "zod";
+import { passwordSchema } from "../pkg/password/password.ts";
+import { DEFAULT_SYSTEM_USER_ID, toRFC3339 } from "../abstraction/entity.ts";
+import {
+  escapeLike,
+  type Filter,
+  type SortColumns,
+} from "../abstraction/pagination.ts";
+import type { Role } from "../model/role.ts";
+import { type User, users } from "../model/user.ts";
+
+// userSortColumns is the ORDER BY allowlist for UserFilter (API field → column).
+export const userSortColumns: SortColumns = {
+  id: users.id,
+  name: users.name,
+  email: users.email,
+  created_at: users.createdAt,
+  updated_at: users.updatedAt,
+};
+
+export type UserFilter = Filter & {
+  ids?: string[];
+  email?: string; // case-insensitive contains
+};
+
+export function userWhere(f: UserFilter): SQL | undefined {
+  return and(
+    f.withDeleted ? undefined : isNull(users.deletedAt),
+    f.ids ? inArray(users.id, f.ids) : undefined,
+    f.email ? ilike(users.email, `%${escapeLike(f.email)}%`) : undefined,
+    ...(f.where ?? []),
+  );
+}
+
+export const userIdParams = z.object({ id: z.uuid() });
+
+export const userCreateRequest = z.object({
+  name: z.string().trim().min(1).max(100),
+  email: z.email().max(254),
+  password: passwordSchema,
+});
+export type UserCreateRequest = z.infer<typeof userCreateRequest>;
+
+// Roles change through userSetRolesRequest (PUT /v1/users/:id/roles, roles:manage).
+export const userUpdateRequest = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+});
+export type UserUpdateRequest = z.infer<typeof userUpdateRequest>;
+
+// Replaces the user's whole role set ([] removes every role).
+export const userSetRolesRequest = z.object({ role_ids: z.array(z.uuid()).max(50) });
+export type UserSetRolesRequest = z.infer<typeof userSetRolesRequest>;
+
+export type UserRoleResponse = { id: string; code: string; name: string };
+
+// UserResponse is the read representation. The password hash is never included.
+export type UserResponse = {
+  id: string;
+  name: string;
+  email: string;
+  roles: UserRoleResponse[];
+  created_at: string;
+  updated_at?: string;
+  created_by?: string;
+  updated_by?: string;
+};
+
+export const toUserResponse = (m: User, roles: Role[]): UserResponse => ({
+  id: m.id,
+  name: m.name,
+  email: m.email,
+  roles: roles.map((r) => ({ id: r.id, code: r.code, name: r.name })),
+  created_at: toRFC3339(m.createdAt),
+  updated_at: m.updatedAt === null ? undefined : toRFC3339(m.updatedAt),
+  created_by:
+    m.createdBy === DEFAULT_SYSTEM_USER_ID ? undefined : m.createdBy,
+  updated_by: m.updatedBy ?? undefined,
+});

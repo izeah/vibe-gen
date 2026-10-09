@@ -1,0 +1,14 @@
+import { success } from "../../abstraction/response.ts";
+import { parse } from "../../abstraction/validate.ts";
+import { sampleIdParams } from "../../dto/sample.ts";
+import type { C } from "../../middleware/env.ts";
+import type { Handler } from "./handler.ts";
+
+// DELETE /v1/samples/:id (soft delete)
+export const remove =
+  (h: Handler) =>
+  async (c: C) => {
+    const { id } = parse(sampleIdParams, c.req.param());
+    await h.sampleService.delete(c.var.ctx, id);
+    return c.json(success());
+  };

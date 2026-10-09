@@ -1,0 +1,20 @@
+import type { Context } from "../../abstraction/context.ts";
+import { errors } from "../../abstraction/error.ts";
+import { type RoleResponse, type RoleUpdateRequest, toRoleResponse } from "../../dto/role.ts";
+import { type Deps, permissionsOf } from "./service.ts";
+
+export async function update(
+  d: Deps,
+  ctx: Context,
+  id: string,
+  req: RoleUpdateRequest,
+): Promise<RoleResponse> {
+  const role = await d.roleRepository.findOne(ctx, { ids: [id] });
+  if (!role) throw errors.notFound("role not found");
+  // id, code and is_system never change here (code and clients branch on the code); only
+  // display text does, system roles included: renaming cannot lock anyone out.
+  await d.roleRepository.updates(ctx, { ids: [id] }, { name: req.name, description: req.description });
+  const updated = await d.roleRepository.findOne(ctx, { ids: [id] });
+  if (!updated) throw errors.notFound("role not found");
+  return toRoleResponse(updated, await permissionsOf(d, ctx, id));
+}

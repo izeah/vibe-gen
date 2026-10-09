@@ -1,0 +1,21 @@
+import type { Context } from "../../abstraction/context.ts";
+import { errors } from "../../abstraction/error.ts";
+import {
+  toUserResponse,
+  type UserResponse,
+  type UserUpdateRequest,
+} from "../../dto/user.ts";
+import { type Deps, rolesOf } from "./service.ts";
+
+export async function update(
+  d: Deps,
+  ctx: Context,
+  id: string,
+  req: UserUpdateRequest,
+): Promise<UserResponse> {
+  const changed = await d.userRepository.updates(ctx, { ids: [id] }, req);
+  if (changed === 0) throw errors.notFound("user not found");
+  const user = await d.userRepository.findOne(ctx, { ids: [id] });
+  if (!user) throw errors.notFound("user not found");
+  return toUserResponse(user, await rolesOf(d, ctx, id));
+}

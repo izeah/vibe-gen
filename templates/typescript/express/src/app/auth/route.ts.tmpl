@@ -1,0 +1,13 @@
+import { Router } from "express";
+import type { Handler } from "./handler.ts";
+import { login } from "./login.ts";
+import { logout } from "./logout.ts";
+import { refresh } from "./refresh.ts";
+
+export function route(h: Handler): Router {
+  const r = Router();
+  r.post("/login", login(h));
+  r.post("/refresh", refresh(h));
+  r.post("/logout", logout(h));
+  return r;
+}
