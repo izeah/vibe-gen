@@ -1,0 +1,34 @@
+import { Router } from "express";
+import * as auth from "../app/auth/route.js";
+import { newHandler as authHandler } from "../app/auth/handler.js";
+import * as health from "../app/health/route.js";
+import { newHandler as healthHandler } from "../app/health/handler.js";
+import * as role from "../app/role/route.js";
+import { newHandler as roleHandler } from "../app/role/handler.js";
+import * as sample from "../app/sample/route.js";
+import { newHandler as sampleHandler } from "../app/sample/handler.js";
+import * as user from "../app/user/route.js";
+import { newHandler as userHandler } from "../app/user/handler.js";
+import { authentication } from "../middleware/authentication.js";
+import { docs } from "./docs.js";
+
+// http mounts every domain under /v1 (plus the optional APP_BASE_PATH). Domain routers only
+// declare relative paths; group paths live here.
+export function http(app, f) {
+  const v1 = Router();
+  const authn = authentication(f);
+
+  // Public
+  v1.use("/health", health.route(healthHandler()));
+  v1.use("/auth", auth.route(authHandler(f)));
+
+  // Protected (valid access token required)
+  v1.use("/users", authn, user.route(userHandler(f)));
+  v1.use("/samples", authn, sample.route(sampleHandler(f)));
+  v1.use("/roles", authn, role.route(roleHandler(f)));
+
+  app.use(`${f.config.APP_BASE_PATH}/v1`, v1);
+
+  // OpenAPI + Swagger UI: /openapi.json and /swagger/ (not in production).
+  if (f.config.APP_ENV !== "production") docs(app, f.config);
+}

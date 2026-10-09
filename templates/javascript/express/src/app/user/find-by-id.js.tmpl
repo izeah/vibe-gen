@@ -1,0 +1,10 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { userIdParams } from "../../dto/user.js";
+import { ctxOf } from "../../middleware/context.js";
+
+// GET /v1/users/:id (admin)
+export const findById = (h) => async (req, res) => {
+  const { id } = parse(userIdParams, req.params);
+  res.json(success(await h.userService.findById(ctxOf(res), id)));
+};

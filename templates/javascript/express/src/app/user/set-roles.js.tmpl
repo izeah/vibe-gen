@@ -1,0 +1,11 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { userIdParams, userSetRolesRequest } from "../../dto/user.js";
+import { ctxOf } from "../../middleware/context.js";
+
+// PUT /v1/users/:id/roles (roles:manage): replaces the roles the user holds
+export const setRoles = (h) => async (req, res) => {
+  const { id } = parse(userIdParams, req.params);
+  const body = parse(userSetRolesRequest, req.body);
+  res.json(success(await h.userService.setRoles(ctxOf(res), id, body)));
+};

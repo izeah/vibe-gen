@@ -1,40 +1,35 @@
 {
   "name": "{{.ProjectSlug}}",
-  "version": "1.0.0",
-  "description": "{{.ProjectTitle}} — Express.js API",
-  "main": "src/app.js",
+  "version": "0.1.0",
+  "private": true,
   "type": "module",
-  "scripts": {
-    "dev": "node --env-file=.env --watch src/app.js",
-    "start": "node --env-file=.env src/app.js",
-    "test": "node --experimental-vm-modules node_modules/.bin/jest --detectOpenHandles --forceExit",
-    "test:watch": "npm test -- --watch",
-    "lint": "eslint src/**/*.js",
-    "lint:fix": "eslint src/**/*.js --fix"
-  },
   "engines": {
-    "node": ">=20"
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --env-file-if-exists=.env --watch src/main.js",
+    "start": "node --env-file-if-exists=.env src/main.js",
+    "lint": "biome lint .",
+    "format": "biome format --write .",
+    "test": "vitest run",
+    "test:integration": "node --env-file-if-exists=.env ./node_modules/vitest/vitest.mjs run --config vitest.integration.config.js"
   },
   "dependencies": {
-    "express": "^4.21.2",
-    "sequelize": "^6.37.5",
-    "pg": "^8.14.0",
-    "pg-hstore": "^2.3.4",
-    "ioredis": "^5.4.2",
-    "jsonwebtoken": "^9.0.2",
-    "bcryptjs": "^3.0.2",
-    "dotenv": "^16.4.7",
-    "joi": "^17.13.3",
-    "uuid": "^11.0.5",
-    "winston": "^3.17.0",
-    "morgan": "^1.10.0",
-    "helmet": "^8.0.0",
-    "cors": "^2.8.5",
-    "express-rate-limit": "^7.5.0"
+    "bcryptjs": "3.0.3",
+    "drizzle-orm": "0.45.3",
+    "express": "5.2.1",
+    "jose": "6.2.12",
+    "pg": "8.23.1",
+    "pino": "10.4.0",
+    "redis": "6.3.0",
+    "swagger-ui-dist": "5.33.1",
+    "zod": "4.6.5"
   },
   "devDependencies": {
-    "jest": "^29.7.0",
-    "supertest": "^7.0.0",
-    "eslint": "^9.22.0"
+    "@biomejs/biome": "2.5.15",
+    "vitest": "5.0.3"
+  },
+  "scarfSettings": {
+    "enabled": false
   }
 }

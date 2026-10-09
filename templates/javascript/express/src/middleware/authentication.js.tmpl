@@ -1,0 +1,25 @@
+import { errors } from "../abstraction/error.js";
+import { TYPE_ACCESS, verify } from "../pkg/auth-token/auth-token.js";
+import { ctxOf } from "./context.js";
+
+// authentication requires a valid access token (Bearer) and sets ctx.auth.
+// Refresh tokens are rejected here (typ check).
+export function authentication(f) {
+  return async (req, res, next) => {
+    const header = req.get("authorization") ?? "";
+    if (!header.startsWith("Bearer ")) throw errors.unauthorized();
+    let claims;
+    try {
+      claims = await verify(
+        header.slice("Bearer ".length),
+        f.keys.publicKey,
+        f.config.APP_NAME,
+        TYPE_ACCESS,
+      );
+    } catch {
+      throw errors.unauthorized("invalid or expired token");
+    }
+    ctxOf(res).auth = { id: claims.sub };
+    next();
+  };
+}

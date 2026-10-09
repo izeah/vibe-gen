@@ -1,0 +1,6 @@
+import { newAuthService } from "../../service/auth/service.js";
+
+export const newHandler = (f) => ({
+  authService: newAuthService(f),
+  config: f.config,
+});

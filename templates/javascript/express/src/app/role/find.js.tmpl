@@ -1,0 +1,11 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { roleFindQuery } from "../../dto/role.js";
+import { ctxOf } from "../../middleware/context.js";
+
+// GET /v1/roles?page=&page_size=&sort_by=&sort=
+export const find = (h) => async (req, res) => {
+  const query = parse(roleFindQuery, req.query);
+  const { data, info } = await h.roleService.find(ctxOf(res), query);
+  res.json(success(data, info));
+};

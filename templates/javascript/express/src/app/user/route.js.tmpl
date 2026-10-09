@@ -1,0 +1,25 @@
+import { Router } from "express";
+import { requirePermission } from "../../middleware/permission.js";
+import { create } from "./create.js";
+import { findById } from "./find-by-id.js";
+import { me } from "./me.js";
+import { setRoles } from "./set-roles.js";
+import { update } from "./update.js";
+
+// Any authenticated user may read their own profile; managing other users needs a permission
+// (users:*), which the seed grants to admin only. Changing a user's roles needs roles:manage:
+// users:update alone must not let anyone grant themselves admin.
+export function route(h) {
+  const r = Router();
+  const can = (action) => requirePermission(h.authzService, "users", action);
+  r.get("/me", me(h));
+  r.get("/:id", can("read"), findById(h));
+  r.post("/", can("create"), create(h));
+  r.put("/:id", can("update"), update(h));
+  r.put(
+    "/:id/roles",
+    requirePermission(h.authzService, "roles", "manage"),
+    setRoles(h),
+  );
+  return r;
+}

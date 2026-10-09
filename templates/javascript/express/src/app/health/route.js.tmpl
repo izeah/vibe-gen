@@ -1,0 +1,9 @@
+import { Router } from "express";
+import { check } from "./check.js";
+
+// Routes are relative: the group path is set in delivery/http.ts.
+export function route(h) {
+  const r = Router();
+  r.get("/", check(h));
+  return r;
+}

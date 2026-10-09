@@ -1,0 +1,16 @@
+import { errors } from "../abstraction/error.js";
+import { ctxOf } from "./context.js";
+
+// requirePermission allows the route only if one of the user's roles holds resource:action
+// (user_roles / role_permissions tables, cached in Redis) and records the granted scope ("any"/"own") for the
+// service (ownerId). Use after authentication.
+export function requirePermission(authz, resource, action) {
+  return async (_req, res, next) => {
+    const ctx = ctxOf(res);
+    if (!ctx.auth) throw errors.unauthorized();
+    const scope = await authz.scope(ctx, ctx.auth.id, resource, action);
+    if (!scope) throw errors.forbidden("insufficient permissions");
+    ctx.permissionScope = scope;
+    next();
+  };
+}

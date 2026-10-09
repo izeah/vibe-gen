@@ -1,0 +1,10 @@
+import { errors } from "../../abstraction/error.js";
+import { success } from "../../abstraction/response.js";
+import { ctxOf } from "../../middleware/context.js";
+
+// GET /v1/users/me: the caller's own profile.
+export const me = (h) => async (_req, res) => {
+  const ctx = ctxOf(res);
+  if (!ctx.auth) throw errors.unauthorized();
+  res.json(success(await h.userService.findById(ctx, ctx.auth.id)));
+};

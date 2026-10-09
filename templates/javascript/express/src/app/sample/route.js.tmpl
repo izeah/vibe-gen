@@ -1,0 +1,20 @@
+import { Router } from "express";
+import { requirePermission } from "../../middleware/permission.js";
+import { create } from "./create.js";
+import { remove } from "./delete.js";
+import { find } from "./find.js";
+import { findById } from "./find-by-id.js";
+import { update } from "./update.js";
+
+// Each endpoint needs a permission (roles/role_permissions); with an ":own" grant the service
+// limits the action to the user's own samples.
+export function route(h) {
+  const r = Router();
+  const can = (action) => requirePermission(h.authzService, "samples", action);
+  r.get("/", can("read"), find(h));
+  r.get("/:id", can("read"), findById(h));
+  r.post("/", can("create"), create(h));
+  r.put("/:id", can("update"), update(h));
+  r.delete("/:id", can("delete"), remove(h));
+  return r;
+}

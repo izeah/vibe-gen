@@ -1,0 +1,11 @@
+import { success } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { sampleIdParams, sampleUpdateRequest } from "../../dto/sample.js";
+import { ctxOf } from "../../middleware/context.js";
+
+// PUT /v1/samples/:id
+export const update = (h) => async (req, res) => {
+  const { id } = parse(sampleIdParams, req.params);
+  const body = parse(sampleUpdateRequest, req.body);
+  res.json(success(await h.sampleService.update(ctxOf(res), id, body)));
+};

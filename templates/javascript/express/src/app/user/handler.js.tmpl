@@ -1,0 +1,7 @@
+import { newAuthzService } from "../../service/authz/service.js";
+import { newUserService } from "../../service/user/service.js";
+
+export const newHandler = (f) => ({
+  userService: newUserService(f),
+  authzService: newAuthzService(f),
+});

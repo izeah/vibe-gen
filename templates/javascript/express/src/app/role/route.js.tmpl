@@ -1,0 +1,21 @@
+import { Router } from "express";
+import { requirePermission } from "../../middleware/permission.js";
+import { create } from "./create.js";
+import { remove } from "./delete.js";
+import { find } from "./find.js";
+import { findById } from "./find-by-id.js";
+import { setPermissions } from "./set-permissions.js";
+import { update } from "./update.js";
+
+// Role management: every endpoint needs roles:manage.
+export function route(h) {
+  const r = Router();
+  const manage = requirePermission(h.authzService, "roles", "manage");
+  r.get("/", manage, find(h));
+  r.get("/:id", manage, findById(h));
+  r.post("/", manage, create(h));
+  r.put("/:id", manage, update(h));
+  r.put("/:id/permissions", manage, setPermissions(h));
+  r.delete("/:id", manage, remove(h));
+  return r;
+}

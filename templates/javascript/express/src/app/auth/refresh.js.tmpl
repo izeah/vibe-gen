@@ -1,0 +1,17 @@
+import {
+  deliver,
+  guard,
+  refreshTokenOf,
+} from "../../abstraction/auth-cookie.js";
+import { success } from "../../abstraction/response.js";
+import { ctxOf } from "../../middleware/context.js";
+import { cookieIO } from "../../middleware/cookie-io.js";
+
+// POST /v1/auth/refresh (refresh token from the body, or only from the cookie in cookie mode)
+export const refresh = (h) => async (req, res) => {
+  const io = cookieIO(req, res);
+  guard(h.config, io);
+  const body = await refreshTokenOf(h.config, io, async () => req.body);
+  const tokens = await h.authService.refresh(ctxOf(res), body);
+  res.json(success(deliver(h.config, io, tokens)));
+};

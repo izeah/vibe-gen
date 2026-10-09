@@ -1,0 +1,17 @@
+import { errors } from "../abstraction/error.js";
+import { ctxOf } from "./context.js";
+
+// requireRole allows the route only if the user holds one of the roles (by roles.code, the
+// immutable handle). Prefer requirePermission: it lets admins change who may do what without
+// a deploy. Use requireRole for flags that really are about the role itself. Use after
+// authentication.
+export function requireRole(authz, ...codes) {
+  return async (_req, res, next) => {
+    const ctx = ctxOf(res);
+    if (!ctx.auth) throw errors.unauthorized();
+    if (!(await authz.hasAnyRole(ctx, ctx.auth.id, ...codes))) {
+      throw errors.forbidden("insufficient role");
+    }
+    next();
+  };
+}

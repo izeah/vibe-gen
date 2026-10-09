@@ -1,0 +1,10 @@
+import { created } from "../../abstraction/response.js";
+import { parse } from "../../abstraction/validate.js";
+import { roleCreateRequest } from "../../dto/role.js";
+import { ctxOf } from "../../middleware/context.js";
+
+// POST /v1/roles
+export const create = (h) => async (req, res) => {
+  const body = parse(roleCreateRequest, req.body);
+  res.status(201).json(created(await h.roleService.create(ctxOf(res), body)));
+};

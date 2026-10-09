@@ -1,0 +1,12 @@
+import { Router } from "express";
+import { login } from "./login.js";
+import { logout } from "./logout.js";
+import { refresh } from "./refresh.js";
+
+export function route(h) {
+  const r = Router();
+  r.post("/login", login(h));
+  r.post("/refresh", refresh(h));
+  r.post("/logout", logout(h));
+  return r;
+}
