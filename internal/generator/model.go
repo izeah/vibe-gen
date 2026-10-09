@@ -8,6 +8,7 @@ type Language string
 const (
 	LanguageGo         Language = "go"
 	LanguageJavaScript Language = "javascript"
+	LanguageTypeScript Language = "typescript"
 )
 
 // ProjectType categorizes what kind of project is generated.
@@ -21,18 +22,18 @@ const (
 
 // DocProfile defines which AI documentation files to generate.
 type DocProfile struct {
-	Architecture bool
-	API          bool
-	Database     bool
-	Observability bool
-	Performance  bool
-	Security     bool
-	Testing      bool
-	Git          bool
-	Decisions    bool
-	Roadmap      bool
-	Progress     bool
-	VibeWorkflow bool
+	Architecture    bool
+	API             bool
+	Database        bool
+	Observability   bool
+	Performance     bool
+	Security        bool
+	Testing         bool
+	Git             bool
+	Decisions       bool
+	Roadmap         bool
+	Progress        bool
+	VibeWorkflow    bool
 	CodingStandards bool
 }
 
@@ -103,6 +104,10 @@ type ProjectConfig struct {
 	Framework string
 	// FrameworkID is the internal identifier used to locate templates.
 	FrameworkID string
+	// Shared lists template dirs under templates/<lang>/ rendered after the framework (framework files win).
+	Shared []string
+	// Variant is the framework sub-option ID (e.g. "app" for Next.js App Router); empty if none.
+	Variant string
 	// ProjectType categorizes the project.
 	ProjectType ProjectType
 	// Destination is the absolute path where the project is generated.
@@ -122,8 +127,15 @@ type ProjectConfig struct {
 }
 
 // TemplateVars returns a map of template variables for rendering.
+// IsTypeScript is "true" or "" so templates can branch with {{if .IsTypeScript}}.
 func (c *ProjectConfig) TemplateVars() map[string]string {
+	isTS := ""
+	if c.Language == LanguageTypeScript {
+		isTS = "true"
+	}
 	return map[string]string{
+		"Variant":      c.Variant,
+		"IsTypeScript": isTS,
 		"ProjectName":  c.Name,
 		"ProjectSlug":  c.Slug,
 		"ProjectTitle": c.Title,

@@ -33,8 +33,9 @@ func main() {
 		RunE:  runNonInteractive,
 	}
 
-	initCmd.Flags().String("lang", "", "Programming language (go, javascript)")
-	initCmd.Flags().String("framework", "", "Framework ID (echo, gin, fiber, cron-job, express, nestjs, cron, react, next, vue, svelte, nuxt)")
+	initCmd.Flags().String("lang", "", "Programming language (go, javascript, typescript)")
+	initCmd.Flags().String("framework", "", "Framework ID (echo, gin, fiber, cron-job, express, hono, nestjs, cron, next, react, vue, sveltekit, nuxt)")
+	initCmd.Flags().String("variant", "", "Framework variant (next: app|pages, default app)")
 	initCmd.Flags().String("name", "", "Project name")
 	initCmd.Flags().String("dest", "", "Destination directory (default: ./<name>)")
 	initCmd.Flags().String("module", "", "Go module name (Go projects only; auto-detected if empty)")
@@ -79,6 +80,7 @@ func runNonInteractive(cmd *cobra.Command, _ []string) error {
 	name, _ := cmd.Flags().GetString("name")
 	dest, _ := cmd.Flags().GetString("dest")
 	moduleName, _ := cmd.Flags().GetString("module")
+	variantID, _ := cmd.Flags().GetString("variant")
 	dryRun, _ := cmd.Flags().GetBool("dry-run")
 
 	// Validate required flags.
@@ -101,16 +103,14 @@ func runNonInteractive(cmd *cobra.Command, _ []string) error {
 		return fmt.Errorf("invalid project name: %w", err)
 	}
 
-	slug := validation.ToSlug(name)
 	if dest == "" {
-		dest = "./" + slug
+		dest = "./" + validation.ToSlug(name)
 	}
 
 	// Lookup language.
 	lang := generator.Language(langStr)
-	langEntry, ok := registry.FindLanguage(lang)
-	if !ok {
-		return fmt.Errorf("unsupported language %q; supported: go, javascript", langStr)
+	if _, ok := registry.FindLanguage(lang); !ok {
+		return fmt.Errorf("unsupported language %q; supported: go, javascript, typescript", langStr)
 	}
 
 	// Lookup framework.
@@ -118,26 +118,18 @@ func runNonInteractive(cmd *cobra.Command, _ []string) error {
 	if !ok {
 		return fmt.Errorf("unsupported framework %q for language %q", frameworkID, langStr)
 	}
+	variant, ok := fw.FindVariant(variantID)
+	if !ok {
+		return fmt.Errorf("unsupported variant %q for framework %q", variantID, frameworkID)
+	}
 
 	// Auto-detect module name for Go.
 	if lang == generator.LanguageGo && moduleName == "" {
 		moduleName = generator.SuggestModuleName(name)
 	}
 
-	cfg := &generator.ProjectConfig{
-		Name:             name,
-		Slug:             slug,
-		Title:            validation.ToTitle(name),
-		Language:         lang,
-		Framework:        fw.Name,
-		FrameworkID:      string(langEntry.ID) + "/" + fw.ID,
-		ProjectType:      fw.ProjectType,
-		Destination:      dest,
-		ModuleName:       moduleName,
-		DocProfile:       fw.DocProfile,
-		PostInstallSteps: fw.PostInstallSteps,
-		DryRun:           dryRun,
-	}
+	cfg := fw.ProjectConfig(lang, variant, name, dest, moduleName)
+	cfg.DryRun = dryRun
 
 	return runGeneration(cfg)
 }

@@ -1,0 +1,3 @@
+/* nosemgrep: antislop-gradient -- DESIGN.md motif: sunrise banner on the landing hero */
+.hero { background: linear-gradient(180deg, var(--sun), var(--bg)); }
+.loader { animation: spin 1s linear infinite; } /* nosemgrep: antislop-endless-animation -- loading indicator */

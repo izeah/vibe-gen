@@ -1,0 +1,7 @@
+.a { background: linear-gradient(135deg, #667eea, #764ba2); }
+.b { backdrop-filter: blur(8px); box-shadow: 0 0 24px rgba(0, 0, 0, 0.3); }
+.c { min-height: 100vh; outline: none; font-size: 17px; }
+.d { animation: spin 1s infinite; transition: all 0.3s; }
+.e:hover { transform: scale(1.05); }
+@import url("https://fonts.googleapis.com/css2?family=Inter");
+@import "tailwindcss";

@@ -29,10 +29,10 @@ var secretPatterns = []*secretRule{
 
 // safeValuePatterns matches values that are clearly placeholders — safe to ignore.
 var safeValuePatterns = []*regexp.Regexp{
-	regexp.MustCompile(`^["']?<[^>]+>["']?$`),            // <placeholder>
-	regexp.MustCompile(`^["']?\{\{[^}]+\}\}["']?$`),       // {{VARIABLE}}
+	regexp.MustCompile(`^["']?<[^>]+>["']?$`),       // <placeholder>
+	regexp.MustCompile(`^["']?\{\{[^}]+\}\}["']?$`), // {{VARIABLE}}
 	regexp.MustCompile(`(?i)^["']?(your[_\-]?|change[_\-]?me|todo|fixme|xxx|placeholder|example|sample|test|local|demo|dummy)`),
-	regexp.MustCompile(`^["']?$`),                          // empty string
+	regexp.MustCompile(`^["']?$`), // empty string
 }
 
 type secretRule struct {
@@ -135,5 +135,11 @@ func isSafeValue(match string) bool {
 			return true
 		}
 	}
+
+	// Skip format strings (contains %) and key patterns (contain : as separator, e.g., "session:token:%s")
+	if strings.Contains(val, "%") || strings.Contains(val, ":") {
+		return true
+	}
+
 	return false
 }

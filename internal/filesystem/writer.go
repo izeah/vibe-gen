@@ -2,7 +2,6 @@ package filesystem
 
 import (
 	"fmt"
-	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -45,35 +44,4 @@ func CleanupDir(destDir string, created bool) error {
 		return nil // never remove pre-existing directories
 	}
 	return os.RemoveAll(destDir)
-}
-
-// CopyFS copies all files from src (an fs.FS) under srcRoot to destDir.
-// It respects SafeJoin to prevent path traversal.
-func CopyFS(src fs.FS, srcRoot, destDir string, dryRun bool) error {
-	return fs.WalkDir(src, srcRoot, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
-		}
-		// Compute relative path from srcRoot.
-		rel, relErr := filepath.Rel(srcRoot, path)
-		if relErr != nil {
-			return relErr
-		}
-		dest, joinErr := SafeJoin(destDir, rel)
-		if joinErr != nil {
-			return joinErr
-		}
-		if d.IsDir() {
-			if dryRun {
-				fmt.Printf("  [dry-run] would mkdir: %s\n", dest)
-				return nil
-			}
-			return os.MkdirAll(dest, 0o755)
-		}
-		data, readErr := fs.ReadFile(src, path)
-		if readErr != nil {
-			return fmt.Errorf("reading embedded file %s: %w", path, readErr)
-		}
-		return WriteFile(dest, data, dryRun)
-	})
 }

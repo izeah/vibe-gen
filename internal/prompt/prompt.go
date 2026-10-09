@@ -1,13 +1,12 @@
 package prompt
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
-	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/bubbles/textinput"
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/izeah01/vibe-gen/internal/generator"
 	"github.com/izeah01/vibe-gen/internal/registry"
 	"github.com/izeah01/vibe-gen/internal/validation"
@@ -19,6 +18,7 @@ type step int
 const (
 	stepLanguage step = iota
 	stepFramework
+	stepVariant // only for frameworks with variants
 	stepName
 	stepDest
 	stepModuleName // Go only
@@ -38,6 +38,9 @@ type Model struct {
 	frameworks  []registry.Framework
 	frameCursor int
 
+	// variant selection
+	variantCursor int
+
 	// text inputs
 	nameInput   textinput.Model
 	destInput   textinput.Model
@@ -46,6 +49,7 @@ type Model struct {
 	// collected values
 	selectedLang      registry.Language
 	selectedFramework registry.Framework
+	selectedVariant   registry.Variant
 
 	// confirmation
 	confirmed bool
@@ -74,10 +78,10 @@ func New() Model {
 	mi.Width = 40
 
 	return Model{
-		step:      stepLanguage,
-		languages: registry.Languages(),
-		nameInput: ni,
-		destInput: di,
+		step:        stepLanguage,
+		languages:   registry.Languages(),
+		nameInput:   ni,
+		destInput:   di,
 		moduleInput: mi,
 	}
 }
@@ -97,6 +101,8 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m.updateLanguage(msg)
 		case stepFramework:
 			return m.updateFramework(msg)
+		case stepVariant:
+			return m.updateVariant(msg)
 		case stepName:
 			return m.updateName(msg)
 		case stepDest:
@@ -151,6 +157,37 @@ func (m Model) updateFramework(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case "enter", " ":
 		m.selectedFramework = m.frameworks[m.frameCursor]
+		m.selectedVariant = registry.Variant{}
+		if len(m.selectedFramework.Variants) > 0 {
+			m.variantCursor = 0
+			m.step = stepVariant
+			return m, nil
+		}
+		m.nameInput.Focus()
+		m.step = stepName
+	}
+	return m, nil
+}
+
+// — Variant selection —
+
+func (m Model) updateVariant(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
+	variants := m.selectedFramework.Variants
+	switch msg.String() {
+	case "ctrl+c", "q":
+		return m, tea.Quit
+	case "esc":
+		m.step = stepFramework
+	case "up", "k":
+		if m.variantCursor > 0 {
+			m.variantCursor--
+		}
+	case "down", "j":
+		if m.variantCursor < len(variants)-1 {
+			m.variantCursor++
+		}
+	case "enter", " ":
+		m.selectedVariant = variants[m.variantCursor]
 		m.nameInput.Focus()
 		m.step = stepName
 	}
@@ -166,6 +203,9 @@ func (m Model) updateName(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "esc":
 		m.nameInput.Blur()
 		m.step = stepFramework
+		if len(m.selectedFramework.Variants) > 0 {
+			m.step = stepVariant
+		}
 	case "enter":
 		name := strings.TrimSpace(m.nameInput.Value())
 		if err := validation.ValidateName(name); err != nil {
@@ -288,6 +328,19 @@ func (m Model) View() string {
 		}
 		sb.WriteString("\n" + helpStyle.Render("  ↑/↓ navigate  •  enter select  •  esc back  •  q quit"))
 
+	case stepVariant:
+		sb.WriteString(sectionStyle.Render("  Select "+m.selectedFramework.Name+" Variant") + "\n\n")
+		for i, v := range m.selectedFramework.Variants {
+			cursor := "  "
+			line := "  " + v.Name
+			if i == m.variantCursor {
+				cursor = cursorStyle.Render("▶ ")
+				line = selectedStyle.Render("  " + v.Name)
+			}
+			sb.WriteString(cursor + line + "\n")
+		}
+		sb.WriteString("\n" + helpStyle.Render("  ↑/↓ navigate  •  enter select  •  esc back  •  q quit"))
+
 	case stepName:
 		sb.WriteString(sectionStyle.Render("  Project Name") + "\n\n")
 		sb.WriteString("  " + m.nameInput.View() + "\n")
@@ -327,9 +380,14 @@ func (m Model) renderSummary() string {
 	rows := []string{
 		labelStyle.Render("Language") + " : " + valueStyle.Render(m.selectedLang.DisplayName),
 		labelStyle.Render("Framework") + " : " + valueStyle.Render(m.selectedFramework.DisplayName),
-		labelStyle.Render("Project") + " : " + valueStyle.Render(name),
-		labelStyle.Render("Location") + " : " + valueStyle.Render(dest),
 	}
+	if m.selectedVariant.ID != "" {
+		rows = append(rows, labelStyle.Render("Variant")+" : "+valueStyle.Render(m.selectedVariant.Name))
+	}
+	rows = append(rows,
+		labelStyle.Render("Project")+" : "+valueStyle.Render(name),
+		labelStyle.Render("Location")+" : "+valueStyle.Render(dest),
+	)
 	if m.selectedLang.ID == generator.LanguageGo {
 		rows = append(rows, labelStyle.Render("Module")+" : "+valueStyle.Render(m.moduleInput.Value()))
 	}
@@ -347,10 +405,9 @@ func (m Model) renderSummary() string {
 // buildConfig constructs a ProjectConfig from the current model state.
 func (m Model) buildConfig() *generator.ProjectConfig {
 	name := strings.TrimSpace(m.nameInput.Value())
-	slug := validation.ToSlug(name)
 	dest := strings.TrimSpace(m.destInput.Value())
 	if dest == "" {
-		dest = "./" + slug
+		dest = "./" + validation.ToSlug(name)
 	}
 	// Make dest absolute relative to cwd.
 	if !filepath.IsAbs(dest) {
@@ -358,22 +415,5 @@ func (m Model) buildConfig() *generator.ProjectConfig {
 		dest = filepath.Join(wd, dest)
 	}
 
-	moduleName := m.moduleInput.Value()
-	if m.selectedLang.ID != generator.LanguageGo {
-		moduleName = ""
-	}
-
-	return &generator.ProjectConfig{
-		Name:             name,
-		Slug:             slug,
-		Title:            validation.ToTitle(name),
-		Language:         m.selectedLang.ID,
-		Framework:        m.selectedFramework.Name,
-		FrameworkID:      fmt.Sprintf("%s/%s", string(m.selectedLang.ID), m.selectedFramework.ID),
-		ProjectType:      m.selectedFramework.ProjectType,
-		Destination:      dest,
-		ModuleName:       strings.TrimSpace(moduleName),
-		DocProfile:       m.selectedFramework.DocProfile,
-		PostInstallSteps: m.selectedFramework.PostInstallSteps,
-	}
+	return m.selectedFramework.ProjectConfig(m.selectedLang.ID, m.selectedVariant, name, dest, strings.TrimSpace(m.moduleInput.Value()))
 }
