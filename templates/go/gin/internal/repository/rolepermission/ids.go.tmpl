@@ -1,0 +1,19 @@
+package repositoryrolepermission
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) IDs(ctx *abstraction.Context, f *dto.RolePermissionFilter) (data []string, err error) {
+	err = r.CheckTrx(ctx).Model(&model.RolePermission{}).Scopes(func(tx *gorm.DB) *gorm.DB {
+		if f != nil {
+			return f.Apply(tx).Select("role_permissions.id")
+		}
+		return tx.Select("role_permissions.id")
+	}).Pluck("role_permissions.id", &data).Error
+	return
+}

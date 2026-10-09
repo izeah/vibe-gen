@@ -1,0 +1,36 @@
+package repositoryrole
+
+import (
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+)
+
+// Repository defines the data access contract for roles.
+type Repository interface {
+	Find(ctx *abstraction.Context, f *dto.RoleFilter) (data []*model.Role, err error)
+	FindOne(ctx *abstraction.Context, f *dto.RoleFilter) (data *model.Role, err error)
+	Count(ctx *abstraction.Context, f *dto.RoleFilter) (data *int64, err error)
+	Create(ctx *abstraction.Context, e interface{}) (db *gorm.DB)
+	Update(ctx *abstraction.Context, f *dto.RoleFilter, e *model.Role) *gorm.DB
+	Updates(ctx *abstraction.Context, f *dto.RoleFilter, e *model.Role) *gorm.DB
+	UpdateOrInsert(ctx *abstraction.Context, e []*model.Role) *gorm.DB
+	FirstOrCreate(ctx *abstraction.Context, data *model.Role) (err error)
+	Exists(ctx *abstraction.Context, f *dto.RoleFilter) (bool, error)
+	Delete(ctx *abstraction.Context, f *dto.RoleFilter) *gorm.DB
+	SoftDelete(ctx *abstraction.Context, f *dto.RoleFilter) *gorm.DB
+	IDs(ctx *abstraction.Context, f *dto.RoleFilter) (data []string, err error)
+}
+
+type repository struct {
+	abstraction.Repository
+}
+
+// New creates a new roles Repository.
+func New(db *gorm.DB) Repository {
+	return &repository{
+		Repository: abstraction.Repository{Db: db},
+	}
+}

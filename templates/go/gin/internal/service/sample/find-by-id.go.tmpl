@@ -9,7 +9,7 @@ import (
 )
 
 func (s *service) FindByID(ctx *abstraction.Context, req *dto.SampleFindByIDRequest) (*dto.SampleResponse, error) {
-	sample, err := s.sampleRepository.FindOne(ctx, &dto.SampleFilter{IDs: []string{req.ID}})
+	sample, err := s.sampleRepository.FindOne(ctx, &dto.SampleFilter{IDs: []string{req.ID}, CreatedBy: ctx.OwnerID()})
 	if err != nil {
 		return nil, response.ErrorConstant.NotFound.WithMessage("sample not found")
 	}

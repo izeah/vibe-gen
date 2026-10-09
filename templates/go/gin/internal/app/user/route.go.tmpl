@@ -1,10 +1,22 @@
 package user
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/middleware"
+)
 
 // Route registers user endpoints on the given router group.
+// Any authenticated user may read their own profile; managing other users needs a permission
+// (users:*), which the seed grants to admin only. Changing a user's roles needs roles:manage:
+// users:update alone must not let anyone grant themselves admin.
 func (h *Handler) Route(g *gin.RouterGroup) {
-	g.GET("/:id", h.FindByID)
-	g.POST("", h.Create)
-	g.PUT("/:id", h.Update)
+	can := func(action string) gin.HandlerFunc {
+		return middleware.RequirePermission(h.AuthzService, "users", action)
+	}
+	g.GET("/me", h.Me)
+	g.GET("/:id", can("read"), h.FindByID)
+	g.POST("", can("create"), h.Create)
+	g.PUT("/:id", can("update"), h.Update)
+	g.PUT("/:id/roles", middleware.RequirePermission(h.AuthzService, "roles", "manage"), h.SetRoles)
 }

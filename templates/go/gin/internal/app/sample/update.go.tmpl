@@ -6,6 +6,7 @@ import (
 	"{{.ModuleName}}/internal/abstraction"
 	"{{.ModuleName}}/internal/dto"
 	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
 )
 
 // Update updates an existing sample.
@@ -30,6 +31,10 @@ func (h *Handler) Update(c *gin.Context) {
 		return
 	}
 	if err = c.ShouldBindUri(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = validator.Struct(payload); err != nil {
 		response.ErrorBadRequest(err).Send(c)
 		return
 	}

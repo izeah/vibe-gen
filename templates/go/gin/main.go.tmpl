@@ -8,8 +8,9 @@
 //
 // @license.name    MIT
 //
-// @host            localhost:8080
 // @BasePath        /v1
+// (no @host: Swagger UI calls the host it was loaded from. @BasePath is static: with
+// app.base_path set, change it to <base_path>/v1 here and run `make swag`.)
 //
 // @securityDefinitions.apikey BearerAuth
 // @in header
@@ -37,8 +38,19 @@ import (
 	"{{.ModuleName}}/pkg/telemetry"
 )
 
+// maxBodyBytes caps every request body (JSON APIs need far less); raise it per route for uploads.
+const maxBodyBytes = 1 << 20
+
 func main() {
 	cfg := config.Get()
+	// Cookie mode guards refresh/logout with an Origin allowlist: without one every request fails.
+	if cfg.App.AuthCookieMode && len(cfg.App.CorsAllowOrigin) == 0 {
+		log.Fatal().Msg("auth_cookie_mode requires cors_allow_origin (the exact SPA origin)")
+	}
+	// A role change or a deleted user only takes effect when the access token expires.
+	if cfg.Crypto.AccessTokenLifetime > 60 {
+		log.Fatal().Msg("crypto.access_token_lifetime must be at most 60 minutes")
+	}
 
 	// 2. Initialize Telemetry (OpenTelemetry tracer/logger + phuslu/log bridge)
 	teleCtx, teleCancel := context.WithCancel(context.Background())
@@ -63,7 +75,16 @@ func main() {
 	}
 
 	r := gin.New()
+	// Only listed proxies may set X-Forwarded-For (gin trusts every proxy by default, which lets
+	// any client spoof c.ClientIP() and dodge the per-IP login rate limit).
+	if err := r.SetTrustedProxies(cfg.App.TrustedProxies); err != nil {
+		log.Fatal().Err(err).Msg("invalid trusted_proxies")
+	}
 	r.Use(gin.Recovery())
+	r.Use(middleware.SecureHeaders(cfg.App.BasePath))
+	if len(cfg.App.CorsAllowOrigin) > 0 {
+		r.Use(middleware.CORS(cfg.App.CorsAllowOrigin, cfg.App.AuthCookieMode))
+	}
 	r.Use(middleware.Trace())
 	r.Use(middleware.Context())
 
@@ -71,8 +92,9 @@ func main() {
 	delivery.HTTP(r, f)
 
 	srv := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.App.Port),
-		Handler: r,
+		Addr:              fmt.Sprintf(":%d", cfg.App.Port),
+		Handler:           http.MaxBytesHandler(r, maxBodyBytes),
+		ReadHeaderTimeout: 10 * time.Second, // Slowloris protection
 	}
 
 	go func() {

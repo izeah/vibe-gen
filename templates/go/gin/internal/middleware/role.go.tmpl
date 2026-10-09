@@ -1,0 +1,38 @@
+package middleware
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	serviceauthz "{{.ModuleName}}/internal/service/authz"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// RequireRole allows the route only if the user holds one of the roles (by roles.code, the
+// immutable handle). Prefer RequirePermission: it lets admins change who may do what without a
+// deploy. Use RequireRole for flags that really are about the role itself. Must run after
+// Authentication.
+func RequireRole(authz serviceauthz.Service, codes ...string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := abstraction.GetContext(c)
+		if ctx.Auth == nil {
+			response.ErrorConstant.Unauthorized.Send(c)
+			c.Abort()
+			return
+		}
+		held, err := authz.HasAnyRole(ctx, ctx.Auth.ID, codes...)
+		if err != nil {
+			response.ErrorBuilder(http.StatusInternalServerError, err).Send(c)
+			c.Abort()
+			return
+		}
+		if !held {
+			response.ErrorConstant.Forbidden.WithMessage("insufficient role").Send(c)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}

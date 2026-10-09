@@ -1,0 +1,21 @@
+package repositoryrolepermission
+
+import (
+	"uuid"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+)
+
+// HasPermissionTo reports whether any of the roles holds the exact permission (no scope
+// resolution: request checks go through serviceauthz, which also caches).
+func (r *repository) HasPermissionTo(ctx *abstraction.Context, roleIDs []uuid.UUID, permission string) (bool, error) {
+	if len(roleIDs) == 0 {
+		return false, nil
+	}
+	ids := make([]string, len(roleIDs))
+	for i, id := range roleIDs {
+		ids[i] = id.String()
+	}
+	return r.Exists(ctx, &dto.RolePermissionFilter{RoleIDs: ids, Permissions: []string{permission}})
+}

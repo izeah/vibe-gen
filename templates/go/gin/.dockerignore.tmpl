@@ -1,0 +1,14 @@
+# Never send secrets or local state into the build context.
+.env
+.env.*
+!.env.example
+config.yml
+config.*.yml
+!config.example.yml
+secret/
+secret-auth/
+*.pem
+*.key
+.git
+out/
+coverage.out

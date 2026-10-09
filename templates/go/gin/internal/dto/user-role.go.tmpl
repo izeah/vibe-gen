@@ -1,0 +1,81 @@
+package dto
+
+import (
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// UserRoleFilter is the query filter for user_roles.
+type UserRoleFilter struct {
+	*abstraction.Pagination
+	Sorts     []abstraction.SortItem `json:"sorts,omitempty" form:"sorts"`
+	IDs       []string               `json:"ids"             form:"ids"`
+	UserIDs   []string               `json:"user_ids"        form:"user_ids"`
+	RoleIDs   []string               `json:"role_ids"        form:"role_ids"`
+	ForCount  bool                   `json:"-"`
+	ForUpdate bool                   `json:"-"`
+	clauses   []clause.Expression
+	scopes    []func(*gorm.DB) *gorm.DB
+}
+
+// Clauses appends GORM clause expressions.
+func (f *UserRoleFilter) Clauses(conds ...clause.Expression) *UserRoleFilter {
+	if f != nil {
+		f.clauses = append(f.clauses, conds...)
+	}
+	return f
+}
+
+// Scopes appends custom GORM query scopes.
+func (f *UserRoleFilter) Scopes(funcs ...func(*gorm.DB) *gorm.DB) *UserRoleFilter {
+	if f != nil {
+		f.scopes = append(f.scopes, funcs...)
+	}
+	return f
+}
+
+// Order appends SortItem entries.
+func (f *UserRoleFilter) Order(items ...abstraction.SortItem) *UserRoleFilter {
+	if f != nil {
+		f.Sorts = append(f.Sorts, items...)
+	}
+	return f
+}
+
+// userRoleSortColumns is the ORDER BY allowlist for UserRoleFilter.
+var userRoleSortColumns = abstraction.SortColumns{
+	"created_at": "user_roles.created_at",
+}
+
+// Apply applies the filter conditions to a GORM query.
+func (f *UserRoleFilter) Apply(tx *gorm.DB) *gorm.DB {
+	if f == nil {
+		return tx
+	}
+	if len(f.IDs) > 0 {
+		tx = tx.Where("user_roles.id IN ?", f.IDs)
+	}
+	if len(f.UserIDs) > 0 {
+		tx = tx.Where("user_roles.user_id IN ?", f.UserIDs)
+	}
+	if len(f.RoleIDs) > 0 {
+		tx = tx.Where("user_roles.role_id IN ?", f.RoleIDs)
+	}
+	for _, c := range f.clauses {
+		tx = tx.Clauses(c)
+	}
+	for _, s := range f.scopes {
+		tx = tx.Scopes(s)
+	}
+	tx = userRoleSortColumns.Apply(tx, f.Sorts...)
+	if !f.ForCount && !f.ForUpdate {
+		tx.Select("user_roles.*")
+		if f.Pagination != nil {
+			tx = userRoleSortColumns.Apply(tx, f.Pagination.SortItems()...)
+			f.Pagination.Apply(tx)
+		}
+	}
+	return tx
+}

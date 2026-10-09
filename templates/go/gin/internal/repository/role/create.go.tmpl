@@ -1,0 +1,12 @@
+package repositoryrole
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+
+	"gorm.io/gorm"
+)
+
+func (r *repository) Create(ctx *abstraction.Context, e interface{}) (db *gorm.DB) {
+	db = r.CheckTrx(ctx).Create(e)
+	return
+}

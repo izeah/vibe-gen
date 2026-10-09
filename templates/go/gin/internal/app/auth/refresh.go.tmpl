@@ -1,11 +1,17 @@
 package auth
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/dto"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
 	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
 )
 
 // Refresh exchanges a valid refresh token for a new token pair.
@@ -23,13 +29,26 @@ func (h *Handler) Refresh(c *gin.Context) {
 		data    *dto.LoginResponse
 		err     error
 	)
-	if err = c.ShouldBindJSON(payload); err != nil {
+	cfg := config.App()
+	// Cookie mode reads the refresh token from the HttpOnly cookie, never from the body.
+	if cfg.AuthCookieMode {
+		payload.RefreshToken, _ = c.Cookie(authcookie.Name)
+	} else if err = c.ShouldBindJSON(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = validator.Struct(payload); err != nil {
 		response.ErrorBadRequest(err).Send(c)
 		return
 	}
 	if data, err = h.AuthService.Refresh(ctx, payload); err != nil {
 		response.ErrorResponse(err).Send(c)
 		return
+	}
+	if cfg.AuthCookieMode {
+		_, refreshLifetime := authtoken.Lifetimes()
+		http.SetCookie(c.Writer, authcookie.New(data.RefreshToken, refreshLifetime, cfg.BasePath))
+		data.RefreshToken = ""
 	}
 	response.SuccessResponse(data).Send(c)
 }

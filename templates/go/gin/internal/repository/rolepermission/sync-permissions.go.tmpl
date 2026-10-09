@@ -1,0 +1,26 @@
+package repositoryrolepermission
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/model"
+)
+
+// SyncPermissions replaces the role's whole permission set with perms (empty = none): one
+// delete of the permissions not listed, one insert of the missing ones, atomically (a
+// savepoint when ctx already carries a transaction).
+func (r *repository) SyncPermissions(ctx *abstraction.Context, roleID uuid.UUID, perms []string) error {
+	return r.CheckTrx(ctx).Transaction(func(tx *gorm.DB) error {
+		del := tx.Where("role_id = ?", roleID)
+		if len(perms) > 0 {
+			del = del.Where("permission NOT IN ?", perms)
+		}
+		if err := del.Delete(&model.RolePermission{}).Error; err != nil {
+			return err
+		}
+		return give(tx, ctx, roleID, perms).Error
+	})
+}

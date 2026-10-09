@@ -3,8 +3,10 @@ package delivery
 import (
 	"{{.ModuleName}}/internal/app/auth"
 	"{{.ModuleName}}/internal/app/health"
+	"{{.ModuleName}}/internal/app/role"
 	"{{.ModuleName}}/internal/app/sample"
 	"{{.ModuleName}}/internal/app/user"
+	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/factory"
 	"{{.ModuleName}}/internal/middleware"
 
@@ -18,10 +20,12 @@ import (
 
 // HTTP registers all routes onto the Gin router.
 func HTTP(r *gin.Engine, f *factory.Factory) {
-	// Swagger UI
-	r.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	// Swagger UI: never in production (it maps the whole API surface).
+	if config.App().Env != "production" {
+		r.GET(config.App().BasePath+"/swagger/*any", ginSwagger.WrapHandler(swaggerFiles.Handler))
+	}
 
-	v1 := r.Group("/v1")
+	v1 := r.Group(config.App().BasePath + "/v1")
 
 	// Public routes
 	health.NewHandler(f).Route(v1.Group("/health"))
@@ -31,9 +35,5 @@ func HTTP(r *gin.Engine, f *factory.Factory) {
 	v1.Use(middleware.Authentication())
 	user.NewHandler(f).Route(v1.Group("/users"))
 	sample.NewHandler(f).Route(v1.Group("/samples"))
-}
-
-// Register is an alias for HTTP for backwards compatibility.
-func Register(r *gin.Engine, f *factory.Factory) {
-	HTTP(r, f)
+	role.NewHandler(f).Route(v1.Group("/roles"))
 }

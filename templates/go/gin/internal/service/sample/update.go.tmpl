@@ -10,7 +10,8 @@ import (
 )
 
 func (s *service) Update(ctx *abstraction.Context, req *dto.SampleUpdateRequest) (*dto.SampleResponse, error) {
-	m, err := s.sampleRepository.FindOne(ctx, &dto.SampleFilter{IDs: []string{req.ID}})
+	// Rows of other users are "not found" (no existence leak) when the permission is "own".
+	m, err := s.sampleRepository.FindOne(ctx, &dto.SampleFilter{IDs: []string{req.ID}, CreatedBy: ctx.OwnerID()})
 	if err != nil {
 		return nil, response.ErrorConstant.NotFound.WithMessage("sample not found")
 	}

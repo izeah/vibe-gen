@@ -1,0 +1,69 @@
+package serviceuser
+
+import (
+	"errors"
+	"slices"
+	"uuid"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// SetRoles replaces the user's whole role set (route permission: roles:manage) and drops the
+// user's cached roles, so the change applies to the next request.
+func (s *service) SetRoles(ctx *abstraction.Context, req *dto.UserSetRolesRequest) (*dto.UserResponse, error) {
+	ids := make([]uuid.UUID, 0, len(req.RoleIDs))
+	strs := make([]string, 0, len(req.RoleIDs))
+	for _, raw := range req.RoleIDs {
+		id, err := uuid.Parse(raw)
+		if err != nil {
+			return nil, response.ErrorConstant.BadRequest.WithMessage("invalid role id: " + raw)
+		}
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+			strs = append(strs, id.String())
+		}
+	}
+
+	var userID uuid.UUID
+	err := s.trxManager.WithTrx(ctx, func(ctx *abstraction.Context) error {
+		var (
+			err   error
+			u     *model.User
+			found *int64
+		)
+		// Lock the user row: concurrent replacements of the same set run one after the other.
+		u, err = s.userRepository.FindOne(ctx, (&dto.UserFilter{IDs: []string{req.ID}}).
+			Clauses(clause.Locking{Strength: "UPDATE"}))
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return response.ErrorConstant.NotFound.WithMessage("user not found")
+		}
+		if err != nil {
+			return response.ErrorConstant.InternalServerError.WithError(err)
+		}
+		userID = u.ID
+		if len(ids) > 0 {
+			found, err = s.roleRepository.Count(ctx, &dto.RoleFilter{IDs: strs})
+			if err != nil {
+				return response.ErrorConstant.InternalServerError.WithError(err)
+			}
+			if int(*found) != len(ids) {
+				return response.ErrorConstant.BadRequest.WithMessage("unknown role id")
+			}
+		}
+		if err = s.userRoleRepository.ReassignRole(ctx, u.ID, ids); err != nil {
+			return response.ErrorConstant.InternalServerError.WithError(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err // already a response error
+	}
+	s.authzService.InvalidateUsers(ctx, userID)
+	return s.FindByID(ctx, &dto.UserFindByIDRequest{ID: req.ID})
+}

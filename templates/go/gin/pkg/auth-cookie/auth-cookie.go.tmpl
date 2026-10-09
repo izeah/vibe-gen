@@ -1,0 +1,43 @@
+package authcookie
+
+import (
+	"net/http"
+	"slices"
+	"time"
+)
+
+// Cookie mode (app.auth_cookie_mode / AUTH_COOKIE_MODE) is for browser SPAs that call the API
+// directly, without a BFF: the refresh token lives in an HttpOnly cookie scoped to /v1/auth and
+// is never readable by JavaScript; the access token stays in the SPA's memory. The SPA and the
+// API must share a site (app.example.com + api.example.com): browsers block third-party cookies.
+const (
+	Name       = "__Secure-refresh_token"
+	CSRFHeader = "X-CSRF-Protection"
+)
+
+// New returns the refresh-token cookie: HttpOnly, Secure, SameSite=Strict, and scoped to the
+// auth routes so it is never sent to other endpoints.
+func New(token string, maxAge time.Duration, basePath string) *http.Cookie {
+	return &http.Cookie{
+		Name:     Name,
+		Value:    token,
+		Path:     basePath + "/v1/auth",
+		MaxAge:   int(maxAge.Seconds()),
+		HttpOnly: true,
+		Secure:   true,
+		SameSite: http.SameSiteStrictMode,
+	}
+}
+
+// Clear returns a cookie that deletes the refresh token (logout).
+func Clear(basePath string) *http.Cookie {
+	c := New("", 0, basePath)
+	c.MaxAge = -1
+	return c
+}
+
+// CheckCSRF guards every request that relies on the cookie: the Origin must be allowlisted and
+// the custom header present (a cross-site form cannot send it, and it forces a CORS preflight).
+func CheckCSRF(origin, header string, allowed []string) bool {
+	return origin != "" && header != "" && slices.Contains(allowed, origin)
+}

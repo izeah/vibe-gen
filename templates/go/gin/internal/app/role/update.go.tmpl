@@ -1,0 +1,46 @@
+package role
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// Update updates an existing role.
+// @Summary     Update role
+// @Tags        role
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string                   true  "Role ID"
+// @Param       body  body  dto.RoleUpdateRequest  true  "Update payload"
+// @Success     200   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles/{id} [put]
+func (h *Handler) Update(c *gin.Context) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.RoleUpdateRequest)
+		data    *dto.RoleResponse
+		err     error
+	)
+	if err = c.ShouldBindJSON(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = c.ShouldBindUri(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = validator.Struct(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if data, err = h.RoleService.Update(ctx, payload); err != nil {
+		response.ErrorResponse(err).Send(c)
+		return
+	}
+	response.SuccessResponse(data).Send(c)
+}

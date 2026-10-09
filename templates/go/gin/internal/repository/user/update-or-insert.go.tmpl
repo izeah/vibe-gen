@@ -42,6 +42,6 @@ func (r *repository) UpdateOrInsert(ctx *abstraction.Context, e []*model.User) *
 		Columns: []clause.Column{
 			{Name: "id"},
 		},
-		DoUpdates: clause.AssignmentColumns([]string{"name", "email", "password", "role", "updated_at", "updated_by"}),
+		DoUpdates: clause.AssignmentColumns([]string{"name", "email", "password", "updated_at", "updated_by"}),
 	}).Create(&e)
 }

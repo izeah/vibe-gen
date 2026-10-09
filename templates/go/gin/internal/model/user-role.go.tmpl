@@ -1,0 +1,45 @@
+package model
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+)
+
+// UserRoleEntity contains the domain-specific attributes of UserRole.
+type UserRoleEntity struct {
+	UserID uuid.UUID `gorm:"column:user_id;type:uuid;not null" json:"user_id"`
+	RoleID uuid.UUID `gorm:"column:role_id;type:uuid;not null" json:"role_id"`
+}
+
+// UserRole assigns one role to a user (a user holds any number of roles).
+type UserRole struct {
+	abstraction.Entity
+	UserRoleEntity
+
+	// relation
+	User *User `json:"user,omitempty" gorm:"foreignKey:UserID;references:ID"`
+	Role *Role `json:"role,omitempty" gorm:"foreignKey:RoleID;references:ID"`
+
+	// context
+	Context *abstraction.Context `json:"-" gorm:"-"`
+}
+
+// TableName returns the database table name.
+func (UserRole) TableName() string {
+	return "user_roles"
+}
+
+// BeforeCreate sets UUIDv7, timestamps and the audit creator.
+func (m *UserRole) BeforeCreate(_ *gorm.DB) error {
+	m.SetupBeforeCreate(m.Context)
+	return nil
+}
+
+// BeforeUpdate sets updated_at (UnixNano) and updated_by.
+func (m *UserRole) BeforeUpdate(_ *gorm.DB) error {
+	m.SetupBeforeUpdate(m.Context)
+	return nil
+}

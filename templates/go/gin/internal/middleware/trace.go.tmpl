@@ -19,6 +19,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
 )
 
 var tracer = otel.Tracer("{{.ModuleName}}/http")
@@ -27,7 +28,8 @@ const maxTraceBodyLen = 8192
 
 // Trace is an OpenTelemetry-based request tracing middleware.
 // It creates an OTel span per request, captures request/response headers,
-// query parameters, and bodies (JSON / form-data / urlencoded, with sensitive fields masked),
+// and — only when opentelemetry.capture_payload is enabled — query parameters and bodies
+// (JSON / form-data / urlencoded, with sensitive fields masked),
 // and records errors and HTTP status codes onto the span.
 func Trace() gin.HandlerFunc {
 	return func(c *gin.Context) {
@@ -43,13 +45,17 @@ func Trace() gin.HandlerFunc {
 
 		span.SetAttributes(
 			attribute.String("http.method", req.Method),
-			attribute.String("http.url", req.URL.String()),
+			attribute.String("http.url", req.URL.Path),
 			attribute.String("http.client_ip", c.ClientIP()),
 			attribute.String("http.route", req.URL.Path),
 		)
 
+		// Payload (query + bodies) is captured only when opentelemetry.capture_payload is enabled
+		// (privacy-first: it may contain PII even after masking). Enable for local debugging only.
+		capture := config.Get().OpenTelemetry.CapturePayload
+
 		// 1. Request Query Parameters
-		if req.URL.RawQuery != "" {
+		if capture && req.URL.RawQuery != "" {
 			span.SetAttributes(attribute.String("http.request.query", req.URL.RawQuery))
 			for k, v := range req.URL.Query() {
 				if len(v) > 0 {
@@ -71,7 +77,7 @@ func Trace() gin.HandlerFunc {
 
 		// 3. Request Body (buffer and restore)
 		var reqBody []byte
-		if req.Body != nil {
+		if capture && req.Body != nil {
 			reqBody, _ = io.ReadAll(req.Body)
 			req.Body = io.NopCloser(bytes.NewBuffer(reqBody))
 		}
@@ -95,11 +101,7 @@ func Trace() gin.HandlerFunc {
 
 			if actxVal, exists := c.Get("auth"); exists {
 				if actx, ok := actxVal.(*abstraction.AuthContext); ok {
-					span.SetAttributes(
-						attribute.String("user.id", actx.UserID),
-						attribute.String("user.email", actx.Email),
-						attribute.String("user.role", actx.Role),
-					)
+					span.SetAttributes(attribute.String("user.id", actx.UserID))
 				}
 			}
 
@@ -142,7 +144,7 @@ func Trace() gin.HandlerFunc {
 				Int("status", statusCode).
 				Str("client_ip", c.ClientIP())
 
-			if req.URL.RawQuery != "" {
+			if capture && req.URL.RawQuery != "" {
 				logEvent = logEvent.Str("query", req.URL.RawQuery)
 			}
 			if reqHeaders != nil {
@@ -169,9 +171,10 @@ func Trace() gin.HandlerFunc {
 			}
 		}()
 
-		mw := io.MultiWriter(c.Writer, resBody)
-		writer := &bodyDumpResponseWriter{ResponseWriter: c.Writer, Writer: mw}
-		c.Writer = writer
+		if capture {
+			mw := io.MultiWriter(c.Writer, resBody)
+			c.Writer = &bodyDumpResponseWriter{ResponseWriter: c.Writer, Writer: mw}
+		}
 
 		c.Next()
 	}
@@ -218,6 +221,7 @@ func parseRequestBody(contentType string, body []byte) (interface{}, string) {
 	}
 
 	if strings.Contains(contentType, "json") || (len(body) > 0 && (body[0] == '{' || body[0] == '[')) {
+		// nosemgrep: go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface -- encoding/json into interface{} only builds maps/slices for masking; Go has no gadget deserialization
 		var result interface{}
 		if err := json.Unmarshal(body, &result); err == nil {
 			maskJSON(result)
@@ -301,6 +305,7 @@ func parseResponseBody(body []byte) (interface{}, string) {
 	if len(body) == 0 {
 		return nil, ""
 	}
+	// nosemgrep: go.lang.security.deserialization.unsafe-deserialization-interface.go-unsafe-deserialization-interface -- encoding/json into interface{} only builds maps/slices for masking; Go has no gadget deserialization
 	var result interface{}
 	if err := json.Unmarshal(body, &result); err == nil {
 		maskJSON(result)

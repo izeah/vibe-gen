@@ -1,0 +1,38 @@
+package role
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// Delete removes a role by ID.
+// @Summary     Delete role
+// @Tags        role
+// @Param       id   path      string  true  "Role ID"
+// @Success     200  {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles/{id} [delete]
+func (h *Handler) Delete(c *gin.Context) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.RoleDeleteRequest)
+		err     error
+	)
+	if err = c.ShouldBindUri(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = validator.Struct(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = h.RoleService.Delete(ctx, payload); err != nil {
+		response.ErrorResponse(err).Send(c)
+		return
+	}
+	response.SuccessResponse(nil).Send(c)
+}

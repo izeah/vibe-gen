@@ -1,0 +1,42 @@
+package servicerole
+
+import (
+	"errors"
+
+	"github.com/jackc/pgx/v5/pgconn"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/internal/model"
+	"{{.ModuleName}}/pkg/response"
+)
+
+func (s *service) Create(ctx *abstraction.Context, req *dto.RoleCreateRequest) (*dto.RoleResponse, error) {
+	if !roleCode.MatchString(req.Code) {
+		return nil, response.ErrorConstant.BadRequest.WithMessage("code must be snake_case: lowercase letters, digits or _ (2-50, starting with a letter)")
+	}
+	perms, err := s.checkPermissions(req.Permissions)
+	if err != nil {
+		return nil, err
+	}
+	m := &model.Role{Context: ctx, RoleEntity: model.RoleEntity{Code: req.Code, Name: req.Name, Description: req.Description}}
+	// Errors inside the transaction are already response errors: the caller only passes them on.
+	err = s.trxManager.WithTrx(ctx, func(ctx *abstraction.Context) error {
+		var err error
+		if err = s.roleRepository.Create(ctx, m).Error; err != nil {
+			// roles.code UNIQUE: the database decides (no check-then-insert race).
+			if pgErr := (*pgconn.PgError)(nil); errors.As(err, &pgErr) && pgErr.Code == "23505" {
+				return response.ErrorConstant.Duplicate.WithMessage("role already exists")
+			}
+			return response.ErrorConstant.InternalServerError.WithError(err)
+		}
+		if err = s.rolePermissionRepository.GivePermissionTo(ctx, m.ID, perms...).Error; err != nil { // one bulk insert
+			return response.ErrorConstant.InternalServerError.WithError(err)
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return s.toRoleResponse(m, perms), nil
+}

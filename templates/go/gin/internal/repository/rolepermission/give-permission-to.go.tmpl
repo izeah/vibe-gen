@@ -1,0 +1,34 @@
+package repositoryrolepermission
+
+import (
+	"uuid"
+
+	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/model"
+)
+
+// GivePermissionTo grants the permissions to the role in one insert; permissions the role
+// already holds are kept. Callers validate them against authz.Catalog first.
+func (r *repository) GivePermissionTo(ctx *abstraction.Context, roleID uuid.UUID, perms ...string) *gorm.DB {
+	return give(r.CheckTrx(ctx), ctx, roleID, perms)
+}
+
+func give(tx *gorm.DB, ctx *abstraction.Context, roleID uuid.UUID, perms []string) *gorm.DB {
+	if len(perms) == 0 {
+		return tx
+	}
+	rows := make([]*model.RolePermission, len(perms))
+	for i, p := range perms {
+		rows[i] = &model.RolePermission{Context: ctx, RolePermissionEntity: model.RolePermissionEntity{RoleID: roleID, Permission: p}}
+	}
+	return tx.Clauses(clause.OnConflict{
+		Columns: []clause.Column{
+			{Name: "role_id"},
+			{Name: "permission"},
+		},
+		DoNothing: true,
+	}).Create(&rows)
+}

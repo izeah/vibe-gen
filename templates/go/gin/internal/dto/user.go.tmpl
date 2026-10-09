@@ -1,13 +1,20 @@
 package dto
 
 import (
-	"fmt"
-
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
 	"{{.ModuleName}}/internal/abstraction"
 )
+
+// userSortColumns is the ORDER BY allowlist for UserFilter (API field → DB column).
+var userSortColumns = abstraction.SortColumns{
+	"id":         "users.id",
+	"name":       "users.name",
+	"email":      "users.email",
+	"created_at": "users.created_at",
+	"updated_at": "users.updated_at",
+}
 
 // UserFilter is the query filter for listing users.
 type UserFilter struct {
@@ -15,7 +22,6 @@ type UserFilter struct {
 	Sorts     []abstraction.SortItem `json:"sorts,omitempty" form:"sorts"`
 	IDs       []string               `json:"ids"             form:"ids"`
 	Email     string                 `json:"email"           form:"email"`
-	Role      string                 `json:"role"            form:"role"`
 	ForCount  bool                   `json:"-"`
 	ForUpdate bool                   `json:"-"`
 	clauses   []clause.Expression
@@ -57,27 +63,17 @@ func (f *UserFilter) Apply(tx *gorm.DB) *gorm.DB {
 	if f.Email != "" {
 		tx = tx.Where("users.email ILIKE ?", "%"+f.Email+"%")
 	}
-	if f.Role != "" {
-		tx = tx.Where("users.role = ?", f.Role)
-	}
 	for _, c := range f.clauses {
 		tx = tx.Clauses(c)
 	}
 	for _, s := range f.scopes {
 		tx = tx.Scopes(s)
 	}
-	for _, s := range f.Sorts {
-		if s.Field != "" {
-			order := s.Order
-			if order == "" {
-				order = "asc"
-			}
-			tx = tx.Order(fmt.Sprintf("%s %s", s.Field, order))
-		}
-	}
+	tx = userSortColumns.Apply(tx, f.Sorts...)
 	if !f.ForCount && !f.ForUpdate {
 		tx.Select("users.*")
 		if f.Pagination != nil {
+			tx = userSortColumns.Apply(tx, f.Pagination.SortItems()...)
 			f.Pagination.Apply(tx)
 		}
 	}
@@ -87,27 +83,38 @@ func (f *UserFilter) Apply(tx *gorm.DB) *gorm.DB {
 
 // UserFindByIDRequest is the payload for finding a user by ID.
 type UserFindByIDRequest struct {
-	ID string `uri:"id" json:"id" binding:"required" validate:"required"`
+	ID string `uri:"id" json:"-" validate:"required,uuid"`
 }
 
 // UserDeleteRequest is the payload for deleting a user by ID.
 type UserDeleteRequest struct {
-	ID string `uri:"id" json:"id" binding:"required" validate:"required"`
+	ID string `uri:"id" json:"-" validate:"required,uuid"`
 }
 
 // UserCreateRequest is the payload for creating a user.
 type UserCreateRequest struct {
 	Name     string `json:"name"     validate:"required,min=1,max=100"`
-	Email    string `json:"email"    validate:"required,email"`
-	Password string `json:"password" validate:"required,min=8"`
-	Role     string `json:"role"     validate:"omitempty,oneof=user admin"`
+	Email    string `json:"email"    validate:"required,email,max=254"`
+	Password string `json:"password" validate:"required,min=8,max=72"`
 }
 
-// UserUpdateRequest is the payload for updating a user.
+// UserUpdateRequest is the payload for updating a user (roles: UserSetRolesRequest).
 type UserUpdateRequest struct {
-	ID   string `uri:"id" json:"id" binding:"required" validate:"required"`
+	ID   string `uri:"id" json:"-" validate:"required,uuid"`
 	Name string `json:"name" validate:"omitempty,min=1,max=100"`
-	Role string `json:"role" validate:"omitempty,oneof=user admin"`
+}
+
+// UserSetRolesRequest replaces the whole role set of a user (route permission: roles:manage).
+type UserSetRolesRequest struct {
+	ID      string   `uri:"id" json:"-" validate:"required,uuid"`
+	RoleIDs []string `json:"role_ids" validate:"max=50,dive,uuid"`
+}
+
+// UserRoleResponse is a role as listed on a user.
+type UserRoleResponse struct {
+	ID   string `json:"id"`
+	Code string `json:"code"`
+	Name string `json:"name"`
 }
 
 // UserResponse is the user read representation. Password is never included.
@@ -115,7 +122,7 @@ type UserResponse struct {
 	ID        string  `json:"id"`
 	Name      string  `json:"name"`
 	Email     string  `json:"email"`
-	Role      string  `json:"role"`
+	Roles     []*UserRoleResponse `json:"roles"`
 	CreatedAt string  `json:"created_at"`
 	UpdatedAt string  `json:"updated_at,omitempty"`
 	CreatedBy string  `json:"created_by,omitempty"`

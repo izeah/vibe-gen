@@ -1,0 +1,13 @@
+package repositoryuserrole
+
+import (
+	"uuid"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+)
+
+// HasRole reports whether the user holds the role.
+func (r *repository) HasRole(ctx *abstraction.Context, userID, roleID uuid.UUID) (bool, error) {
+	return r.Exists(ctx, &dto.UserRoleFilter{UserIDs: []string{userID.String()}, RoleIDs: []string{roleID.String()}})
+}

@@ -1,0 +1,23 @@
+package middleware
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/config"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// CookieCSRF guards the auth routes in cookie mode (allowlisted Origin + custom header); it is a
+// no-op when cookie mode is off, because nothing then relies on a cookie.
+func CookieCSRF() gin.HandlerFunc {
+	cfg := config.App()
+	return func(c *gin.Context) {
+		if cfg.AuthCookieMode && !authcookie.CheckCSRF(c.GetHeader("Origin"), c.GetHeader(authcookie.CSRFHeader), cfg.CorsAllowOrigin) {
+			response.ErrorConstant.Forbidden.WithMessage("csrf check failed").Send(c)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
+}

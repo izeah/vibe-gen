@@ -2,8 +2,6 @@ package serviceuser
 
 import (
 	"net/http"
-	"time"
-	"uuid"
 
 	"{{.ModuleName}}/internal/abstraction"
 	"{{.ModuleName}}/internal/dto"
@@ -11,7 +9,7 @@ import (
 )
 
 func (s *service) Update(ctx *abstraction.Context, req *dto.UserUpdateRequest) (*dto.UserResponse, error) {
-	m, err := s.userRepository.FindOne(ctx, &dto.UserFilter{IDs: []string{req.ID}})
+	m, err := s.userRepository.FindOne(ctx, (&dto.UserFilter{IDs: []string{req.ID}}).Scopes(s.withRoles))
 	if err != nil {
 		return nil, response.ErrorConstant.NotFound.WithMessage("user not found")
 	}
@@ -19,29 +17,8 @@ func (s *service) Update(ctx *abstraction.Context, req *dto.UserUpdateRequest) (
 	if req.Name != "" {
 		m.Name = req.Name
 	}
-	if req.Role != "" {
-		m.Role = req.Role
-	}
 	if res := s.userRepository.Update(ctx, &dto.UserFilter{IDs: []string{req.ID}}, m); res.Error != nil {
 		return nil, response.ErrorBuilder(http.StatusInternalServerError, res.Error)
 	}
-	r := &dto.UserResponse{
-		ID:        m.ID.String(),
-		Name:      m.Name,
-		Email:     m.Email,
-		Role:      m.Role,
-		CreatedAt: time.Unix(0, m.CreatedAt).UTC().Format("2006-01-02T15:04:05Z07:00"),
-	}
-	if m.UpdatedAt != nil {
-		r.UpdatedAt = time.Unix(0, *m.UpdatedAt).UTC().Format("2006-01-02T15:04:05Z07:00")
-	}
-	if m.CreatedBy != uuid.Nil() {
-		r.CreatedBy = m.CreatedBy.String()
-	}
-	if m.UpdatedBy != nil {
-		updStr := m.UpdatedBy.String()
-		r.UpdatedBy = &updStr
-	}
-	return r, nil
+	return s.toUserResponse(m), nil
 }
-

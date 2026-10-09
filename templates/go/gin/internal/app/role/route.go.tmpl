@@ -1,0 +1,18 @@
+package role
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/middleware"
+)
+
+// Route registers role management endpoints; every one needs roles:manage.
+func (h *Handler) Route(g *gin.RouterGroup) {
+	manage := middleware.RequirePermission(h.AuthzService, "roles", "manage")
+	g.GET("", manage, h.Find)
+	g.GET("/:id", manage, h.FindByID)
+	g.POST("", manage, h.Create)
+	g.PUT("/:id", manage, h.Update)
+	g.PUT("/:id/permissions", manage, h.SetPermissions)
+	g.DELETE("/:id", manage, h.Delete)
+}

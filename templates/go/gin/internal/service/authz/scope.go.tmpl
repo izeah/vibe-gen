@@ -1,0 +1,142 @@
+package serviceauthz
+
+import (
+	"slices"
+	"uuid"
+
+	"github.com/phuslu/log"
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/authz"
+	"{{.ModuleName}}/internal/dto"
+	redisrepo "{{.ModuleName}}/internal/repository/redis"
+)
+
+func (s *service) Scope(ctx *abstraction.Context, userID uuid.UUID, resource, action string) (string, error) {
+	roles, err := s.roles(ctx, userID)
+	if err != nil {
+		return "", err
+	}
+	held, err := s.permissions(ctx, roles)
+	if err != nil {
+		return "", err
+	}
+	return authz.Resolve(held, resource, action), nil
+}
+
+func (s *service) HasAnyRole(ctx *abstraction.Context, userID uuid.UUID, codes ...string) (bool, error) {
+	roles, err := s.roles(ctx, userID)
+	if err != nil {
+		return false, err
+	}
+	for _, r := range roles {
+		if slices.Contains(codes, r.Code) {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// roles reads the user's roles from Redis and falls back to the database (refilling the
+// cache). Redis is only a cache: while it is down every check still runs, just slower.
+func (s *service) roles(ctx *abstraction.Context, userID uuid.UUID) ([]redisrepo.CachedRole, error) {
+	rc, key := ctx.RequestContext(), userID.String()
+	roles, ok, err := s.permissionCache.GetUserRoles(rc, key)
+	if err == nil && ok {
+		return roles, nil
+	}
+	if err != nil {
+		log.Warn().Err(err).Msg("permission cache unavailable, reading the database")
+	}
+
+	rows, err := s.userRoleRepository.Find(ctx, (&dto.UserRoleFilter{UserIDs: []string{key}}).
+		Scopes(func(tx *gorm.DB) *gorm.DB { return tx.Preload("Role") }))
+	if err != nil {
+		return nil, err
+	}
+	roles = make([]redisrepo.CachedRole, 0, len(rows)) // no roles = holds nothing (cached too)
+	for _, row := range rows {
+		if row.Role != nil {
+			roles = append(roles, redisrepo.CachedRole{ID: row.RoleID.String(), Code: row.Role.Code})
+		}
+	}
+	if err := s.permissionCache.SetUserRoles(rc, key, roles, cacheTTL); err != nil {
+		log.Warn().Err(err).Msg("permission cache unavailable, not cached")
+	}
+	return roles, nil
+}
+
+// permissions is the union of the roles' permission sets: one MGET, then one query for the
+// roles not cached (never one query per role).
+func (s *service) permissions(ctx *abstraction.Context, roles []redisrepo.CachedRole) (map[string]bool, error) {
+	held := map[string]bool{}
+	if len(roles) == 0 {
+		return held, nil
+	}
+	rc := ctx.RequestContext()
+	ids := make([]string, len(roles))
+	for i, r := range roles {
+		ids[i] = r.ID
+	}
+	sets, err := s.permissionCache.GetRolePermissions(rc, ids)
+	if err != nil {
+		log.Warn().Err(err).Msg("permission cache unavailable, reading the database")
+		sets = map[string][]string{}
+	}
+
+	var missing []string
+	for _, id := range ids {
+		if _, ok := sets[id]; !ok {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		rows, err := s.rolePermissionRepository.Find(ctx, &dto.RolePermissionFilter{RoleIDs: missing})
+		if err != nil {
+			return nil, err
+		}
+		fill := make(map[string][]string, len(missing))
+		for _, id := range missing {
+			fill[id] = []string{} // a role without permissions is cached too
+		}
+		for _, row := range rows {
+			id := row.RoleID.String()
+			fill[id] = append(fill[id], row.Permission)
+		}
+		if err := s.permissionCache.SetRolePermissions(rc, fill, cacheTTL); err != nil {
+			log.Warn().Err(err).Msg("permission cache unavailable, not cached")
+		}
+		for id, perms := range fill {
+			sets[id] = perms
+		}
+	}
+
+	for _, perms := range sets {
+		for _, p := range perms {
+			held[p] = true
+		}
+	}
+	return held, nil
+}
+
+func (s *service) InvalidateUsers(ctx *abstraction.Context, userIDs ...uuid.UUID) {
+	// The TTL bounds the staleness if this fails; nothing else to do.
+	if err := s.permissionCache.DelUsers(ctx.RequestContext(), s.uuidStrings(userIDs)...); err != nil {
+		log.Warn().Err(err).Msg("permission cache invalidation failed")
+	}
+}
+
+func (s *service) InvalidateRoles(ctx *abstraction.Context, roleIDs ...uuid.UUID) {
+	if err := s.permissionCache.DelRoles(ctx.RequestContext(), s.uuidStrings(roleIDs)...); err != nil {
+		log.Warn().Err(err).Msg("permission cache invalidation failed")
+	}
+}
+
+func (s *service) uuidStrings(ids []uuid.UUID) []string {
+	out := make([]string, len(ids))
+	for i, id := range ids {
+		out[i] = id.String()
+	}
+	return out
+}

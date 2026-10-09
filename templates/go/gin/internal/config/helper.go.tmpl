@@ -30,3 +30,12 @@ func priorityBool(values ...bool) bool {
 	return false
 }
 
+// priorityStrings returns the first non-empty slice.
+func priorityStrings(values ...[]string) []string {
+	for _, v := range values {
+		if len(v) > 0 {
+			return v
+		}
+	}
+	return nil
+}

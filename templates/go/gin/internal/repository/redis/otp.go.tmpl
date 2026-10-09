@@ -2,17 +2,15 @@ package redis
 
 import (
 	"context"
-	"crypto/md5"
-	"encoding/hex"
+	"crypto/rand"
 	"errors"
 	"fmt"
-	"math/rand"
+	"math/big"
 	"time"
 
-	"golang.org/x/crypto/bcrypt"
 	"github.com/redis/go-redis/v9"
-	"github.com/pkg/errors" // using standard alias as pkgerr if needed, but imported directly
-	
+	"golang.org/x/crypto/bcrypt"
+
 	dtoredis "{{.ModuleName}}/internal/dto/redis"
 )
 
@@ -26,31 +24,14 @@ const (
 	RedisKeyGenerateToken   = "session:token:%s"
 )
 
-// helper functions to replace utilcodeidhelper
+// randomNumber returns a numeric OTP from crypto/rand (math/rand is predictable — never use it for secrets).
 func randomNumber(length int) string {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	digits := "0123456789"
 	b := make([]byte, length)
 	for i := range b {
-		b[i] = digits[r.Intn(len(digits))]
+		n, _ := rand.Int(rand.Reader, big.NewInt(10)) // crypto/rand never fails on supported platforms (Go 1.24+)
+		b[i] = byte('0' + n.Int64())
 	}
 	return string(b)
-}
-
-func randomChar(length int) string {
-	r := rand.New(rand.NewSource(time.Now().UnixNano()))
-	charset := "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = charset[r.Intn(len(charset))]
-	}
-	return string(b)
-}
-
-func hashMD5(text string) string {
-	hasher := md5.New()
-	hasher.Write([]byte(text))
-	return hex.EncodeToString(hasher.Sum(nil))
 }
 
 type OtpRepository interface {
@@ -117,8 +98,7 @@ func (r *otp) ValidateOTP(ctx context.Context, key, otp string) error {
 
 func (r *otp) GetOTP(ctx context.Context, key string, expire, lengthOtp int) (*dtoredis.OtpNumber, error) {
 	otpStr := randomNumber(lengthOtp)
-	otpMD5 := hashMD5(otpStr)
-	hashedOTP, err := bcrypt.GenerateFromPassword([]byte(otpMD5), bcrypt.MinCost)
+	hashedOTP, err := bcrypt.GenerateFromPassword([]byte(otpStr), bcrypt.MinCost)
 	if err != nil {
 		return nil, err
 	}
@@ -151,7 +131,7 @@ func (r *otp) GenerateSessionToken(ctx context.Context, key string, expiresInSec
 		expiresInSecond = RedisExpireTokenDefault
 	}
 
-	otpToken := randomChar(32)
+	otpToken := rand.Text() // 128+ bits of crypto/rand entropy
 	hashedToken, err := bcrypt.GenerateFromPassword([]byte(otpToken), bcrypt.MinCost)
 	if err != nil {
 		return nil, err

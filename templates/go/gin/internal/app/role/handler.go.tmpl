@@ -1,0 +1,21 @@
+package role
+
+import (
+	"{{.ModuleName}}/internal/factory"
+	serviceauthz "{{.ModuleName}}/internal/service/authz"
+	servicerole "{{.ModuleName}}/internal/service/role"
+)
+
+// Handler manages roles and their permissions (roles:manage).
+type Handler struct {
+	RoleService  servicerole.Service
+	AuthzService serviceauthz.Service
+}
+
+// NewHandler creates a new role Handler.
+func NewHandler(f *factory.Factory) *Handler {
+	return &Handler{
+		RoleService:  servicerole.New(f),
+		AuthzService: serviceauthz.New(f),
+	}
+}

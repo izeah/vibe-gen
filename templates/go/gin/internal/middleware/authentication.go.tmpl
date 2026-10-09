@@ -8,7 +8,6 @@ import (
 	authtoken "{{.ModuleName}}/pkg/auth-token"
 
 	"{{.ModuleName}}/internal/abstraction"
-	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/pkg/response"
 )
 
@@ -23,9 +22,9 @@ func Authentication() gin.HandlerFunc {
 		}
 
 		tokenStr := strings.TrimPrefix(authHeader, "Bearer ")
-		claims, err := authtoken.Verify(tokenStr, config.AuthKey().PemDataPublic)
+		claims, err := authtoken.ClaimsFromAccessToken(tokenStr)
 		if err != nil {
-			response.ErrorConstant.Unauthorized.WithError(err).Send(c)
+			response.ErrorConstant.Unauthorized.WithMessage("invalid or expired token").Send(c)
 			c.Abort()
 			return
 		}
@@ -35,15 +34,14 @@ func Authentication() gin.HandlerFunc {
 		if uidStr != "" {
 			uid, _ = uuid.Parse(uidStr)
 		}
-		email := claims.Email
-		role := claims.Role
 
-		c.Set("auth", &abstraction.AuthContext{
+		auth := &abstraction.AuthContext{
 			ID:     uid,
 			UserID: uidStr,
-			Email:  email,
-			Role:   role,
-		})
+		}
+		c.Set("auth", auth)
+		// Audit columns (created_by/updated_by/deleted_by) read ctx.Auth.
+		abstraction.GetContext(c).Auth = auth
 		c.Next()
 	}
 }

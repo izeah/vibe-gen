@@ -1,0 +1,38 @@
+package middleware
+
+import (
+	"net/http"
+
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	serviceauthz "{{.ModuleName}}/internal/service/authz"
+	"{{.ModuleName}}/pkg/response"
+)
+
+// RequirePermission allows the route only if one of the user's roles holds resource:action
+// (user_roles + role_permissions, cached in Redis) and records the granted scope ("any"/"own")
+// for the service (ctx.OwnerID). Must run after Authentication.
+func RequirePermission(authz serviceauthz.Service, resource, action string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := abstraction.GetContext(c)
+		if ctx.Auth == nil {
+			response.ErrorConstant.Unauthorized.Send(c)
+			c.Abort()
+			return
+		}
+		scope, err := authz.Scope(ctx, ctx.Auth.ID, resource, action)
+		if err != nil {
+			response.ErrorBuilder(http.StatusInternalServerError, err).Send(c)
+			c.Abort()
+			return
+		}
+		if scope == "" {
+			response.ErrorConstant.Forbidden.WithMessage("insufficient permissions").Send(c)
+			c.Abort()
+			return
+		}
+		ctx.PermissionScope = scope
+		c.Next()
+	}
+}

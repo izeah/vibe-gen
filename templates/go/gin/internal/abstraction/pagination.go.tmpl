@@ -1,18 +1,33 @@
 package abstraction
 
 import (
-	"fmt"
 	"math"
-	"net/url"
-	"strconv"
+	"strings"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // SortItem defines a field and direction for multi-column or custom sorting.
 type SortItem struct {
-	Field string `query:"field" json:"field" example:"created_at"`
-	Order string `query:"order" json:"order" example:"desc"` // asc, desc
+	Field string `query:"field" form:"field" json:"field" example:"created_at"`
+	Order string `query:"order" form:"order" json:"order" example:"desc"` // asc, desc
+}
+
+// SortColumns is an ORDER BY allowlist: API sort field → trusted, qualified DB column.
+// User-supplied sort fields never reach SQL directly; unknown fields are ignored.
+type SortColumns map[string]string
+
+// Apply adds an ORDER BY for every allowlisted item. Direction is DESC only for "desc".
+func (c SortColumns) Apply(tx *gorm.DB, items ...SortItem) *gorm.DB {
+	for _, s := range items {
+		col, ok := c[s.Field]
+		if !ok {
+			continue
+		}
+		tx = tx.Order(clause.OrderByColumn{Column: clause.Column{Name: col}, Desc: strings.EqualFold(s.Order, "desc")})
+	}
+	return tx
 }
 
 type PaginationInfo struct {
@@ -22,30 +37,29 @@ type PaginationInfo struct {
 	MoreRecords bool  `json:"more_records" example:"false"`
 }
 
-
 // Pagination ...
 // swagger:params Pagination
 type Pagination struct {
 	// Page number of the results page to return.
 	// Required: false
 	// In: query
-	Page *int `query:"page" json:"page" example:"1"`
+	Page *int `query:"page" form:"page" json:"page" example:"1"`
 
 	// PageSize number of results to return per page.
 	// Required: false
 	// In: query
-	PageSize *int `query:"page_size" json:"page_size" example:"15"`
+	PageSize *int `query:"page_size" form:"page_size" json:"page_size" example:"15"`
 
 	// SortBy field to sort the results by.
 	// Required: false
 	// In: query
-	SortBy *string `query:"sort_by" json:"sort_by,omitempty" example:"id"`
+	SortBy *string `query:"sort_by" form:"sort_by" json:"sort_by,omitempty" example:"id"`
 
 	// Sort direction to sort the results by.
 	// Required: false
 	// In: query
 	// Enum: asc, desc
-	Sort *string `query:"sort" json:"sort,omitempty" example:"desc"`
+	Sort *string `query:"sort" form:"sort" json:"sort,omitempty" example:"desc"`
 
 	lock bool
 }
@@ -65,44 +79,18 @@ func (p *Pagination) SetPageInfo(count int64, lenData int) (info *PaginationInfo
 	return
 }
 
-func (p *Pagination) GetSQL() string {
-	if p.Page == nil || p.PageSize == nil {
-		p.Init()
+// SortItems converts sort_by/sort query params into SortItems (default direction desc).
+// Apply them through a SortColumns allowlist — never pass them to tx.Order directly.
+func (p *Pagination) SortItems() []SortItem {
+	if p == nil || p.SortBy == nil {
+		return nil
 	}
-	return fmt.Sprintf(" LIMIT %d OFFSET %d", *p.PageSize, (*p.Page-1)*(*p.PageSize))
-}
-
-func (p *Pagination) SetPage(page int) *Pagination {
-	p.Page = &page
-	return p
-}
-
-func (p *Pagination) SetPageSize(pageSize int) *Pagination {
-	p.PageSize = &pageSize
-	return p
-}
-
-func (p *Pagination) GetSort() string {
-	sortBy := "id"
-	if p.SortBy != nil {
-		sortBy = *p.SortBy
-	}
-
-	sort := "desc"
+	order := "desc"
 	if p.Sort != nil {
-		sort = *p.Sort
+		order = *p.Sort
 	}
-
-	return fmt.Sprintf("%s %s", sortBy, sort)
-}
-
-func (p *Pagination) Default() {
-	if p.Page == nil {
-		p.Page = new(int)
-	}
-	if p.PageSize == nil {
-		p.PageSize = new(int)
-	}
+	item := SortItem{Field: *p.SortBy, Order: order}
+	return []SortItem{item}
 }
 
 func (p *Pagination) Init() {
@@ -140,28 +128,11 @@ func (p *Pagination) GetLimit() int {
 	return *p.PageSize + 1
 }
 
+// Apply always paginates (default page_size 10, max 100) so a list endpoint never
+// returns an unbounded result set.
 func (p *Pagination) Apply(db *gorm.DB) *gorm.DB {
-	if p.PageSize != nil {
-		p.Init()
-		db.Offset(p.GetOffset()).Limit(p.GetLimit())
-	}
-	if p.SortBy != nil {
-		db.Order(p.GetSort())
-	}
+	p.Init()
+	db.Offset(p.GetOffset()).Limit(p.GetLimit())
 	return db
 }
 
-func (p *Pagination) Params(params url.Values) {
-	if p.Page != nil {
-		params.Add("page", strconv.Itoa(*p.Page))
-	}
-	if p.PageSize != nil {
-		params.Add("page_size", strconv.Itoa(*p.PageSize))
-	}
-	if p.SortBy != nil {
-		params.Add("sort_by", *p.SortBy)
-	}
-	if p.Sort != nil {
-		params.Add("sort", *p.Sort)
-	}
-}

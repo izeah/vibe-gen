@@ -1,0 +1,68 @@
+package redis
+
+import (
+	"context"
+	"errors"
+	"time"
+
+	"github.com/redis/go-redis/v9"
+)
+
+// ErrRefreshReuse means an already-rotated refresh token was presented again: it was
+// stolen or replayed, so the whole session family has been revoked.
+var ErrRefreshReuse = errors.New("refresh token reuse detected")
+
+// RefreshTokenRepository tracks the single valid refresh token (jti) per session family.
+type RefreshTokenRepository interface {
+	// Save starts a family (login) with its first refresh jti.
+	Save(ctx context.Context, familyID, jti string, ttl time.Duration) error
+	// Rotate swaps the current jti for newJTI. Returns ErrNotFound if the family is
+	// unknown/expired/revoked, or ErrRefreshReuse (family revoked) if jti is not current.
+	Rotate(ctx context.Context, familyID, jti, newJTI string, ttl time.Duration) error
+	// Revoke ends the family (logout).
+	Revoke(ctx context.Context, familyID string) error
+}
+
+const redisKeyRefreshFamily = "auth:refresh:family:"
+
+// rotateScript: 1 = rotated, 0 = family missing, -1 = reuse (family deleted).
+var rotateScript = redis.NewScript(`
+local cur = redis.call('GET', KEYS[1])
+if not cur then return 0 end
+if cur ~= ARGV[1] then redis.call('DEL', KEYS[1]) return -1 end
+redis.call('SET', KEYS[1], ARGV[2], 'PX', ARGV[3])
+return 1
+`)
+
+type refreshToken struct {
+	client *redis.Client
+}
+
+func NewRefreshToken(client *redis.Client) RefreshTokenRepository {
+	return &refreshToken{client: client}
+}
+
+func (r *refreshToken) Save(ctx context.Context, familyID, jti string, ttl time.Duration) error {
+	return r.client.Set(ctx, redisKeyRefreshFamily+familyID, jti, ttl).Err()
+}
+
+// ponytail: two tabs refreshing at the same instant look like reuse and log the user out;
+// the BFF must serialize refreshes per session. Add a short grace window if that bites.
+func (r *refreshToken) Rotate(ctx context.Context, familyID, jti, newJTI string, ttl time.Duration) error {
+	res, err := rotateScript.Run(ctx, r.client, []string{redisKeyRefreshFamily + familyID}, jti, newJTI, ttl.Milliseconds()).Int()
+	if err != nil {
+		return err
+	}
+	switch res {
+	case 1:
+		return nil
+	case -1:
+		return ErrRefreshReuse
+	default:
+		return ErrNotFound
+	}
+}
+
+func (r *refreshToken) Revoke(ctx context.Context, familyID string) error {
+	return r.client.Del(ctx, redisKeyRefreshFamily+familyID).Err()
+}

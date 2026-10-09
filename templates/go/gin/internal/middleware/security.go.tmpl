@@ -1,0 +1,40 @@
+package middleware
+
+import (
+	"strings"
+
+	"github.com/gin-contrib/cors"
+	"github.com/gin-gonic/gin"
+
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+)
+
+// SecureHeaders sets defensive response headers. Swagger UI needs inline scripts,
+// so it is skipped; every other route is JSON and gets a deny-all CSP.
+func SecureHeaders(basePath string) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		if !strings.HasPrefix(c.Request.URL.Path, basePath+"/swagger") {
+			h := c.Writer.Header()
+			h.Set("X-Content-Type-Options", "nosniff")
+			h.Set("X-Frame-Options", "DENY")
+			h.Set("X-XSS-Protection", "0")
+			h.Set("Strict-Transport-Security", "max-age=31536000")
+			h.Set("Content-Security-Policy", "default-src 'none'; frame-ancestors 'none'")
+			h.Set("Referrer-Policy", "no-referrer")
+		}
+		c.Next()
+	}
+}
+
+// CORS allows only the configured origins and never credentials. Browsers normally
+// reach the API through the BFF, so the caller registers this only when origins are set.
+// In auth cookie mode the SPA must send the refresh cookie, so credentials are allowed for
+// these exact origins only (never with a wildcard).
+func CORS(origins []string, credentials bool) gin.HandlerFunc {
+	return cors.New(cors.Config{
+		AllowOrigins:     origins,
+		AllowMethods:     []string{"GET", "POST", "PUT", "PATCH", "DELETE"},
+		AllowHeaders:     []string{"Origin", "Content-Type", "Accept", "Authorization", authcookie.CSRFHeader},
+		AllowCredentials: credentials,
+	})
+}

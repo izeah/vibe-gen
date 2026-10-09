@@ -1,0 +1,41 @@
+package role
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// Create creates a new role.
+// @Summary     Create role
+// @Tags        role
+// @Accept      json
+// @Produce     json
+// @Param       body  body  dto.RoleCreateRequest  true  "Create payload"
+// @Success     201   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/roles [post]
+func (h *Handler) Create(c *gin.Context) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.RoleCreateRequest)
+		data    *dto.RoleResponse
+		err     error
+	)
+	if err = c.ShouldBindJSON(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = validator.Struct(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if data, err = h.RoleService.Create(ctx, payload); err != nil {
+		response.ErrorResponse(err).Send(c)
+		return
+	}
+	response.CreatedResponse(data).Send(c)
+}

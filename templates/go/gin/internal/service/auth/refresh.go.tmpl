@@ -1,24 +1,50 @@
 package serviceauth
 
 import (
+	"errors"
+	"net/http"
+	"uuid"
+
+	"github.com/phuslu/log"
+	"gorm.io/gorm"
+
 	"{{.ModuleName}}/internal/abstraction"
-	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/dto"
+	redisrepo "{{.ModuleName}}/internal/repository/redis"
 	authtoken "{{.ModuleName}}/pkg/auth-token"
 	"{{.ModuleName}}/pkg/response"
 )
 
+// Refresh rotates the refresh token: the presented token is consumed and a new pair is
+// issued. Presenting an already-consumed token revokes the whole session family.
 func (s *service) Refresh(ctx *abstraction.Context, req *dto.RefreshRequest) (*dto.LoginResponse, error) {
-	pubKey := config.AuthKey().PemDataPublic
-	claims, err := authtoken.Verify(req.RefreshToken, pubKey)
+	rc := ctx.RequestContext()
+	claims, err := s.verifyRefresh(req.RefreshToken)
 	if err != nil {
-		return nil, response.ErrorConstant.Unauthorized.WithError(err)
+		return nil, err
 	}
 
+	// Look the user up before rotating: once Rotate succeeds the old token is spent, so a
+	// failure after it (DB down) would log the user out and later read as token reuse.
 	user, err := s.userRepository.FindOne(ctx, &dto.UserFilter{IDs: []string{claims.Subject}})
-	if err != nil {
-		return nil, response.ErrorConstant.Unauthorized.WithMessage("user not found")
+	switch {
+	case errors.Is(err, gorm.ErrRecordNotFound):
+		_ = s.refreshTokenRepository.Revoke(rc, claims.FamilyId)
+		return nil, response.ErrorConstant.Unauthorized.WithMessage("invalid refresh token")
+	case err != nil:
+		return nil, response.ErrorBuilder(http.StatusInternalServerError, err)
 	}
 
-	return s.issueTokens(user)
+	newJTI := uuid.NewV7().String()
+	_, refreshLifetime := authtoken.Lifetimes()
+	switch err := s.refreshTokenRepository.Rotate(rc, claims.FamilyId, claims.ID, newJTI, refreshLifetime); {
+	case errors.Is(err, redisrepo.ErrRefreshReuse):
+		log.Warn().Str("user_id", claims.Subject).Str("family_id", claims.FamilyId).Msg("refresh token reuse detected, session revoked")
+		return nil, response.ErrorConstant.Unauthorized.WithMessage("session revoked")
+	case errors.Is(err, redisrepo.ErrNotFound):
+		return nil, response.ErrorConstant.Unauthorized.WithMessage("session expired")
+	case err != nil:
+		return nil, response.ErrorBuilder(http.StatusInternalServerError, err)
+	}
+	return s.issueTokens(user, claims.FamilyId, newJTI)
 }

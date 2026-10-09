@@ -1,11 +1,17 @@
 package auth
 
 import (
+	"net/http"
+
 	"github.com/gin-gonic/gin"
 
 	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/config"
 	"{{.ModuleName}}/internal/dto"
+	authcookie "{{.ModuleName}}/pkg/auth-cookie"
+	authtoken "{{.ModuleName}}/pkg/auth-token"
 	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
 )
 
 // Login authenticates a user and returns a token pair.
@@ -23,13 +29,24 @@ func (h *Handler) Login(c *gin.Context) {
 		data    *dto.LoginResponse
 		err     error
 	)
+	cfg := config.App()
 	if err = c.ShouldBindJSON(payload); err != nil {
 		response.ErrorBadRequest(err).Send(c)
 		return
 	}
+	if err = validator.Struct(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	payload.ClientIP = c.ClientIP() // set after binding so clients cannot supply it
 	if data, err = h.AuthService.Login(ctx, payload); err != nil {
 		response.ErrorResponse(err).Send(c)
 		return
+	}
+	if cfg.AuthCookieMode {
+		_, refreshLifetime := authtoken.Lifetimes()
+		http.SetCookie(c.Writer, authcookie.New(data.RefreshToken, refreshLifetime, cfg.BasePath))
+		data.RefreshToken = ""
 	}
 	response.SuccessResponse(data).Send(c)
 }

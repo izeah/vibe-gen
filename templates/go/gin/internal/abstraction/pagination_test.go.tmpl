@@ -1,0 +1,28 @@
+package abstraction
+
+import (
+	"testing"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+)
+
+// User-supplied sort input must never reach SQL unless it is allowlisted.
+func TestSortColumnsApplyOnlyAllowlisted(t *testing.T) {
+	db, err := gorm.Open(postgres.New(postgres.Config{DSN: "host=localhost"}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cols := SortColumns{"name": "users.name"}
+	var out []map[string]any
+	stmt := cols.Apply(db.Table("users"),
+		SortItem{Field: "name", Order: "desc"},
+		SortItem{Field: "id; DROP TABLE users--", Order: "asc"},
+		SortItem{Field: "name", Order: "asc; DROP TABLE users--"},
+	).Find(&out).Statement
+
+	want := `SELECT * FROM "users" ORDER BY "users"."name" DESC,"users"."name"`
+	if got := stmt.SQL.String(); got != want {
+		t.Fatalf("got  %s\nwant %s", got, want)
+	}
+}

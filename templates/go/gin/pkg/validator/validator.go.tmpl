@@ -1,0 +1,17 @@
+package validator
+
+import (
+	"sync"
+
+	"github.com/go-playground/validator/v10"
+)
+
+var validate = sync.OnceValue(func() *validator.Validate {
+	return validator.New(validator.WithRequiredStructEnabled())
+})
+
+// Struct enforces the `validate:"..."` tags of a bound request payload.
+// Call it after every bind in a handler — binding alone does not validate.
+func Struct(i any) error {
+	return validate().Struct(i)
+}

@@ -2,18 +2,22 @@ package dto
 
 // LoginRequest is the payload for authenticating a user.
 type LoginRequest struct {
-	Email    string `json:"email"    validate:"required,email"`
-	Password string `json:"password" validate:"required,min=8"`
+	Email    string `json:"email"    validate:"required,email,max=254"`
+	Password string `json:"password" validate:"required,min=8,max=72"` // bcrypt ignores bytes beyond 72
+
+	// ClientIP is set by the handler (never bound from input) for login rate limiting.
+	ClientIP string `json:"-" swaggerignore:"true"`
 }
 
 // LoginResponse holds the token pair returned after successful authentication.
+// The BFF keeps both tokens server-side / in HttpOnly cookies — never in browser JS.
 type LoginResponse struct {
 	AccessToken  string `json:"access_token"`
-	RefreshToken string `json:"refresh_token"`
+	RefreshToken string `json:"refresh_token,omitempty"` // empty in cookie mode (sent as a cookie)
 	ExpiresIn    int    `json:"expires_in"`
 }
 
-// RefreshRequest is the payload for obtaining a new access token.
+// RefreshRequest carries a refresh token for /auth/refresh and /auth/logout.
 type RefreshRequest struct {
-	RefreshToken string `json:"refresh_token" validate:"required"`
+	RefreshToken string `json:"refresh_token" validate:"required,max=4096"`
 }

@@ -1,9 +1,15 @@
 package auth
 
-import "github.com/gin-gonic/gin"
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/middleware"
+)
 
 // Route registers auth endpoints on the given router group.
 func (h *Handler) Route(g *gin.RouterGroup) {
+	g.Use(middleware.CookieCSRF()) // no-op unless auth_cookie_mode
 	g.POST("/login", h.Login)
 	g.POST("/refresh", h.Refresh)
+	g.POST("/logout", h.Logout)
 }

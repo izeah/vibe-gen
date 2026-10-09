@@ -1,0 +1,11 @@
+package repositoryrolepermission
+
+import (
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/model"
+)
+
+func (r *repository) FirstOrCreate(ctx *abstraction.Context, data *model.RolePermission) (err error) {
+	err = r.CheckTrx(ctx).FirstOrCreate(&data).Error
+	return
+}

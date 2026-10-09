@@ -1,0 +1,70 @@
+//go:build ignore
+
+// create_admin creates the first admin account (user management endpoints are admin-only,
+// so the first admin cannot be created through the API). Run it through the Makefile,
+// which reads the password without echoing it:
+//
+//	make create-admin EMAIL=admin@example.com
+package main
+
+import (
+	"bufio"
+	"flag"
+	"fmt"
+	"net/mail"
+	"os"
+	"strings"
+
+	"gorm.io/gorm"
+
+	"{{.ModuleName}}/internal/model"
+	"{{.ModuleName}}/pkg/database"
+)
+
+func main() {
+	email := flag.String("email", "", "admin email")
+	name := flag.String("name", "Admin", "admin display name")
+	flag.Parse()
+
+	addr := strings.ToLower(strings.TrimSpace(*email))
+	// The parsed address must be the whole input: "Admin <a@b.c>" parses but could never log in.
+	if a, err := mail.ParseAddress(addr); err != nil || a.Address != addr || len(addr) > 254 {
+		fail("invalid -email")
+	}
+	// Password comes from stdin so it never shows up in shell history or `ps`.
+	password, _ := bufio.NewReader(os.Stdin).ReadString('\n')
+	password = strings.TrimRight(password, "\r\n")
+	if len([]rune(password)) < 8 {
+		fail("password must be at least 8 characters")
+	}
+	hashed, err := model.HashPassword(password)
+	if err != nil {
+		fail(err.Error())
+	}
+
+	database.Init()
+	defer database.Close()
+
+	// One transaction: the user and its admin role (user_roles) exist together or not at all.
+	// BeforeCreate sets id/created_at/created_by.
+	user := &model.User{UserEntity: model.UserEntity{Name: *name, Email: addr, Password: hashed}}
+	err = database.PSQL().Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(user).Error; err != nil {
+			return err
+		}
+		var admin model.Role
+		if err := tx.Where("code = ?", "admin").Take(&admin).Error; err != nil {
+			return fmt.Errorf("admin role (run make migrate-up first): %w", err)
+		}
+		return tx.Create(&model.UserRole{UserRoleEntity: model.UserRoleEntity{UserID: user.ID, RoleID: admin.ID}}).Error
+	})
+	if err != nil {
+		fail(fmt.Sprintf("create admin: %v", err))
+	}
+	fmt.Printf("admin created: id=%s\n", user.ID)
+}
+
+func fail(msg string) {
+	fmt.Fprintln(os.Stderr, msg)
+	os.Exit(1)
+}

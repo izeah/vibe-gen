@@ -4,8 +4,10 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
 
 	"golang.org/x/crypto/ssh"
+	"golang.org/x/crypto/ssh/knownhosts"
 )
 
 // SSHConfig holds the configuration for an SSH tunnel to a database.
@@ -14,16 +16,32 @@ type SSHConfig struct {
 	User string
 	Pass string
 	Port string
+	// KnownHosts pins the bastion's host key (default ~/.ssh/known_hosts). Add it with
+	// `ssh-keyscan -p <port> <host> >> ~/.ssh/known_hosts` after checking the fingerprint.
+	KnownHosts string
 }
 
 // Open establishes the SSH tunnel and returns the net.Conn and *ssh.Client.
 func (c SSHConfig) Open() (net.Conn, *ssh.Client, error) {
+	path := c.KnownHosts
+	if path == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return nil, nil, fmt.Errorf("SSH known_hosts: %w", err)
+		}
+		path = filepath.Join(home, ".ssh", "known_hosts")
+	}
+	hostKey, err := knownhosts.New(path)
+	if err != nil {
+		return nil, nil, fmt.Errorf("SSH known_hosts %s: %w", path, err)
+	}
+
 	config := &ssh.ClientConfig{
 		User: c.User,
 		Auth: []ssh.AuthMethod{
 			ssh.Password(c.Pass),
 		},
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // use known_hosts in production
+		HostKeyCallback: hostKey, // unknown or changed host key = refused (no MITM on the DB tunnel)
 	}
 
 	addr := fmt.Sprintf("%s:%s", c.Host, c.Port)

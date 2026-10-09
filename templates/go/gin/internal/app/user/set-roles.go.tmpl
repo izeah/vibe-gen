@@ -1,0 +1,46 @@
+package user
+
+import (
+	"github.com/gin-gonic/gin"
+
+	"{{.ModuleName}}/internal/abstraction"
+	"{{.ModuleName}}/internal/dto"
+	"{{.ModuleName}}/pkg/response"
+	"{{.ModuleName}}/pkg/validator"
+)
+
+// SetRoles replaces the roles the user holds (role_ids: [] removes all).
+// @Summary     Replace user roles
+// @Tags        user
+// @Accept      json
+// @Produce     json
+// @Param       id    path  string                 true  "User ID"
+// @Param       body  body  dto.UserSetRolesRequest  true  "Role IDs"
+// @Success     200   {object}  response.Base
+// @Security    BearerAuth
+// @Router      /v1/users/{id}/roles [put]
+func (h *Handler) SetRoles(c *gin.Context) {
+	var (
+		ctx     = abstraction.GetContext(c)
+		payload = new(dto.UserSetRolesRequest)
+		data    *dto.UserResponse
+		err     error
+	)
+	if err = c.ShouldBindJSON(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = c.ShouldBindUri(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if err = validator.Struct(payload); err != nil {
+		response.ErrorBadRequest(err).Send(c)
+		return
+	}
+	if data, err = h.UserService.SetRoles(ctx, payload); err != nil {
+		response.ErrorResponse(err).Send(c)
+		return
+	}
+	response.SuccessResponse(data).Send(c)
+}
