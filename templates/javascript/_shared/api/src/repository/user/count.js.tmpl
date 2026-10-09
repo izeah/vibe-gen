@@ -1,0 +1,7 @@
+import { conn } from "../../abstraction/context.js";
+import { userWhere } from "../../dto/user.js";
+import { users } from "../../model/user.js";
+
+export function count(ctx, f = {}) {
+  return conn(ctx).$count(users, userWhere(f));
+}

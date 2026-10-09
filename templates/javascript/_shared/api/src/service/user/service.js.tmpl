@@ -1,0 +1,33 @@
+import { newAuthzService } from "../authz/service.js";
+import { create } from "./create.js";
+import { findById } from "./find-by-id.js";
+import { setRoles } from "./set-roles.js";
+import { update } from "./update.js";
+
+export function newUserService(f) {
+  const d = {
+    userRepository: f.userRepository,
+    roleRepository: f.roleRepository,
+    userRoleRepository: f.userRoleRepository,
+    trxManager: f.trxManager,
+    authzService: newAuthzService(f),
+  };
+  return {
+    findById: (ctx, id) => findById(d, ctx, id),
+    create: (ctx, req) => create(d, ctx, req),
+    update: (ctx, id, req) => update(d, ctx, id, req),
+    setRoles: (ctx, id, req) => setRoles(d, ctx, id, req),
+  };
+}
+
+// rolesOf lists the roles a user holds, ordered by code (two queries, never one per role).
+export async function rolesOf(d, ctx, userId) {
+  const ids = (await d.userRoleRepository.find(ctx, { userIds: [userId] })).map(
+    (r) => r.roleId,
+  );
+  if (ids.length === 0) return [];
+  return d.roleRepository.find(ctx, {
+    ids,
+    sorts: [{ field: "code", order: "asc" }],
+  });
+}

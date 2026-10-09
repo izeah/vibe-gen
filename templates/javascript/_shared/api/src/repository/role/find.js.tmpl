@@ -1,0 +1,9 @@
+import { applyFilter } from "../../abstraction/pagination.js";
+import { conn } from "../../abstraction/context.js";
+import { roleSortColumns, roleWhere } from "../../dto/role.js";
+import { roles } from "../../model/role.js";
+
+export function find(ctx, f = {}) {
+  const q = conn(ctx).select().from(roles).where(roleWhere(f)).$dynamic();
+  return applyFilter(q, f, roleSortColumns);
+}

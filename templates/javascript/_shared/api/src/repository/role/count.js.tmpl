@@ -1,0 +1,7 @@
+import { conn } from "../../abstraction/context.js";
+import { roleWhere } from "../../dto/role.js";
+import { roles } from "../../model/role.js";
+
+export function count(ctx, f = {}) {
+  return conn(ctx).$count(roles, roleWhere(f));
+}

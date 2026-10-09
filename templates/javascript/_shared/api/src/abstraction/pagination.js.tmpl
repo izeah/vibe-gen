@@ -1,0 +1,57 @@
+import { asc, desc } from "drizzle-orm";
+import { z } from "zod";
+
+export function orderBy(cols, items) {
+  return items.flatMap((s) => {
+    // hasOwn: "constructor"/"__proto__" must not resolve to Object.prototype members.
+    const col = Object.hasOwn(cols, s.field) ? cols[s.field] : undefined;
+    if (!col) return [];
+    return [s.order?.toLowerCase() === "desc" ? desc(col) : asc(col)];
+  });
+}
+
+// Query params of every list endpoint. Lists are always paginated (default 10, max 100).
+export const paginationQuery = z.object({
+  page: z.coerce
+    .number()
+    .int()
+    .default(1)
+    .transform((p) => Math.max(p, 1)),
+  page_size: z.coerce
+    .number()
+    .int()
+    .default(10)
+    .transform((n) => (n <= 0 ? 10 : Math.min(n, 100))),
+  sort_by: z.string().max(64).optional(),
+  sort: z.enum(["asc", "desc"]).optional(),
+});
+
+// applyFilter adds ORDER BY (allowlisted), LIMIT/OFFSET and locking to a dynamic select.
+// The limit is page_size + 1 so the service can tell whether more records exist.
+export function applyFilter(q, f, cols) {
+  const p = f.pagination;
+  const items = [...(f.sorts ?? [])];
+  if (p?.sort_by) items.push({ field: p.sort_by, order: p.sort ?? "desc" });
+  const order = orderBy(cols, items);
+  if (order.length) q = q.orderBy(...order);
+  if (p) q = q.limit(p.page_size + 1).offset((p.page - 1) * p.page_size);
+  if (f.forUpdate) q = q.for("update");
+  return q;
+}
+
+// page trims the extra row fetched by applyFilter and builds the response info.
+export function page(p, count, rows) {
+  const more = rows.length > p.page_size;
+  return {
+    data: more ? rows.slice(0, p.page_size) : rows,
+    info: {
+      ...p,
+      pages: Math.ceil(count / p.page_size),
+      count,
+      more_records: more,
+    },
+  };
+}
+
+// escapeLike makes user input match literally inside ILIKE patterns.
+export const escapeLike = (s) => s.replace(/[\\%_]/g, "\\$&");

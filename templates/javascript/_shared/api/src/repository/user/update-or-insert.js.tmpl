@@ -1,0 +1,23 @@
+import { sql } from "drizzle-orm";
+import { conn } from "../../abstraction/context.js";
+import { updateAudit } from "../../abstraction/entity.js";
+import { beforeCreate, users } from "../../model/user.js";
+
+// updateOrInsert upserts rows by id in one statement; returns the affected row count.
+export async function updateOrInsert(ctx, rows) {
+  if (rows.length === 0) return 0;
+  const values = await Promise.all(rows.map((r) => beforeCreate(ctx, r)));
+  const res = await conn(ctx)
+    .insert(users)
+    .values(values)
+    .onConflictDoUpdate({
+      target: users.id,
+      set: {
+        name: sql`excluded.name`,
+        email: sql`excluded.email`,
+        password: sql`excluded.password`,
+        ...updateAudit(ctx),
+      },
+    });
+  return res.rowCount ?? 0;
+}

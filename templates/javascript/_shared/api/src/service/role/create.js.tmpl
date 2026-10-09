@@ -1,0 +1,26 @@
+import { errors, isUniqueViolation } from "../../abstraction/error.js";
+import { toRoleResponse } from "../../dto/role.js";
+import { checkPermissions } from "./service.js";
+
+export async function create(d, ctx, req) {
+  const perms = checkPermissions(req.permissions);
+  // Errors inside the transaction are already client-facing errors: no catch needed here.
+  const role = await d.trxManager.withTrx(ctx, async (tx) => {
+    const [row] = await d.roleRepository
+      .create(tx, {
+        code: req.code,
+        name: req.name,
+        description: req.description,
+      })
+      .catch((err) => {
+        // roles.code UNIQUE: the database decides (no check-then-insert race).
+        throw isUniqueViolation(err)
+          ? errors.duplicate("role already exists")
+          : err;
+      });
+    if (!row) throw new Error("create role: no row returned");
+    await d.rolePermissionRepository.givePermissionTo(tx, row.id, ...perms); // one bulk insert
+    return row;
+  });
+  return toRoleResponse(role, perms);
+}

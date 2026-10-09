@@ -1,0 +1,15 @@
+import { conn } from "../../abstraction/context.js";
+import { rolePermissionWhere } from "../../dto/role.js";
+import { rolePermissions } from "../../model/role-permission.js";
+
+// findOne returns the first match without ordering (like GORM Take), or undefined.
+export async function findOne(ctx, f) {
+  const q = conn(ctx)
+    .select()
+    .from(rolePermissions)
+    .where(rolePermissionWhere(f))
+    .limit(1)
+    .$dynamic();
+  const [row] = await (f.forUpdate ? q.for("update") : q);
+  return row;
+}

@@ -1,0 +1,9 @@
+import { generateKeyPairSync } from "node:crypto";
+
+// testKeys returns a throwaway RSA key pair for tests (never the real ./secret-auth keys).
+export function testKeys() {
+  const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+    modulusLength: 2048,
+  });
+  return { privateKey, publicKey };
+}

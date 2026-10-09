@@ -1,0 +1,60 @@
+SHELL := /bin/sh
+
+.PHONY: help install run build start lint format{{if .IsTypeScript}} typecheck{{end}} test test-e2e ui-shots vuln sast check
+
+help:
+	@echo "Usage: make <target>"
+	@echo "  install    npm ci"
+	@echo "  run        next dev on http://localhost:3001 (needs .env.local and a running API)"
+	@echo "  build      next build (standalone output)"
+	@echo "  start      next start on port 3001"
+	@echo "  lint / format{{if .IsTypeScript}} / typecheck{{end}} / test / vuln / sast / check"
+	@echo "  test-e2e   Playwright against next dev + the mock API (installs Chromium on first run)"
+	@echo "  ui-shots   screenshots of every screen at 375, 768 and 1280 px, light and dark, into ui-shots/ (look at them)"
+
+install:
+	npm ci
+
+run:
+	npm run dev
+
+build:
+	npm run build
+
+start:
+	npm start
+
+lint:
+	npm run lint
+
+format:
+	npm run format
+{{- if .IsTypeScript}}
+
+typecheck:
+	npm run typecheck
+{{- end}}
+
+test:
+	npm test
+
+test-e2e:
+	npx playwright install chromium
+	npm run test:e2e
+
+ui-shots:
+	npx playwright install chromium
+	npx playwright test screens
+
+vuln:
+	npm audit --omit=dev --audit-level=high
+
+# Semgrep SAST with the public registry rules, no account needed (brew install semgrep, or pipx install semgrep).
+# .semgrep/antislop.yml is the slop lint (generic copy, gradients, emoji, hard-coded colors, placeholder content);
+# an exception is `nosemgrep: <rule-id> -- <reason>` next to the code, never a removed rule.
+# ponytail: npm-missing-minimum-release-age is excluded because package.json pins
+# versions younger than 7 days. Once they are older, add min-release-age=7 to .npmrc and drop the exclude.
+sast:
+	semgrep scan --config p/default --config .semgrep/antislop.yml --error --metrics=off --exclude-rule package_managers.npm.npm-missing-minimum-release-age.npm-missing-minimum-release-age
+
+check: lint{{if .IsTypeScript}} typecheck{{end}} test vuln sast build

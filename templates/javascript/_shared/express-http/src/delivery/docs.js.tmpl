@@ -1,0 +1,22 @@
+import { openapiDocument } from "../openapi/openapi.js";
+import { swaggerAsset } from "../openapi/swagger-ui.js";
+
+// docs serves the OpenAPI document and Swagger UI (registered outside production only).
+export function docs(app, cfg) {
+  const base = cfg.APP_BASE_PATH;
+  const spec = `${base}/openapi.json`;
+  const doc = openapiDocument(cfg);
+  app.get(spec, (_req, res) => {
+    res.json(doc);
+  });
+  app.get(`${base}/swagger/{:file}`, async (req, res, next) => {
+    const asset = await swaggerAsset(req.params.file ?? "", spec);
+    if (!asset) return next();
+    res.type(asset.type).send(asset.body);
+  });
+  // Relative asset URLs in index.html need the trailing slash. Registered after the asset
+  // route, which already answers /swagger/.
+  app.get(`${base}/swagger`, (_req, res) => {
+    res.redirect(`${base}/swagger/`);
+  });
+}

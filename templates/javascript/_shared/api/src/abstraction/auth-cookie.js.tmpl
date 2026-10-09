@@ -1,0 +1,51 @@
+import { refreshRequest } from "../dto/auth.js";
+import { errors } from "./error.js";
+import { parse } from "./validate.js";
+
+// Cookie mode (AUTH_COOKIE_MODE) is for browser SPAs that call the API directly, without a
+// BFF: the refresh token lives in an HttpOnly cookie scoped to /v1/auth and is never readable
+// by JavaScript; the access token stays in the SPA's memory. The SPA and the API must share a
+// site (app.example.com + api.example.com): browsers block third-party cookies.
+export const REFRESH_COOKIE = "__Secure-refresh_token";
+export const CSRF_HEADER = "X-CSRF-Protection";
+
+// CookieIO is the little HTTP surface the auth handlers need from Express/Hono.
+
+const cookie = (cfg, value, maxAgeSec) =>
+  `${REFRESH_COOKIE}=${value}; Path=${cfg.APP_BASE_PATH}/v1/auth; Max-Age=${maxAgeSec}; HttpOnly; Secure; SameSite=Strict`;
+
+// guard: every cookie-mode auth request needs an allowlisted Origin and the custom header
+// (a cross-site form cannot send it, and it forces a CORS preflight).
+export function guard(cfg, io) {
+  if (!cfg.AUTH_COOKIE_MODE) return;
+  const ok =
+    !!io.origin && !!io.csrf && cfg.APP_CORS_ALLOW_ORIGIN.includes(io.origin);
+  if (!ok) throw errors.forbidden("csrf check failed");
+}
+
+// deliver moves the refresh token into the cookie (cookie mode) and out of the body.
+export function deliver(cfg, io, tokens) {
+  if (!cfg.AUTH_COOKIE_MODE) return tokens;
+  const { refresh_token, ...rest } = tokens;
+  io.setCookie(cookie(cfg, refresh_token, cfg.AUTH_REFRESH_TOKEN_TTL_MIN * 60));
+  return rest;
+}
+
+// refreshTokenOf reads the refresh token: only from the cookie in cookie mode, else the body.
+export async function refreshTokenOf(cfg, io, body) {
+  if (!cfg.AUTH_COOKIE_MODE) return parse(refreshRequest, await body());
+  return parse(refreshRequest, { refresh_token: readCookie(io.cookieHeader) });
+}
+
+// clear deletes the cookie (logout), even when the token turns out to be invalid.
+export function clear(cfg, io) {
+  if (cfg.AUTH_COOKIE_MODE) io.setCookie(cookie(cfg, "", 0));
+}
+
+function readCookie(header) {
+  for (const part of (header ?? "").split(";")) {
+    const [name, ...value] = part.trim().split("=");
+    if (name === REFRESH_COOKIE) return value.join("=");
+  }
+  return undefined;
+}

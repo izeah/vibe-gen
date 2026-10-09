@@ -1,0 +1,11 @@
+import { conn } from "../../abstraction/context.js";
+import { roleWhere } from "../../dto/role.js";
+import { roles } from "../../model/role.js";
+
+export async function ids(ctx, f) {
+  const rows = await conn(ctx)
+    .select({ id: roles.id })
+    .from(roles)
+    .where(roleWhere(f));
+  return rows.map((r) => r.id);
+}

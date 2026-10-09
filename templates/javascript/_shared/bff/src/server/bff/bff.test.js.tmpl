@@ -1,0 +1,312 @@
+import { afterEach, beforeAll, describe, expect, test, vi } from "vitest";
+import { bffConfig } from "./config.js";
+import { ACCESS, SESSION } from "./cookies.js";
+import { open, seal } from "./crypto.js";
+import {
+  clientIp,
+  isAllowedPath,
+  login,
+  logout,
+  proxy,
+  readLimited,
+  session,
+} from "./handlers.js";
+
+const ORIGIN = "http://localhost:3001";
+const SECRET = "test-secret-test-secret-test-secret!!";
+
+beforeAll(() => {
+  process.env.API_BASE_URL = "http://api.test";
+  process.env.APP_ORIGIN = ORIGIN;
+  process.env.BFF_COOKIE_SECRET = SECRET;
+});
+afterEach(() => vi.unstubAllGlobals());
+
+const jwt = (exp) =>
+  `h.${Buffer.from(JSON.stringify({ exp })).toString("base64url")}.s`;
+const pair = (n) => ({
+  access_token: `access-${n}`,
+  refresh_token: jwt(Math.floor(Date.now() / 1000) + 3600) + n,
+  expires_in: 900,
+});
+
+function mockApi(handler) {
+  const calls = [];
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (url, init) => {
+      const c = { url, init };
+      calls.push(c);
+      return handler(c);
+    }),
+  );
+  return calls;
+}
+const ok = (data, status = 200) =>
+  new Response(JSON.stringify({ meta: { success: status < 400 }, data }), {
+    status,
+    headers: { "content-type": "application/json" },
+  });
+
+const csrf = "csrf-token-123";
+const browser = (path, init = {}) => {
+  const headers = new Headers(init.headers);
+  headers.set("origin", ORIGIN);
+  headers.set("x-csrf-token", csrf);
+  headers.set(
+    "cookie",
+    [`__Host-csrf=${csrf}`, init.cookies].filter(Boolean).join("; "),
+  );
+  return new Request(`${ORIGIN}${path}`, { ...init, headers });
+};
+const sessionCookies = (access, refresh) =>
+  [
+    access && `${ACCESS}=${seal(SECRET, ACCESS, access)}`,
+    refresh && `${SESSION}=${seal(SECRET, SESSION, refresh)}`,
+  ]
+    .filter(Boolean)
+    .join("; ");
+
+describe("cookie sealing", () => {
+  test("round trip, tamper and cookie swapping fail closed", () => {
+    const v = seal(SECRET, ACCESS, "token");
+    expect(open(SECRET, ACCESS, v)).toBe("token");
+    expect(open(SECRET, SESSION, v)).toBeUndefined();
+    expect(
+      open("another-secret-another-secret-123", ACCESS, v),
+    ).toBeUndefined();
+    expect(open(SECRET, ACCESS, `${v.slice(0, -2)}AA`)).toBeUndefined();
+  });
+});
+
+test("proxy path allowlist", () => {
+  const cfg = bffConfig();
+  expect(isAllowedPath(cfg, "/v1/users/me")).toBe(true);
+  for (const bad of [
+    "/v1/auth/login",
+    "/v1/AUTH/refresh",
+    "/v1/auth",
+    "/v1/../admin",
+    "/v1//x",
+    "/v1/%2e%2e/x",
+    "/v1/a%2Fb",
+    "/v1/%61uth/login", // routers that decode before matching would see /v1/auth
+    "/v1/%zz",
+    "/internal/x",
+  ]) {
+    expect(isAllowedPath(cfg, bad), bad).toBe(false);
+  }
+});
+
+test("X-Forwarded-For is trusted only through configured proxy hops", () => {
+  expect(clientIp("6.6.6.6", 0)).toBeUndefined();
+  expect(clientIp("6.6.6.6, 203.0.113.9", 1)).toBe("203.0.113.9");
+  expect(clientIp("6.6.6.6, 203.0.113.9, 10.0.0.2", 2)).toBe("203.0.113.9");
+  expect(clientIp(null, 1)).toBeUndefined();
+});
+
+describe("auth routes", () => {
+  test("login sets sealed __Host- cookies and returns no token", async () => {
+    const calls = mockApi(() => ok(pair(1)));
+    const res = await login(
+      browser("/api/auth/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          email: "a@example.com",
+          password: "password123",
+        }),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(text).not.toContain("access-1");
+    const cookies = res.headers.getSetCookie();
+    expect(cookies).toHaveLength(3);
+    expect(cookies[2]).toMatch(/^__Host-csrf=/); // rotated with the new session
+    expect(cookies[2]).not.toContain(csrf);
+    for (const c of cookies.slice(0, 2)) {
+      expect(c).toMatch(/^__Host-(access|session)=/);
+      expect(c).toContain("HttpOnly");
+      expect(c).toContain("Secure");
+      expect(c).toContain("SameSite=Lax");
+      expect(c).toContain("Path=/");
+      expect(c).not.toContain("access-1");
+    }
+    expect(calls[0]?.url).toBe("http://api.test/v1/auth/login");
+  });
+
+  test("login without the CSRF token or from another origin is refused", async () => {
+    const calls = mockApi(() => ok(pair(1)));
+    const body = JSON.stringify({ email: "a@example.com", password: "x" });
+    const noToken = browser("/api/auth/login", { method: "POST", body });
+    noToken.headers.delete("x-csrf-token");
+    expect((await login(noToken)).status).toBe(403);
+    const evil = browser("/api/auth/login", { method: "POST", body });
+    evil.headers.set("origin", "https://evil.example");
+    expect((await login(evil)).status).toBe(403);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("login hides internal API errors", async () => {
+    mockApi(() => ok({ detail: "pq: connection refused" }, 500));
+    const res = await login(
+      browser("/api/auth/login", {
+        method: "POST",
+        body: JSON.stringify({
+          email: "a@example.com",
+          password: "password123",
+        }),
+      }),
+    );
+    expect(res.status).toBe(502);
+    expect(await res.text()).not.toContain("pq:");
+  });
+
+  test("session sets a readable CSRF cookie, never returns tokens", async () => {
+    const res = await session(new Request(`${ORIGIN}/api/auth/session`));
+    const body = await res.json();
+    expect(body.data).toEqual({ authenticated: false });
+    expect(res.headers.getSetCookie()[0]).toMatch(/^__Host-csrf=/);
+    expect(res.headers.getSetCookie()[0]).not.toContain("HttpOnly");
+  });
+
+  test("logout clears the cookies even if the API is down", async () => {
+    mockApi(() => {
+      throw new Error("down");
+    });
+    const res = await logout(
+      browser("/api/auth/logout", {
+        method: "POST",
+        cookies: sessionCookies("a", "r"),
+      }),
+    );
+    expect(res.status).toBe(200);
+    const [access, session, csrfCookie] = res.headers.getSetCookie();
+    expect([access, session].every((c) => c?.includes("Max-Age=0"))).toBe(true);
+    expect(csrfCookie).toMatch(/^__Host-csrf=/); // a fresh token for the next visitor
+  });
+});
+
+describe("proxy", () => {
+  test("injects the bearer token and never forwards cookies", async () => {
+    const calls = mockApi(() => ok({ id: 1 }));
+    const res = await proxy(
+      browser("/api/v1/users/me?x=1", {
+        cookies: sessionCookies("access-1", "refresh-1"),
+      }),
+      "/v1/users/me",
+    );
+    expect(res.status).toBe(200);
+    const h = new Headers(calls[0]?.init.headers);
+    expect(calls[0]?.url).toBe("http://api.test/v1/users/me?x=1");
+    expect(h.get("authorization")).toBe("Bearer access-1");
+    expect(h.get("cookie")).toBeNull();
+  });
+
+  test("blocks the API's auth routes", async () => {
+    const calls = mockApi(() => ok(pair(1)));
+    const res = await proxy(
+      browser("/api/v1/auth/login", { method: "POST" }),
+      "/v1/auth/login",
+    );
+    expect(res.status).toBe(404);
+    expect(calls).toHaveLength(0);
+  });
+
+  test("an expired access token is refreshed once and the call retried", async () => {
+    const calls = mockApi(({ url, init }) => {
+      if (url.endsWith("/v1/auth/refresh")) return ok(pair(2));
+      const auth = new Headers(init.headers).get("authorization");
+      return auth === "Bearer access-2" ? ok({ id: 1 }) : ok(null, 401);
+    });
+    const res = await proxy(
+      browser("/api/v1/users/me", {
+        cookies: sessionCookies("stale", "refresh-1"),
+      }),
+      "/v1/users/me",
+    );
+    expect(res.status).toBe(200);
+    expect(calls.map((c) => new URL(c.url).pathname)).toEqual([
+      "/v1/users/me",
+      "/v1/auth/refresh",
+      "/v1/users/me",
+    ]);
+    expect(res.headers.getSetCookie()).toHaveLength(2);
+  });
+
+  test("concurrent requests share one refresh", async () => {
+    const calls = mockApi(async ({ url }) => {
+      if (url.endsWith("/v1/auth/refresh")) {
+        await new Promise((r) => setTimeout(r, 20));
+        return ok(pair(3));
+      }
+      return ok({});
+    });
+    const cookies = sessionCookies(undefined, "refresh-shared");
+    await Promise.all(
+      [1, 2, 3].map(() =>
+        proxy(browser("/api/v1/samples", { cookies }), "/v1/samples"),
+      ),
+    );
+    expect(
+      calls.filter((c) => c.url.endsWith("/v1/auth/refresh")),
+    ).toHaveLength(1);
+  });
+
+  test("unsafe methods need the CSRF token", async () => {
+    mockApi(() => ok({}));
+    const req = browser("/api/v1/samples", { method: "POST", body: "{}" });
+    req.headers.set("x-csrf-token", "wrong");
+    expect((await proxy(req, "/v1/samples")).status).toBe(403);
+  });
+
+  test("a refresh that cannot reach the API keeps the session", async () => {
+    mockApi(({ url }) =>
+      url.endsWith("/v1/auth/refresh") ? ok(null, 503) : ok({}),
+    );
+    const res = await proxy(
+      browser("/api/v1/users/me", {
+        cookies: sessionCookies(undefined, "refresh-down"),
+      }),
+      "/v1/users/me",
+    );
+    expect(res.status).toBe(503);
+    expect(res.headers.getSetCookie()).toHaveLength(0); // not logged out by an outage
+  });
+
+  test("a rejected refresh clears the session", async () => {
+    mockApi(({ url }) =>
+      url.endsWith("/v1/auth/refresh") ? ok(null, 401) : ok(null, 401),
+    );
+    const res = await proxy(
+      browser("/api/v1/users/me", {
+        cookies: sessionCookies(undefined, "refresh-revoked"),
+      }),
+      "/v1/users/me",
+    );
+    expect(res.status).toBe(401);
+    expect(
+      res.headers.getSetCookie().every((c) => c.includes("Max-Age=0")),
+    ).toBe(true);
+  });
+});
+
+test("the body limit counts streamed bytes (no Content-Length)", async () => {
+  const chunk = new Uint8Array(1024);
+  const stream = new ReadableStream({
+    pull(c) {
+      c.enqueue(chunk); // endless: must stop at the limit, not buffer it all
+    },
+  });
+  const req = new Request(`${ORIGIN}/api/v1/samples`, {
+    method: "POST",
+    body: stream,
+    duplex: "half",
+  });
+  expect(await readLimited(req, 10 * 1024)).toBeNull();
+  const small = new Request(`${ORIGIN}/x`, { method: "POST", body: "{}" });
+  expect(Buffer.from((await readLimited(small, 10)) ?? []).toString()).toBe(
+    "{}",
+  );
+});

@@ -1,0 +1,11 @@
+import { conn } from "../../abstraction/context.js";
+import { sampleWhere } from "../../dto/sample.js";
+import { samples } from "../../model/sample.js";
+
+export async function ids(ctx, f) {
+  const rows = await conn(ctx)
+    .select({ id: samples.id })
+    .from(samples)
+    .where(sampleWhere(f));
+  return rows.map((r) => r.id);
+}

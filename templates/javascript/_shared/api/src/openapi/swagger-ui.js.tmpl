@@ -1,0 +1,45 @@
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Swagger UI from the local swagger-ui-dist package (no CDN, no third-party script). Served
+// only outside production. Only the files below are readable: no path from the request ever
+// reaches the filesystem.
+const dir = fileURLToPath(
+  new URL(".", import.meta.resolve("swagger-ui-dist/package.json")),
+);
+
+const FILES = {
+  "index.html": "text/html; charset=utf-8",
+  "index.css": "text/css; charset=utf-8",
+  "swagger-ui.css": "text/css; charset=utf-8",
+  "swagger-ui-bundle.js": "text/javascript; charset=utf-8",
+  "swagger-ui-standalone-preset.js": "text/javascript; charset=utf-8",
+  "favicon-16x16.png": "image/png",
+  "favicon-32x32.png": "image/png",
+};
+
+// Swagger UI renders with inline styles and data: images; everything else stays same-origin.
+export const SWAGGER_CSP =
+  "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; frame-ancestors 'none'";
+
+export async function swaggerAsset(name, specUrl) {
+  if (name === "swagger-initializer.js") {
+    return {
+      type: "text/javascript; charset=utf-8",
+      body: Buffer.from(`window.onload = () => {
+  window.ui = SwaggerUIBundle({
+    url: ${JSON.stringify(specUrl)},
+    dom_id: "#swagger-ui",
+    presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+    layout: "StandaloneLayout",
+  });
+};
+`),
+    };
+  }
+  const file = name || "index.html";
+  const type = Object.hasOwn(FILES, file) ? FILES[file] : undefined;
+  if (!type) return undefined;
+  return { type, body: await readFile(join(dir, file)) };
+}

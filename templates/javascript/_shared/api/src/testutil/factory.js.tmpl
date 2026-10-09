@@ -1,0 +1,125 @@
+import { vi } from "vitest";
+import { config } from "../config/config.js";
+import { testKeys } from "./keys.js";
+
+const keys = testKeys();
+
+// The seeded permissions by role code (migrations/000003_create_roles_tables): the permission
+// cache answers with them, so HTTP tests need no database.
+export const SEED_PERMISSIONS = {
+  admin: [
+    "users:read:any",
+    "users:create",
+    "users:update:any",
+    "roles:manage",
+    "samples:read:any",
+    "samples:create",
+    "samples:update:any",
+    "samples:delete:any",
+  ],
+  user: [
+    "samples:read:any",
+    "samples:create",
+    "samples:update:own",
+    "samples:delete:own",
+  ],
+};
+
+// Tokens carry no role: a test user's roles come from its id. TEST_USER_IDS.admin holds the
+// admin role, TEST_USER_IDS.user the user role; any other id holds none. Cached role ids are
+// "role-<code>".
+export const TEST_USER_IDS = {
+  admin: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a01",
+  user: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b", // testUser().id
+};
+const codeOf = (userId) =>
+  Object.keys(TEST_USER_IDS).find((code) => TEST_USER_IDS[code] === userId);
+
+// testFactory returns a Factory whose repositories are vi.fn() mocks: no database, no Redis.
+// Override what a test needs: f.userRepository.findOne.mockResolvedValue(user).
+export function testFactory() {
+  const repo = () => ({
+    find: vi.fn(),
+    findOne: vi.fn(),
+    count: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+    updates: vi.fn(),
+    updateOrInsert: vi.fn(),
+    softDelete: vi.fn(),
+    firstOrCreate: vi.fn(),
+    exists: vi.fn(),
+    delete: vi.fn(),
+    ids: vi.fn(),
+  });
+  const f = {
+    config,
+    keys,
+    trxManager: { withTrx: vi.fn((ctx, fn) => fn(ctx)) },
+    userRepository: repo(),
+    sampleRepository: repo(),
+    roleRepository: repo(),
+    rolePermissionRepository: {
+      ...repo(),
+      hasPermissionTo: vi.fn(),
+      givePermissionTo: vi.fn(),
+      revokePermissionTo: vi.fn(),
+      syncPermissions: vi.fn(),
+    },
+    userRoleRepository: {
+      ...repo(),
+      hasRole: vi.fn(),
+      assignRole: vi.fn(),
+      revokeRole: vi.fn(),
+      reassignRole: vi.fn(),
+    },
+    permissionCache: {
+      getUserRoles: vi.fn(async (userId) => {
+        const code = codeOf(userId);
+        return code ? [{ id: `role-${code}`, code }] : [];
+      }),
+      setUserRoles: vi.fn(async (_userId, _roles, _ttlSec) => {}),
+      getRolePermissions: vi.fn(
+        async (roleIds) =>
+          new Map(
+            roleIds.flatMap((id) => {
+              const perms = SEED_PERMISSIONS[id.replace(/^role-/, "")];
+              return perms ? [[id, perms]] : [];
+            }),
+          ),
+      ),
+      setRolePermissions: vi.fn(async (_sets, _ttlSec) => {}),
+      delUsers: vi.fn(async (..._userIds) => {}),
+      delRoles: vi.fn(async (..._roleIds) => {}),
+    },
+    refreshTokenRepository: {
+      save: vi.fn(async () => {}),
+      rotate: vi.fn(async () => "rotated"),
+      revoke: vi.fn(async () => {}),
+    },
+    rateLimitRepository: {
+      hit: vi.fn(async (_key, _windowSec) => ({ count: 1, ttlSec: 900 })),
+      undo: vi.fn(async () => {}),
+      reset: vi.fn(async () => {}),
+    },
+  };
+  return f;
+}
+
+export function testUser(overrides = {}) {
+  return {
+    id: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+    name: "Test User",
+    email: "user@example.com",
+    // bcrypt hash of "password123" (test fixture, not a real credential)
+    // nosemgrep: generic.secrets.security.detected-bcrypt-hash.detected-bcrypt-hash
+    password: "$2b$10$lIZehhdN9PN505qIdoEzJOR9n.SKMQuhW3BfBbhahv9bhsm.SS9KG",
+    createdAt: 1_700_000_000_000_000_000n,
+    createdBy: "018b1234-5678-7abc-8def-123456789a01",
+    updatedAt: null,
+    updatedBy: null,
+    deletedAt: null,
+    deletedBy: null,
+    ...overrides,
+  };
+}

@@ -1,0 +1,51 @@
+import { randomBytes } from "node:crypto";
+import { open, seal } from "./crypto.js";
+
+// __Host- cookies: Secure, Path=/, no Domain, so no subdomain can set or read them.
+// Browsers treat http://localhost as a secure context, so this works in development too.
+export const SESSION = "__Host-session"; // sealed refresh token
+export const ACCESS = "__Host-access"; // sealed access token
+export const CSRF = "__Host-csrf"; // double-submit token, readable by the page's JS
+
+export function parseCookies(header) {
+  const out = new Map();
+  for (const part of (header ?? "").split(";")) {
+    const i = part.indexOf("=");
+    if (i > 0) out.set(part.slice(0, i).trim(), part.slice(i + 1).trim());
+  }
+  return out;
+}
+
+export function readTokens(cfg, req) {
+  const c = parseCookies(req.headers.get("cookie"));
+  const get = (name) => {
+    const v = c.get(name);
+    return v ? open(cfg.BFF_COOKIE_SECRET, name, v) : undefined;
+  };
+  return { access: get(ACCESS), refresh: get(SESSION) };
+}
+
+const cookie = (name, value, maxAge, httpOnly = true) =>
+  `${name}=${value}; Path=/; Max-Age=${Math.max(0, Math.floor(maxAge))}; Secure;${httpOnly ? " HttpOnly;" : ""} SameSite=Lax`;
+
+// The session cookie outlives any sensible refresh-token lifetime; once the token itself expires
+// the API rejects the refresh and the BFF clears the cookies.
+const SESSION_MAX_AGE = 60 * 60 * 24 * 30;
+
+// tokenCookies seals the pair into cookies; the access cookie lives as long as the access token.
+export function tokenCookies(cfg, t) {
+  const s = cfg.BFF_COOKIE_SECRET;
+  return [
+    cookie(ACCESS, seal(s, ACCESS, t.access_token), t.expires_in),
+    cookie(SESSION, seal(s, SESSION, t.refresh_token), SESSION_MAX_AGE),
+  ];
+}
+
+export const clearCookies = () => [
+  cookie(ACCESS, "", 0),
+  cookie(SESSION, "", 0),
+];
+
+// Readable by the page (not HttpOnly): the page echoes it in X-CSRF-Token.
+export const newCsrfCookie = () =>
+  cookie(CSRF, randomBytes(32).toString("base64url"), 60 * 60 * 24 * 30, false);

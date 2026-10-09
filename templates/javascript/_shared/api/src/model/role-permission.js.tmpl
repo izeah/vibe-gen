@@ -1,0 +1,24 @@
+import { pgTable, uuid, varchar } from "drizzle-orm/pg-core";
+import {
+  createAudit,
+  entityColumns,
+  updateAudit,
+} from "../abstraction/entity.js";
+import { roles } from "./role.js";
+
+// role_permissions grants one catalog permission (authz/permission.ts) to a role.
+// Mirrors migrations/000003_create_roles_tables.up.sql.
+export const rolePermissions = pgTable("role_permissions", {
+  ...entityColumns(),
+  roleId: uuid("role_id")
+    .notNull()
+    .references(() => roles.id, { onDelete: "cascade" }),
+  permission: varchar("permission", { length: 64 }).notNull(),
+});
+
+export const beforeCreate = (ctx, e) => ({
+  ...e,
+  ...createAudit(ctx),
+});
+
+export const beforeUpdate = (ctx, e) => ({ ...e, ...updateAudit(ctx) });

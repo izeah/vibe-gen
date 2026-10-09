@@ -1,0 +1,17 @@
+import { randomUUID } from "node:crypto";
+
+const REQUEST_ID = /^[\w-]{1,64}$/;
+
+// context creates the request Context (request ID, client IP) in res.locals.ctx.
+// An incoming X-Request-Id is kept only if it is a safe token, so it cannot inject into logs.
+export const context = (req, res, next) => {
+  const incoming = req.get("x-request-id");
+  const requestId =
+    incoming && REQUEST_ID.test(incoming) ? incoming : randomUUID();
+  res.set("X-Request-Id", requestId);
+  // req.ip honours APP_TRUST_PROXY: X-Forwarded-For is only trusted from configured proxies.
+  res.locals.ctx = { requestId, clientIp: req.ip };
+  next();
+};
+
+export const ctxOf = (res) => res.locals.ctx;

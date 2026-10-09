@@ -1,0 +1,16 @@
+import { create } from "./create.js";
+import { remove } from "./delete.js";
+import { find } from "./find.js";
+import { findById } from "./find-by-id.js";
+import { update } from "./update.js";
+
+export function newSampleService(f) {
+  const d = { sampleRepository: f.sampleRepository };
+  return {
+    find: (ctx, q) => find(d, ctx, q),
+    findById: (ctx, id) => findById(d, ctx, id),
+    create: (ctx, req) => create(d, ctx, req),
+    update: (ctx, id, req) => update(d, ctx, id, req),
+    delete: (ctx, id) => remove(d, ctx, id),
+  };
+}

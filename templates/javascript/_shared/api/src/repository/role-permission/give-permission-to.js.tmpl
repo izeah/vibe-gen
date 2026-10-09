@@ -1,0 +1,18 @@
+import { conn } from "../../abstraction/context.js";
+import { beforeCreate, rolePermissions } from "../../model/role-permission.js";
+
+// givePermissionTo grants the permissions to the role in one insert; permissions the role
+// already holds are kept. Callers validate them against the catalog first. Returns the number
+// added.
+export async function givePermissionTo(ctx, roleId, ...perms) {
+  if (perms.length === 0) return 0;
+  const res = await conn(ctx)
+    .insert(rolePermissions)
+    .values(
+      perms.map((permission) => beforeCreate(ctx, { roleId, permission })),
+    )
+    .onConflictDoNothing({
+      target: [rolePermissions.roleId, rolePermissions.permission],
+    });
+  return res.rowCount ?? 0;
+}

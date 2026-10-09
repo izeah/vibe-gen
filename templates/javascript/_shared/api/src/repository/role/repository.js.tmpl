@@ -1,0 +1,29 @@
+import { count } from "./count.js";
+import { create } from "./create.js";
+import { deleteRows } from "./delete.js";
+import { exists } from "./exists.js";
+import { find } from "./find.js";
+import { findOne } from "./find-one.js";
+import { firstOrCreate } from "./first-or-create.js";
+import { ids } from "./ids.js";
+import { softDelete } from "./soft-delete.js";
+import { update } from "./update.js";
+import { updateOrInsert } from "./update-or-insert.js";
+import { updates } from "./updates.js";
+
+// The 12 standard repository methods (one file each). They are a deliberate, ready-to-use
+// API: keep them even when unused, and do not expose them as endpoints just to "use" them.
+export const roleRepository = {
+  find,
+  findOne,
+  count,
+  create,
+  update,
+  updates,
+  updateOrInsert,
+  softDelete,
+  firstOrCreate,
+  exists,
+  delete: deleteRows,
+  ids,
+};

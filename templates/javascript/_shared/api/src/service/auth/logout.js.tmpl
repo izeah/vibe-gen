@@ -1,0 +1,8 @@
+import { verifyRefresh } from "./token.js";
+
+// logout revokes the session family of the given refresh token. Access tokens already issued
+// stay valid until they expire (short-lived by design).
+export async function logout(d, _ctx, req) {
+  const claims = await verifyRefresh(d, req.refresh_token);
+  await d.refreshTokenRepository.revoke(claims.fid);
+}

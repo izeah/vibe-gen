@@ -1,0 +1,103 @@
+// Auth client for a SPA without a BFF. The API runs in AUTH_COOKIE_MODE: the refresh token
+// is an HttpOnly cookie scoped to /v1/auth (never readable here) and the access token lives
+// only in this module's memory. A reload restores the session through /v1/auth/refresh.
+// Never put tokens in localStorage, sessionStorage or a readable cookie.
+
+// "" = same origin (the Vite dev/preview proxy forwards /v1); otherwise e.g.
+// https://api.example.com, which must be on the same site as this app.
+const BASE = (import.meta.env?.VITE_API_BASE_URL ?? "").replace(/\/+$/, "");
+// Every cookie-mode auth request carries this header (CSRF guard on the API).
+const CSRF = { "X-CSRF-Protection": "1" };
+
+export class ApiError extends Error {
+  status;
+
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+let accessToken;
+let refreshing;
+// Bumped by logout: a refresh that started before it must not bring the token back.
+let generation = 0;
+
+// Tabs share the refresh cookie and every refresh rotates it, so a second tab sending the old
+// one looks like theft to the API (session revoked). The Web Locks API serializes refreshes
+// across tabs: each one sends the cookie the previous refresh set.
+const acrossTabs = (fn) =>
+  globalThis.navigator?.locks
+    ? navigator.locks.request("auth-refresh", fn)
+    : fn();
+
+async function unwrap(res) {
+  const body = await res.json().catch(() => null);
+
+  if (!res.ok)
+    throw new ApiError(res.status, body?.meta?.message ?? res.statusText);
+  return body?.data;
+}
+
+// Only /v1/auth/* sends credentials (the cookie is scoped there anyway).
+const authCall = (path, body) =>
+  fetch(`${BASE}/v1/auth/${path}`, {
+    method: "POST",
+    credentials: "include",
+    headers: body ? { ...CSRF, "content-type": "application/json" } : CSRF,
+    body: body ? JSON.stringify(body) : undefined,
+  });
+
+export async function login(email, password) {
+  const data = await unwrap(await authCall("login", { email, password }));
+  accessToken = data.access_token;
+}
+
+// refresh restores or renews the access token from the cookie. Concurrent callers share one
+// request (in this tab and, through the lock, across tabs).
+export function refresh() {
+  const gen = generation;
+  refreshing ??= (async () => {
+    try {
+      const res = await acrossTabs(() => authCall("refresh"));
+      const token = res.ok ? (await unwrap(res)).access_token : undefined;
+      if (gen === generation) accessToken = token;
+      return res.ok && gen === generation;
+    } catch {
+      if (gen === generation) accessToken = undefined;
+      return false;
+    } finally {
+      refreshing = undefined;
+    }
+  })();
+  return refreshing;
+}
+
+// logout forgets the token at once, waits for a refresh in flight (so its new cookie is the one
+// revoked and cleared), then revokes the session. Throws if the API could not be reached or
+// failed: the caller must not pretend the user is signed out.
+export async function logout() {
+  generation++;
+  accessToken = undefined;
+  await refreshing;
+  const res = await authCall("logout");
+  // 4xx: the session was already gone (the API clears the cookie anyway).
+  if (res.status >= 500) throw new ApiError(res.status, "logout failed");
+}
+
+// api calls the API with the in-memory access token, refreshing once on 401.
+export async function api(path, init = {}) {
+  if (!accessToken && !(await refresh()))
+    throw new ApiError(401, "unauthorized");
+  const send = () => {
+    const headers = new Headers(init.headers);
+    if (init.body) headers.set("content-type", "application/json");
+    if (accessToken) headers.set("authorization", `Bearer ${accessToken}`);
+    return fetch(`${BASE}${path}`, { ...init, headers, credentials: "omit" });
+  };
+  let res = await send();
+  if (res.status === 401 && (await refresh())) res = await send();
+  return unwrap(res);
+}
+
+// roles: branch on code (stable handle), show name.

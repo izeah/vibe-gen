@@ -1,0 +1,22 @@
+import { errors } from "../../abstraction/error.js";
+import { toRoleResponse } from "../../dto/role.js";
+import { checkPermissions } from "./service.js";
+
+// setPermissions replaces the role's whole permission set in one transaction and drops the
+// cached set, so the change applies to the next request.
+export async function setPermissions(d, ctx, id, req) {
+  const perms = checkPermissions(req.permissions);
+  const role = await d.trxManager.withTrx(ctx, async (tx) => {
+    // Lock the role row: concurrent replacements of the same set run one after the other.
+    const r = await d.roleRepository.findOne(tx, {
+      ids: [id],
+      forUpdate: true,
+    });
+    if (!r) throw errors.notFound("role not found");
+    if (r.isSystem) throw errors.forbidden("system roles cannot be changed");
+    await d.rolePermissionRepository.syncPermissions(tx, id, perms);
+    return r;
+  });
+  await d.authzService.invalidateRoles(id);
+  return toRoleResponse(role, perms);
+}

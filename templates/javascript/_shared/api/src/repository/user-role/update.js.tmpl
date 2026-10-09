@@ -1,0 +1,12 @@
+import { conn } from "../../abstraction/context.js";
+import { userRoleWhere } from "../../dto/user-role.js";
+import { beforeUpdate, userRoles } from "../../model/user-role.js";
+
+// update writes every domain column of e to the matching rows; returns the row count.
+export async function update(ctx, f, e) {
+  const res = await conn(ctx)
+    .update(userRoles)
+    .set(await beforeUpdate(ctx, e))
+    .where(userRoleWhere(f));
+  return res.rowCount ?? 0;
+}

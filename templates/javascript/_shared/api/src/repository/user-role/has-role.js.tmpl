@@ -1,0 +1,5 @@
+import { exists } from "./exists.js";
+
+// hasRole reports whether the user holds the role.
+export const hasRole = (ctx, userId, roleId) =>
+  exists(ctx, { userIds: [userId], roleIds: [roleId] });

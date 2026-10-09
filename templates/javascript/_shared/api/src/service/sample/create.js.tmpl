@@ -1,0 +1,7 @@
+import { toSampleResponse } from "../../dto/sample.js";
+
+export async function create(d, ctx, req) {
+  const [sample] = await d.sampleRepository.create(ctx, req);
+  if (!sample) throw new Error("create sample: no row returned");
+  return toSampleResponse(sample);
+}

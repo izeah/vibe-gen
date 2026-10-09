@@ -1,0 +1,63 @@
+import { createPrivateKey, createPublicKey } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { jwtVerify, SignJWT } from "jose";
+
+// Token types. Access tokens authorize API calls; refresh tokens are only accepted by
+// /auth/refresh and /auth/logout. verify() rejects a token of the wrong type.
+export const TYPE_ACCESS = "access";
+export const TYPE_REFRESH = "refresh";
+
+export function loadKeys(privatePath, publicPath) {
+  return {
+    privateKey: createPrivateKey(readFileSync(privatePath)),
+    publicKey: createPublicKey(readFileSync(publicPath)),
+  };
+}
+
+// newAuthToken prepares one login/refresh; sign its tokens with accessToken / refreshToken
+// (same shape as the Go templates: authtoken.New(...).AccessToken / .RefreshToken). Claim
+// names match Go (typ, fid). No role: roles are read per request, so a change applies at once.
+export function newAuthToken(input) {
+  const sign = (payload, jti, ttlSec, key) =>
+    new SignJWT(payload)
+      .setProtectedHeader({ alg: "RS256", typ: "JWT" })
+      .setSubject(input.subject)
+      .setJti(jti)
+      .setIssuer(input.issuer)
+      .setAudience(input.issuer)
+      .setIssuedAt()
+      .setExpirationTime(`${ttlSec}s`)
+      .sign(key);
+  return {
+    accessToken: (privateKey) =>
+      sign({ typ: TYPE_ACCESS }, input.tokenId, input.ttlSec, privateKey),
+    async refreshToken(ttlSec, privateKey) {
+      if (!input.refreshTokenId || !input.familyId) {
+        throw new Error(
+          "auth token: refresh token needs refreshTokenId and familyId",
+        );
+      }
+      return sign(
+        { typ: TYPE_REFRESH, fid: input.familyId },
+        input.refreshTokenId,
+        ttlSec,
+        privateKey,
+      );
+    },
+  };
+}
+
+// verify checks the signature (RS256 only), expiry, issuer, audience and token type.
+export async function verify(token, publicKey, issuer, typ) {
+  const { payload } = await jwtVerify(token, publicKey, {
+    algorithms: ["RS256"],
+    issuer,
+    audience: issuer,
+    clockTolerance: 5,
+    requiredClaims: ["exp", "sub", "jti"],
+  });
+  if (payload.typ !== typ) {
+    throw new Error(`invalid token: want type ${typ}`);
+  }
+  return payload;
+}

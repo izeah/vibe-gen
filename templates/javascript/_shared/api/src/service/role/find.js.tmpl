@@ -1,0 +1,25 @@
+import { page } from "../../abstraction/pagination.js";
+import { toRoleResponse } from "../../dto/role.js";
+
+export async function find(d, ctx, q) {
+  const f = { pagination: q };
+  const [count, rows] = await Promise.all([
+    d.roleRepository.count(ctx, f),
+    d.roleRepository.find(ctx, f),
+  ]);
+  const res = page(q, count, rows);
+  // Permissions of every listed role in one query (no per-role lookups), grouped in memory.
+  const byRole = new Map();
+  if (res.data.length) {
+    const perms = await d.rolePermissionRepository.find(ctx, {
+      roleIds: res.data.map((r) => r.id),
+      sorts: [{ field: "permission", order: "asc" }],
+    });
+    for (const p of perms)
+      byRole.set(p.roleId, [...(byRole.get(p.roleId) ?? []), p.permission]);
+  }
+  return {
+    data: res.data.map((r) => toRoleResponse(r, byRole.get(r.id) ?? [])),
+    info: res.info,
+  };
+}

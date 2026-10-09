@@ -1,0 +1,24 @@
+// gen-keys writes the RS256 key pair used to sign JWTs (./secret-auth/, git-ignored).
+// Run: make gen-keys. Never commit the keys; use a secret manager outside local development.
+import { generateKeyPairSync } from "node:crypto";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+
+const dir = "./secret-auth";
+const privatePath = `${dir}/privateKey.pem`;
+const publicPath = `${dir}/pubKey.pem`;
+
+if (existsSync(privatePath)) {
+  console.error(
+    `${privatePath} already exists; delete it first to rotate keys`,
+  );
+  process.exit(1);
+}
+const { privateKey, publicKey } = generateKeyPairSync("rsa", {
+  modulusLength: 2048,
+  publicKeyEncoding: { type: "spki", format: "pem" },
+  privateKeyEncoding: { type: "pkcs8", format: "pem" },
+});
+mkdirSync(dir, { recursive: true, mode: 0o700 });
+writeFileSync(privatePath, privateKey, { mode: 0o600 });
+writeFileSync(publicPath, publicKey, { mode: 0o644 });
+console.log(`wrote ${privatePath} and ${publicPath}`);

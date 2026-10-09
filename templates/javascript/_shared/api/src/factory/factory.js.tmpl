@@ -1,0 +1,31 @@
+import { config } from "../config/config.js";
+import { loadKeys } from "../pkg/auth-token/auth-token.js";
+import { redis } from "../pkg/redis/redis.js";
+import { trxManager } from "../pkg/trxmanager/trxmanager.js";
+import { newPermissionCache } from "../repository/redis/permission.js";
+import { newRateLimitRepository } from "../repository/redis/rate-limit.js";
+import { newRefreshTokenRepository } from "../repository/redis/refresh-token.js";
+import { roleRepository } from "../repository/role/repository.js";
+import { rolePermissionRepository } from "../repository/role-permission/repository.js";
+import { sampleRepository } from "../repository/sample/repository.js";
+import { userRepository } from "../repository/user/repository.js";
+import { userRoleRepository } from "../repository/user-role/repository.js";
+
+// Factory wires every dependency once; handlers and services take what they need from it.
+// Tests build their own Factory with mocked repositories.
+
+export function newFactory() {
+  return {
+    config,
+    keys: loadKeys(config.AUTH_PRIVATE_KEY_PATH, config.AUTH_PUBLIC_KEY_PATH),
+    trxManager,
+    userRepository,
+    userRoleRepository,
+    sampleRepository,
+    roleRepository,
+    rolePermissionRepository,
+    permissionCache: newPermissionCache(redis),
+    refreshTokenRepository: newRefreshTokenRepository(redis),
+    rateLimitRepository: newRateLimitRepository(redis),
+  };
+}

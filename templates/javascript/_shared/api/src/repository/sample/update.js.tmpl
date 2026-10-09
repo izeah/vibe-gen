@@ -1,0 +1,12 @@
+import { conn } from "../../abstraction/context.js";
+import { sampleWhere } from "../../dto/sample.js";
+import { beforeUpdate, samples } from "../../model/sample.js";
+
+// update writes every domain column of e to the matching rows; returns the row count.
+export async function update(ctx, f, e) {
+  const res = await conn(ctx)
+    .update(samples)
+    .set(await beforeUpdate(ctx, e))
+    .where(sampleWhere(f));
+  return res.rowCount ?? 0;
+}

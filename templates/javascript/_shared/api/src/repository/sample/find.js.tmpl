@@ -1,0 +1,9 @@
+import { applyFilter } from "../../abstraction/pagination.js";
+import { conn } from "../../abstraction/context.js";
+import { sampleSortColumns, sampleWhere } from "../../dto/sample.js";
+import { samples } from "../../model/sample.js";
+
+export function find(ctx, f = {}) {
+  const q = conn(ctx).select().from(samples).where(sampleWhere(f)).$dynamic();
+  return applyFilter(q, f, sampleSortColumns);
+}

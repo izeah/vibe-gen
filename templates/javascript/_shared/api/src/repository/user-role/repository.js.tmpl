@@ -1,0 +1,38 @@
+import { assignRole } from "./assign-role.js";
+import { count } from "./count.js";
+import { create } from "./create.js";
+import { deleteRows } from "./delete.js";
+import { exists } from "./exists.js";
+import { find } from "./find.js";
+import { findOne } from "./find-one.js";
+import { firstOrCreate } from "./first-or-create.js";
+import { hasRole } from "./has-role.js";
+import { ids } from "./ids.js";
+import { reassignRole } from "./reassign-role.js";
+import { revokeRole } from "./revoke-role.js";
+import { softDelete } from "./soft-delete.js";
+import { update } from "./update.js";
+import { updateOrInsert } from "./update-or-insert.js";
+import { updates } from "./updates.js";
+
+// The 12 standard repository methods (one file each), plus the role assignment methods
+// (hasRole, assignRole, revokeRole, reassignRole). They are a deliberate, ready-to-use API:
+// keep them even when unused, and do not expose them as endpoints just to "use" them.
+export const userRoleRepository = {
+  find,
+  findOne,
+  count,
+  create,
+  update,
+  updates,
+  updateOrInsert,
+  softDelete,
+  firstOrCreate,
+  exists,
+  delete: deleteRows,
+  ids,
+  hasRole,
+  assignRole,
+  revokeRole,
+  reassignRole,
+};

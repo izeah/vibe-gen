@@ -1,0 +1,24 @@
+import { boolean, pgTable, varchar } from "drizzle-orm/pg-core";
+import {
+  createAudit,
+  entityColumns,
+  updateAudit,
+} from "../abstraction/entity.js";
+
+// roles mirrors migrations/000003_create_roles_tables.up.sql (the SQL is the source of truth).
+// A role is a named set of permissions; users hold roles through user_roles. code is the
+// stable snake_case handle (never updated); name/description are display text.
+export const roles = pgTable("roles", {
+  ...entityColumns(),
+  code: varchar("code", { length: 50 }).notNull().unique(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: varchar("description", { length: 255 }).notNull().default(""),
+  isSystem: boolean("is_system").notNull().default(false), // permissions + delete locked; set only by migration
+});
+
+export const beforeCreate = (ctx, e) => ({
+  ...e,
+  ...createAudit(ctx),
+});
+
+export const beforeUpdate = (ctx, e) => ({ ...e, ...updateAudit(ctx) });

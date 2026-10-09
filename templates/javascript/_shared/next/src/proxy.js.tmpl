@@ -1,0 +1,49 @@
+import { NextResponse } from "next/server";
+
+// Routes that need a session; without the session cookie the user is sent to /login.
+// (Only a presence check: the API still authorizes every call.)
+const PROTECTED = ["/dashboard"];
+
+// proxy (Next 16's middleware) sets a strict CSP with a fresh nonce on every page.
+export function proxy(req) {
+  const { pathname } = req.nextUrl;
+  if (
+    PROTECTED.some((p) => pathname === p || pathname.startsWith(`${p}/`)) &&
+    !req.cookies.has("__Host-session")
+  ) {
+    return NextResponse.redirect(new URL("/login", req.url));
+  }
+
+  const nonce = Buffer.from(crypto.randomUUID()).toString("base64");
+  const dev = process.env.NODE_ENV === "development";
+  const csp = [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' 'strict-dynamic'${dev ? " 'unsafe-eval'" : ""}`,
+    `style-src 'self'${dev ? " 'unsafe-inline'" : ` 'nonce-${nonce}'`}`,
+    "img-src 'self' blob: data:",
+    "font-src 'self'",
+    "connect-src 'self'",
+    "object-src 'none'",
+    "base-uri 'self'",
+    "form-action 'self'",
+    "frame-ancestors 'none'",
+  ].join("; ");
+
+  const headers = new Headers(req.headers);
+  headers.set("x-nonce", nonce);
+  headers.set("Content-Security-Policy", csp);
+  const res = NextResponse.next({ request: { headers } });
+  res.headers.set("Content-Security-Policy", csp);
+  return res;
+}
+
+export const config = {
+  // Pages only: not the BFF (/api), static assets or Next's own RSC prefetches. Browser
+  // document prefetches (Purpose: prefetch) still get the CSP: they can be used for navigation.
+  matcher: [
+    {
+      source: "/((?!api|_next/static|_next/image|favicon.ico).*)",
+      missing: [{ type: "header", key: "next-router-prefetch" }],
+    },
+  ],
+};

@@ -1,0 +1,7 @@
+import { conn } from "../../abstraction/context.js";
+import { sampleWhere } from "../../dto/sample.js";
+import { samples } from "../../model/sample.js";
+
+export function count(ctx, f = {}) {
+  return conn(ctx).$count(samples, sampleWhere(f));
+}

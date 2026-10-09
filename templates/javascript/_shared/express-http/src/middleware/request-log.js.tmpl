@@ -1,0 +1,20 @@
+import { logger } from "../pkg/logger/logger.js";
+import { ctxOf } from "./context.js";
+
+// requestLog writes one line per request: no query string (filters may hold PII), no bodies.
+export const requestLog = (req, res, next) => {
+  const start = performance.now();
+  res.on("finish", () => {
+    logger.info(
+      {
+        request_id: ctxOf(res).requestId,
+        method: req.method,
+        path: new URL(req.originalUrl, "http://localhost").pathname,
+        status: res.statusCode,
+        duration_ms: Math.round(performance.now() - start),
+      },
+      "request",
+    );
+  });
+  next();
+};

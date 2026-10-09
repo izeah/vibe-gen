@@ -1,0 +1,17 @@
+import { and, inArray, isNull } from "drizzle-orm";
+import { userRoles } from "../model/user-role.js";
+
+// userRoleSortColumns is the ORDER BY allowlist for UserRoleFilter (API field → column).
+export const userRoleSortColumns = {
+  created_at: userRoles.createdAt,
+};
+
+export function userRoleWhere(f) {
+  return and(
+    f.withDeleted ? undefined : isNull(userRoles.deletedAt),
+    f.ids ? inArray(userRoles.id, f.ids) : undefined,
+    f.userIds ? inArray(userRoles.userId, f.userIds) : undefined,
+    f.roleIds ? inArray(userRoles.roleId, f.roleIds) : undefined,
+    ...(f.where ?? []),
+  );
+}

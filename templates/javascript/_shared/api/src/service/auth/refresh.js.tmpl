@@ -1,0 +1,35 @@
+import { randomUUID } from "node:crypto";
+import { errors } from "../../abstraction/error.js";
+import { logger } from "../../pkg/logger/logger.js";
+import { issueTokens, refreshTtlMs, verifyRefresh } from "./token.js";
+
+// refresh rotates the refresh token: the presented token is consumed and a new pair is
+// issued. Presenting an already-consumed token revokes the whole session family.
+export async function refresh(d, ctx, req) {
+  const claims = await verifyRefresh(d, req.refresh_token);
+
+  // Load the user before rotating: once rotate succeeds the old token is spent, so a failure
+  // after it (DB down) would log the user out and later read as token reuse.
+  const user = await d.userRepository.findOne(ctx, { ids: [claims.sub] });
+  if (!user) {
+    await d.refreshTokenRepository.revoke(claims.fid);
+    throw errors.unauthorized("invalid refresh token");
+  }
+
+  const newJti = randomUUID();
+  const res = await d.refreshTokenRepository.rotate(
+    claims.fid,
+    claims.jti,
+    newJti,
+    refreshTtlMs(d),
+  );
+  if (res === "reuse") {
+    logger.warn(
+      { request_id: ctx.requestId, user_id: claims.sub, family_id: claims.fid },
+      "refresh token reuse detected, session revoked",
+    );
+    throw errors.unauthorized("session revoked");
+  }
+  if (res === "missing") throw errors.unauthorized("session expired");
+  return issueTokens(d, user, claims.fid, newJti);
+}

@@ -1,0 +1,171 @@
+SHELL := /bin/sh
+EXT := {{if .IsTypeScript}}ts{{else}}js{{end}}
+NODE := node --env-file-if-exists=.env
+
+# — Local PostgreSQL / Redis containers —
+POSTGRES_CONTAINER ?= {{.ProjectSlug}}-db
+POSTGRES_USER      ?= postgres
+POSTGRES_PASSWORD  ?= postgres
+POSTGRES_DB        ?= postgres
+POSTGRES_PORT      ?= 5432
+POSTGRES_VOLUME    ?= {{.ProjectSlug}}-db-data
+REDIS_CONTAINER    ?= {{.ProjectSlug}}-redis
+REDIS_PORT         ?= 6379
+REDIS_VOLUME       ?= {{.ProjectSlug}}-redis-data
+
+# — Migrations: golang-migrate in Docker (same SQL files and schema_migrations table as the Go templates) —
+MIGRATE_IMAGE ?= migrate/migrate:v4.20.1
+MIGRATE_DIR   ?= migrations
+MIGRATE := docker run --rm --add-host=host.docker.internal:host-gateway \
+	--user $$(id -u):$$(id -g) -v "$(CURDIR)/$(MIGRATE_DIR):/migrations" $(MIGRATE_IMAGE)
+
+# DATABASE_URL from .env / the environment (DB_*). localhost is rewritten so the migrate
+# container reaches the host. The URL holds the password: never echo it.
+define load_env
+  if [ -f .env ]; then set -a; . ./.env; set +a; fi; \
+  _host=$${DB_HOST:-localhost}; \
+  case "$$_host" in localhost|127.0.0.1) _host=host.docker.internal;; esac; \
+  DATABASE_URL="postgres://$${DB_USER:-postgres}:$${DB_PASS}@$$_host:$${DB_PORT:-5432}/$${DB_NAME:-postgres}?sslmode=$${DB_SSLMODE:-disable}"; \
+  echo "migrate: $${DB_USER:-postgres}@$${DB_HOST:-localhost}:$${DB_PORT:-5432}/$${DB_NAME:-postgres}";
+endef
+
+.PHONY: help install run start lint format typecheck test test-integration vuln sast check \
+	gen-keys create-admin \
+	migrate-create migrate-up migrate-down migrate-down-all migrate-version migrate-force \
+	pg-start pg-stop pg-clean redis-start redis-stop redis-clean
+
+help:
+	@echo "Usage: make <target>"
+	@echo ""
+	@echo "Application:"
+	@echo "  install          npm ci"
+	@echo "  run              Run with watch mode (.env loaded)"
+	@echo "  start            Run without watch mode"
+	@echo "  gen-keys         Generate RSA PEM keys for JWT (./secret-auth/)"
+	@echo "  create-admin     Create the first admin: make create-admin EMAIL=admin@example.com"
+	@echo ""
+	@echo "Quality:"
+	@echo "  lint             Biome lint"
+	@echo "  format           Biome format (writes files)"
+{{- if .IsTypeScript}}
+	@echo "  typecheck        tsc (no emit)"
+{{- end}}
+	@echo "  test             Unit tests (no network, no database)"
+	@echo "  test-integration Integration tests against the local Docker PostgreSQL/Redis only"
+	@echo "  vuln             npm audit of production dependencies (high and above)"
+	@echo "  sast             Static security analysis (Semgrep, p/default rules)"
+	@echo "  check            lint{{if .IsTypeScript}} + typecheck{{end}} + test + vuln + sast"
+	@echo ""
+	@echo "Database migrations:"
+	@echo "  migrate-create   make migrate-create NAME=create_orders_table"
+	@echo "  migrate-up       Apply pending migrations"
+	@echo "  migrate-down     Roll back the last migration"
+	@echo "  migrate-down-all Roll back every migration"
+	@echo "  migrate-version  Show the current version"
+	@echo "  migrate-force    make migrate-force VERSION=1 (fix a dirty state)"
+	@echo ""
+	@echo "Local services (Docker):"
+	@echo "  pg-start / pg-stop / pg-clean        PostgreSQL 18 with a named volume"
+	@echo "  redis-start / redis-stop / redis-clean"
+
+install:
+	npm ci
+
+run:
+	npm run dev
+
+start:
+	npm start
+
+lint:
+	npm run lint
+
+format:
+	npm run format
+{{- if .IsTypeScript}}
+
+typecheck:
+	npm run typecheck
+{{- end}}
+
+test:
+	npm test
+
+test-integration:
+	npm run test:integration
+
+vuln:
+	npm audit --omit=dev --audit-level=high
+
+# Semgrep SAST with the public registry rules, no account needed (brew install semgrep, or pipx install semgrep).
+# ponytail: npm-missing-minimum-release-age is excluded because package.json pins
+# versions younger than 7 days. Once they are older, add min-release-age=7 to .npmrc and drop the exclude.
+sast:
+	semgrep scan --config p/default --error --metrics=off --exclude-rule package_managers.npm.npm-missing-minimum-release-age.npm-missing-minimum-release-age
+
+check: lint{{if .IsTypeScript}} typecheck{{end}} test vuln sast
+
+gen-keys:
+	@node scripts/gen-keys.$(EXT)
+
+# Password read from the terminal (not echoed) and passed on stdin, never as an argument.
+create-admin:
+	@if [ -z "$(EMAIL)" ]; then echo "Usage: make create-admin EMAIL=admin@example.com"; exit 1; fi
+	@trap 'stty echo 2>/dev/null' EXIT; trap 'exit 130' INT TERM; stty -echo 2>/dev/null; printf "Password (8-72 bytes): "; IFS= read -r PW; stty echo 2>/dev/null; echo; \
+	printf '%s\n' "$$PW" | $(NODE) scripts/create-admin.$(EXT) --email "$(EMAIL)"
+
+migrate-create:
+	@if [ -z "$(NAME)" ]; then echo "Usage: make migrate-create NAME=create_orders_table"; exit 1; fi
+	@mkdir -p $(MIGRATE_DIR)
+	$(MIGRATE) create -ext sql -dir /migrations -seq $(NAME)
+
+migrate-up:
+	@$(load_env) $(MIGRATE) -path=/migrations -database "$$DATABASE_URL" up
+
+migrate-down:
+	@$(load_env) $(MIGRATE) -path=/migrations -database "$$DATABASE_URL" down 1
+
+migrate-down-all:
+	@$(load_env) $(MIGRATE) -path=/migrations -database "$$DATABASE_URL" down -all
+
+migrate-version:
+	@$(load_env) $(MIGRATE) -path=/migrations -database "$$DATABASE_URL" version
+
+migrate-force:
+	@if [ -z "$(VERSION)" ]; then echo "Usage: make migrate-force VERSION=<version>"; exit 1; fi
+	@$(load_env) $(MIGRATE) -path=/migrations -database "$$DATABASE_URL" force $(VERSION)
+
+pg-start:
+	@if [ -n "$$(docker ps -aq --filter name=^/$(POSTGRES_CONTAINER)$$)" ]; then \
+	  docker start $(POSTGRES_CONTAINER) >/dev/null; \
+	else \
+	  docker run -d --name $(POSTGRES_CONTAINER) -p 127.0.0.1:$(POSTGRES_PORT):5432 \
+	    -e POSTGRES_USER=$(POSTGRES_USER) -e POSTGRES_PASSWORD=$(POSTGRES_PASSWORD) -e POSTGRES_DB=$(POSTGRES_DB) \
+	    -v $(POSTGRES_VOLUME):/var/lib/postgresql postgres:18 >/dev/null; \
+	fi
+	@until docker exec $(POSTGRES_CONTAINER) pg_isready -U $(POSTGRES_USER) -q 2>/dev/null; do sleep 1; done
+	@echo "PostgreSQL ready on port $(POSTGRES_PORT)"
+
+pg-stop:
+	@docker stop $(POSTGRES_CONTAINER) >/dev/null 2>&1 && echo "Stopped $(POSTGRES_CONTAINER)" || echo "Container not running"
+
+pg-clean:
+	@docker rm -f $(POSTGRES_CONTAINER) >/dev/null 2>&1 || true
+	@docker volume rm $(POSTGRES_VOLUME) >/dev/null 2>&1 || true
+	@echo "Removed container + volume $(POSTGRES_CONTAINER)"
+
+redis-start:
+	@if [ -n "$$(docker ps -aq --filter name=^/$(REDIS_CONTAINER)$$)" ]; then \
+	  docker start $(REDIS_CONTAINER) >/dev/null; \
+	else \
+	  docker run -d --name $(REDIS_CONTAINER) -p 127.0.0.1:$(REDIS_PORT):6379 -v $(REDIS_VOLUME):/data redis:7 >/dev/null; \
+	fi
+	@echo "Redis ready on port $(REDIS_PORT)"
+
+redis-stop:
+	@docker stop $(REDIS_CONTAINER) >/dev/null 2>&1 && echo "Stopped $(REDIS_CONTAINER)" || echo "Container not running"
+
+redis-clean:
+	@docker rm -f $(REDIS_CONTAINER) >/dev/null 2>&1 || true
+	@docker volume rm $(REDIS_VOLUME) >/dev/null 2>&1 || true
+	@echo "Removed container + volume $(REDIS_CONTAINER)"

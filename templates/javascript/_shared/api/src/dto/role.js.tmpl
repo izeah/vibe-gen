@@ -1,0 +1,79 @@
+import { and, inArray, isNull } from "drizzle-orm";
+import { z } from "zod";
+import { toRFC3339 } from "../abstraction/entity.js";
+import { paginationQuery } from "../abstraction/pagination.js";
+import { roles } from "../model/role.js";
+import { rolePermissions } from "../model/role-permission.js";
+
+// roleSortColumns is the ORDER BY allowlist for RoleFilter (API field → column).
+export const roleSortColumns = {
+  code: roles.code,
+  name: roles.name,
+  created_at: roles.createdAt,
+};
+
+export function roleWhere(f) {
+  return and(
+    f.withDeleted ? undefined : isNull(roles.deletedAt),
+    f.ids ? inArray(roles.id, f.ids) : undefined,
+    f.codes ? inArray(roles.code, f.codes) : undefined,
+    ...(f.where ?? []),
+  );
+}
+
+export const rolePermissionSortColumns = {
+  permission: rolePermissions.permission,
+};
+
+export function rolePermissionWhere(f) {
+  return and(
+    f.withDeleted ? undefined : isNull(rolePermissions.deletedAt),
+    f.ids ? inArray(rolePermissions.id, f.ids) : undefined,
+    f.roleIds ? inArray(rolePermissions.roleId, f.roleIds) : undefined,
+    f.permissions
+      ? inArray(rolePermissions.permission, f.permissions)
+      : undefined,
+    ...(f.where ?? []),
+  );
+}
+
+export const roleFindQuery = paginationQuery;
+
+export const roleIdParams = z.object({ id: z.uuid() });
+
+const permissions = z.array(z.string().max(64)).max(100);
+
+const roleName = z.string().trim().min(1).max(100);
+
+export const roleCreateRequest = z.object({
+  // The stable handle, never updated; same rule as the roles.code CHECK constraint.
+  code: z
+    .string()
+    .regex(
+      /^[a-z][a-z0-9_]{1,49}$/,
+      "snake_case: lowercase letters, digits or _ (2-50, starting with a letter)",
+    ),
+  name: roleName,
+  description: z.string().max(255).default(""),
+  permissions: permissions.default([]),
+});
+
+// id and code are immutable (code and clients branch on the code); only display text changes.
+export const roleUpdateRequest = z.object({
+  name: roleName,
+  description: z.string().max(255).default(""),
+});
+
+// Replaces the whole permission set.
+export const roleSetPermissionsRequest = z.object({ permissions });
+
+export const toRoleResponse = (m, perms) => ({
+  id: m.id,
+  code: m.code,
+  name: m.name,
+  description: m.description,
+  is_system: m.isSystem,
+  permissions: perms,
+  created_at: toRFC3339(m.createdAt),
+  updated_at: m.updatedAt === null ? undefined : toRFC3339(m.updatedAt),
+});

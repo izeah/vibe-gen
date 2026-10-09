@@ -1,0 +1,10 @@
+import { conn } from "../../abstraction/context.js";
+import { userRoleWhere } from "../../dto/user-role.js";
+import { userRoles } from "../../model/user-role.js";
+
+// deleteRows hard-deletes the matching rows (soft-deleted rows only with withDeleted: true).
+// Prefer softDelete; never expose this through an endpoint unless a feature needs it.
+export async function deleteRows(ctx, f) {
+  const res = await conn(ctx).delete(userRoles).where(userRoleWhere(f));
+  return res.rowCount ?? 0;
+}

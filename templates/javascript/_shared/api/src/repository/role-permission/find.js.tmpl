@@ -1,0 +1,16 @@
+import { applyFilter } from "../../abstraction/pagination.js";
+import { conn } from "../../abstraction/context.js";
+import {
+  rolePermissionSortColumns,
+  rolePermissionWhere,
+} from "../../dto/role.js";
+import { rolePermissions } from "../../model/role-permission.js";
+
+export function find(ctx, f = {}) {
+  const q = conn(ctx)
+    .select()
+    .from(rolePermissions)
+    .where(rolePermissionWhere(f))
+    .$dynamic();
+  return applyFilter(q, f, rolePermissionSortColumns);
+}

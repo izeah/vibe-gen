@@ -1,0 +1,53 @@
+import { and, ilike, inArray, isNull } from "drizzle-orm";
+import { z } from "zod";
+import { passwordSchema } from "../pkg/password/password.js";
+import { DEFAULT_SYSTEM_USER_ID, toRFC3339 } from "../abstraction/entity.js";
+import { escapeLike } from "../abstraction/pagination.js";
+import { users } from "../model/user.js";
+
+// userSortColumns is the ORDER BY allowlist for UserFilter (API field → column).
+export const userSortColumns = {
+  id: users.id,
+  name: users.name,
+  email: users.email,
+  created_at: users.createdAt,
+  updated_at: users.updatedAt,
+};
+
+export function userWhere(f) {
+  return and(
+    f.withDeleted ? undefined : isNull(users.deletedAt),
+    f.ids ? inArray(users.id, f.ids) : undefined,
+    f.email ? ilike(users.email, `%${escapeLike(f.email)}%`) : undefined,
+    ...(f.where ?? []),
+  );
+}
+
+export const userIdParams = z.object({ id: z.uuid() });
+
+export const userCreateRequest = z.object({
+  name: z.string().trim().min(1).max(100),
+  email: z.email().max(254),
+  password: passwordSchema,
+});
+
+// Roles change through userSetRolesRequest (PUT /v1/users/:id/roles, roles:manage).
+export const userUpdateRequest = z.object({
+  name: z.string().trim().min(1).max(100).optional(),
+});
+
+// Replaces the user's whole role set ([] removes every role).
+export const userSetRolesRequest = z.object({
+  role_ids: z.array(z.uuid()).max(50),
+});
+
+export const toUserResponse = (m, roles) => ({
+  id: m.id,
+  name: m.name,
+  email: m.email,
+  roles: roles.map((r) => ({ id: r.id, code: r.code, name: r.name })),
+  created_at: toRFC3339(m.createdAt),
+  updated_at: m.updatedAt === null ? undefined : toRFC3339(m.updatedAt),
+  created_by: m.createdBy === DEFAULT_SYSTEM_USER_ID ? undefined : m.createdBy,
+  updated_by: m.updatedBy ?? undefined,
+});

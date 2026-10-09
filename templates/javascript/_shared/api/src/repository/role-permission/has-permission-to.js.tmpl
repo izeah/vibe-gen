@@ -1,0 +1,8 @@
+import { exists } from "./exists.js";
+
+// hasPermissionTo reports whether any of the roles holds the exact permission (no scope
+// resolution: request checks go through the authz service, which also caches).
+export async function hasPermissionTo(ctx, roleIds, permission) {
+  if (roleIds.length === 0) return false;
+  return exists(ctx, { roleIds, permissions: [permission] });
+}

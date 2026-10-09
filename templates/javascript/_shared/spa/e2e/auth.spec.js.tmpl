@@ -1,0 +1,46 @@
+import { expect, test } from "@playwright/test";
+
+test("login, reload keeps the session, logout; tokens never reach storage", async ({
+  page,
+}) => {
+  const cspViolations = [];
+  page.on("console", (m) => {
+    if (m.text().includes("Content Security Policy"))
+      cspViolations.push(m.text());
+  });
+
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/login$/);
+
+  await page.getByLabel("Email").fill("admin@example.com");
+  await page.getByLabel("Password").fill("wrong-password");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(
+    page.getByRole("alert").filter({ hasText: "invalid credentials" }),
+  ).toBeVisible();
+
+  await page.getByLabel("Password").fill("password123");
+  await page.getByRole("button", { name: "Sign in" }).click();
+  await expect(page).toHaveURL(/\/dashboard$/);
+  await expect(page.getByText("admin@example.com")).toBeVisible();
+  await expect(page.getByText("Admin", { exact: true })).toBeVisible(); // role names
+
+  // The access token is only in memory: a reload restores it from the HttpOnly cookie.
+  await page.reload();
+  await expect(page.getByText("admin@example.com")).toBeVisible();
+
+  const exposed = await page.evaluate(() => ({
+    cookie: document.cookie,
+    storage:
+      JSON.stringify({ ...localStorage }) +
+      JSON.stringify({ ...sessionStorage }),
+  }));
+  expect(exposed.cookie).not.toMatch(/refresh|access-/);
+  expect(exposed.storage).not.toMatch(/refresh|access-/);
+
+  await page.getByRole("button", { name: "Sign out" }).click();
+  await expect(page).toHaveURL(/\/login$/);
+  await page.goto("/dashboard");
+  await expect(page).toHaveURL(/\/login$/);
+  expect(cspViolations).toEqual([]);
+});

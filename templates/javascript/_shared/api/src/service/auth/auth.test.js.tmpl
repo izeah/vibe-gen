@@ -1,0 +1,105 @@
+import { describe, expect, test } from "vitest";
+import { TYPE_REFRESH, verify } from "../../pkg/auth-token/auth-token.js";
+import { testFactory, testUser } from "../../testutil/factory.js";
+import { newAuthService } from "./service.js";
+
+const ctx = { requestId: "test", clientIp: "203.0.113.7" };
+const creds = { email: "User@Example.com ", password: "password123" };
+
+const status = (p) =>
+  p.then(
+    () => 0,
+    (e) => e.status,
+  );
+
+describe("login", () => {
+  test("issues tokens and starts a refresh family", async () => {
+    const f = testFactory();
+    f.userRepository.findOne.mockResolvedValue(testUser());
+    const res = await newAuthService(f).login(ctx, creds);
+
+    expect(res.expires_in).toBe(15 * 60);
+    const claims = await verify(
+      res.refresh_token,
+      f.keys.publicKey,
+      f.config.APP_NAME,
+      TYPE_REFRESH,
+    );
+    expect(f.refreshTokenRepository.save).toHaveBeenCalledWith(
+      claims.fid,
+      claims.jti,
+      f.config.AUTH_REFRESH_TOKEN_TTL_MIN * 60_000,
+    );
+    expect(f.rateLimitRepository.reset).toHaveBeenCalled();
+    expect(f.rateLimitRepository.undo).toHaveBeenCalled();
+  });
+
+  test("wrong password and unknown email look the same and count attempts", async () => {
+    const f = testFactory();
+    f.userRepository.findOne.mockResolvedValueOnce(testUser());
+    const svc = newAuthService(f);
+    expect(
+      await status(svc.login(ctx, { ...creds, password: "wrong-password" })),
+    ).toBe(401);
+    f.userRepository.findOne.mockResolvedValueOnce(undefined);
+    expect(await status(svc.login(ctx, creds))).toBe(401);
+    // two limits (email+IP, email) per attempt, none taken back
+    expect(f.rateLimitRepository.hit).toHaveBeenCalledTimes(4);
+    expect(f.rateLimitRepository.undo).not.toHaveBeenCalled();
+  });
+
+  test("rate limited before touching the database", async () => {
+    const f = testFactory();
+    f.rateLimitRepository.hit.mockResolvedValue({ count: 6, ttlSec: 42 });
+    expect(await status(newAuthService(f).login(ctx, creds))).toBe(429);
+    expect(f.userRepository.findOne).not.toHaveBeenCalled();
+  });
+
+  test("rate limit keys hold no raw email", async () => {
+    const f = testFactory();
+    f.userRepository.findOne.mockResolvedValue(undefined);
+    await status(newAuthService(f).login(ctx, creds));
+    for (const [key] of f.rateLimitRepository.hit.mock.calls) {
+      expect(key).not.toContain("example.com");
+    }
+  });
+});
+
+describe("refresh", () => {
+  async function loggedIn() {
+    const f = testFactory();
+    f.userRepository.findOne.mockResolvedValue(testUser());
+    const svc = newAuthService(f);
+    return { f, svc, tokens: await svc.login(ctx, creds) };
+  }
+
+  test("rotates the refresh token", async () => {
+    const { f, svc, tokens } = await loggedIn();
+    const next = await svc.refresh(ctx, {
+      refresh_token: tokens.refresh_token,
+    });
+    expect(next.refresh_token).not.toBe(tokens.refresh_token);
+    expect(f.refreshTokenRepository.rotate).toHaveBeenCalledOnce();
+  });
+
+  test("reuse is rejected", async () => {
+    const { f, svc, tokens } = await loggedIn();
+    f.refreshTokenRepository.rotate.mockResolvedValue("reuse");
+    expect(
+      await status(svc.refresh(ctx, { refresh_token: tokens.refresh_token })),
+    ).toBe(401);
+  });
+
+  test("an access token cannot refresh", async () => {
+    const { svc, tokens } = await loggedIn();
+    expect(
+      await status(svc.refresh(ctx, { refresh_token: tokens.access_token })),
+    ).toBe(401);
+  });
+
+  test("logout revokes the family", async () => {
+    const { f, svc, tokens } = await loggedIn();
+    await svc.logout(ctx, { refresh_token: tokens.refresh_token });
+    expect(f.refreshTokenRepository.revoke).toHaveBeenCalledOnce();
+  });
+});

@@ -1,0 +1,15 @@
+// Light/dark theme, server-safe half (no DOM; the browser half is theme-client.ts). The choice is
+// the `theme` cookie (functional, no personal data); without it the OS preference decides (CSS
+// prefers-color-scheme). The server writes data-theme on <html> from the cookie, because the CSP
+// forbids an inline script that would do it in the browser.
+
+// Only these two values may reach the page: the cookie lands in an HTML attribute.
+export function themeFrom(value) {
+  return value === "light" || value === "dark" ? value : undefined;
+}
+
+// The theme out of a raw Cookie header (Next.js Pages Router).
+export function themeFromCookieHeader(header) {
+  const found = header?.split("; ").find((c) => c.startsWith("theme="));
+  return themeFrom(found?.slice("theme=".length));
+}

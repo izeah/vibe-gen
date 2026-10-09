@@ -1,0 +1,15 @@
+import { conn } from "../../abstraction/context.js";
+import { userWhere } from "../../dto/user.js";
+import { users } from "../../model/user.js";
+
+// findOne returns the first match without ordering (like GORM Take), or undefined.
+export async function findOne(ctx, f) {
+  const q = conn(ctx)
+    .select()
+    .from(users)
+    .where(userWhere(f))
+    .limit(1)
+    .$dynamic();
+  const [row] = await (f.forUpdate ? q.for("update") : q);
+  return row;
+}

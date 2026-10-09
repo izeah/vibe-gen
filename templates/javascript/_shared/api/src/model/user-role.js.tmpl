@@ -1,0 +1,28 @@
+import { pgTable, uuid } from "drizzle-orm/pg-core";
+import {
+  createAudit,
+  entityColumns,
+  updateAudit,
+} from "../abstraction/entity.js";
+import { roles } from "./role.js";
+import { users } from "./user.js";
+
+// user_roles assigns one role to a user (a user holds any number of roles); both columns are
+// foreign keys (.references), the TypeScript side of the Go "// relation" fields.
+// Mirrors migrations/000003_create_roles_tables.up.sql.
+export const userRoles = pgTable("user_roles", {
+  ...entityColumns(),
+  userId: uuid("user_id")
+    .notNull()
+    .references(() => users.id, { onDelete: "cascade" }),
+  roleId: uuid("role_id")
+    .notNull()
+    .references(() => roles.id, { onDelete: "restrict" }),
+});
+
+export const beforeCreate = (ctx, e) => ({
+  ...e,
+  ...createAudit(ctx),
+});
+
+export const beforeUpdate = (ctx, e) => ({ ...e, ...updateAudit(ctx) });

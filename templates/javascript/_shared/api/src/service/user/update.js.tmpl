@@ -1,0 +1,11 @@
+import { errors } from "../../abstraction/error.js";
+import { toUserResponse } from "../../dto/user.js";
+import { rolesOf } from "./service.js";
+
+export async function update(d, ctx, id, req) {
+  const changed = await d.userRepository.updates(ctx, { ids: [id] }, req);
+  if (changed === 0) throw errors.notFound("user not found");
+  const user = await d.userRepository.findOne(ctx, { ids: [id] });
+  if (!user) throw errors.notFound("user not found");
+  return toUserResponse(user, await rolesOf(d, ctx, id));
+}

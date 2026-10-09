@@ -1,0 +1,92 @@
+import { resolve } from "../../authz/permission.js";
+import { logger } from "../../pkg/logger/logger.js";
+
+// CACHE_TTL_SEC bounds how long a change made outside the API (e.g. a migration) takes to
+// apply; changes through /v1/roles and /v1/users/:id/roles invalidate the cache at once.
+const CACHE_TTL_SEC = 60;
+
+// AuthzService answers "may this user do resource:action, and on which rows?" from the union
+// of the permissions of every role the user holds.
+
+const warn = (msg) => (err) => logger.warn({ err }, msg);
+
+// roles reads the user's roles from Redis and falls back to the database (refilling the
+// cache). Redis is only a cache: while it is down every check still runs, just slower.
+async function roles(d, ctx, userId) {
+  try {
+    const cached = await d.permissionCache.getUserRoles(userId);
+    if (cached) return cached;
+  } catch (err) {
+    warn("permission cache unavailable, reading the database")(err);
+  }
+  const ids = (await d.userRoleRepository.find(ctx, { userIds: [userId] })).map(
+    (r) => r.roleId,
+  );
+  // No roles = holds nothing (cached too, so it cannot hammer the database).
+  const found = ids.length ? await d.roleRepository.find(ctx, { ids }) : [];
+  const out = found.map((r) => ({ id: r.id, code: r.code }));
+  await d.permissionCache
+    .setUserRoles(userId, out, CACHE_TTL_SEC)
+    .catch(warn("permission cache unavailable, not cached"));
+  return out;
+}
+
+// permissions is the union of the roles' permission sets: one MGET, then one query for the
+// roles not cached (never one query per role).
+async function permissions(d, ctx, held) {
+  if (held.length === 0) return new Set();
+  const ids = held.map((r) => r.id);
+  let sets = new Map();
+  try {
+    sets = await d.permissionCache.getRolePermissions(ids);
+  } catch (err) {
+    warn("permission cache unavailable, reading the database")(err);
+  }
+  const missing = ids.filter((id) => !sets.has(id));
+  if (missing.length) {
+    // A role without permissions is cached too.
+    const fill = new Map(missing.map((id) => [id, []]));
+    for (const p of await d.rolePermissionRepository.find(ctx, {
+      roleIds: missing,
+    })) {
+      fill.get(p.roleId)?.push(p.permission);
+    }
+    await d.permissionCache
+      .setRolePermissions(fill, CACHE_TTL_SEC)
+      .catch(warn("permission cache unavailable, not cached"));
+    for (const [id, perms] of fill) sets.set(id, perms);
+  }
+  return new Set([...sets.values()].flat());
+}
+
+export function newAuthzService(f) {
+  const d = {
+    userRoleRepository: f.userRoleRepository,
+    roleRepository: f.roleRepository,
+    rolePermissionRepository: f.rolePermissionRepository,
+    permissionCache: f.permissionCache,
+  };
+  return {
+    async scope(ctx, userId, resource, action) {
+      return resolve(
+        await permissions(d, ctx, await roles(d, ctx, userId)),
+        resource,
+        action,
+      );
+    },
+    async hasAnyRole(ctx, userId, ...codes) {
+      return (await roles(d, ctx, userId)).some((r) => codes.includes(r.code));
+    },
+    // The TTL bounds the staleness if these fail; nothing else to do.
+    async invalidateUsers(...userIds) {
+      await d.permissionCache
+        .delUsers(...userIds)
+        .catch(warn("permission cache invalidation failed"));
+    },
+    async invalidateRoles(...roleIds) {
+      await d.permissionCache
+        .delRoles(...roleIds)
+        .catch(warn("permission cache invalidation failed"));
+    },
+  };
+}

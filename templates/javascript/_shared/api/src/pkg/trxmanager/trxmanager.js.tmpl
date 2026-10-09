@@ -1,0 +1,19 @@
+import { AppError, errors } from "../../abstraction/error.js";
+import { db } from "../database/database.js";
+
+// withTrx runs fn in one database transaction: commit on success, rollback on any throw.
+// Pass the ctx it gives you to every repository call inside fn. Nested calls join the
+// outer transaction. fn throws errors.<kind>(...) for client-facing failures; anything else
+// (commit failure, an unmapped query error) is rethrown as errors.internal, so services just
+// let the error through.
+
+export const trxManager = {
+  async withTrx(ctx, fn) {
+    if (ctx.tx) return fn(ctx);
+    try {
+      return await db.transaction((tx) => fn({ ...ctx, tx }));
+    } catch (err) {
+      throw err instanceof AppError ? err : errors.internal(err);
+    }
+  },
+};

@@ -1,0 +1,17 @@
+import { defineConfig } from "vitest/config";
+
+// Unit tests: no network, no database. Config is validated at import, so give it dummy values.
+export default defineConfig({
+  test: {
+    include: ["src/**/*.test.{ts,js}"],
+    exclude: ["src/**/*.integration.test.{ts,js}"],
+    env: {
+      APP_NAME: "test-api",
+      APP_ENV: "local", // unset means production (no Swagger UI)
+      DB_HOST: "localhost",
+      DB_USER: "postgres",
+      DB_NAME: "postgres",
+      LOG_LEVEL: "silent",
+    },
+  },
+});

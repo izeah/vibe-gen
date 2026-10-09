@@ -1,0 +1,12 @@
+import { ownerId } from "../../abstraction/context.js";
+import { errors } from "../../abstraction/error.js";
+import { toSampleResponse } from "../../dto/sample.js";
+
+export async function findById(d, ctx, id) {
+  const sample = await d.sampleRepository.findOne(ctx, {
+    ids: [id],
+    createdBy: ownerId(ctx),
+  });
+  if (!sample) throw errors.notFound("sample not found");
+  return toSampleResponse(sample);
+}

@@ -1,0 +1,10 @@
+import { createClient } from "redis";
+import { config } from "../../config/config.js";
+import { logger } from "../logger/logger.js";
+
+// Call `await redis.connect()` once at startup (main).
+export const redis = createClient({
+  url: `${config.REDIS_TLS ? "rediss" : "redis"}://${config.REDIS_ADDRESS}`,
+  password: config.REDIS_PASSWORD || undefined,
+});
+redis.on("error", (err) => logger.error({ err }, "redis error"));

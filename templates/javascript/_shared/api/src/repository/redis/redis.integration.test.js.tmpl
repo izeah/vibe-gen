@@ -1,0 +1,30 @@
+import { randomUUID } from "node:crypto";
+import { afterAll, beforeAll, expect, test } from "vitest";
+import { redis } from "../../pkg/redis/redis.js";
+import { newRateLimitRepository } from "./rate-limit.js";
+import { newRefreshTokenRepository } from "./refresh-token.js";
+
+// Needs the local Docker Redis: make redis-start.
+beforeAll(() => redis.connect());
+afterAll(() => redis.close());
+
+test("refresh rotation: rotate, reuse revokes the family", async () => {
+  const repo = newRefreshTokenRepository(redis);
+  const fid = randomUUID();
+  await repo.save(fid, "a", 60_000);
+  expect(await repo.rotate(fid, "a", "b", 60_000)).toBe("rotated");
+  expect(await repo.rotate(fid, "a", "c", 60_000)).toBe("reuse");
+  expect(await repo.rotate(fid, "b", "c", 60_000)).toBe("missing");
+});
+
+test("rate limit window", async () => {
+  const repo = newRateLimitRepository(redis);
+  const key = `test:ratelimit:${randomUUID()}`;
+  // Parallel hits are all counted: no stale read can let two of them see the same count.
+  const counts = await Promise.all([1, 2, 3].map(() => repo.hit(key, 60)));
+  expect(counts.map((c) => c.count).sort()).toEqual([1, 2, 3]);
+  expect(counts[0]?.ttlSec).toBeGreaterThan(50);
+  await repo.undo(key);
+  expect((await repo.hit(key, 60)).count).toBe(3);
+  await repo.reset(key);
+});

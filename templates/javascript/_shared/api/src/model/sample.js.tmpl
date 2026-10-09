@@ -1,0 +1,21 @@
+import { pgTable, text, varchar } from "drizzle-orm/pg-core";
+import {
+  createAudit,
+  entityColumns,
+  updateAudit,
+} from "../abstraction/entity.js";
+
+// samples mirrors migrations/000002_create_samples_table.up.sql (the SQL is the source of truth).
+export const samples = pgTable("samples", {
+  ...entityColumns(),
+  name: varchar("name", { length: 100 }).notNull(),
+  description: text("description").notNull().default(""),
+  status: varchar("status", { length: 20 }).notNull().default("active"),
+});
+
+export const beforeCreate = (ctx, e) => ({
+  ...e,
+  ...createAudit(ctx),
+});
+
+export const beforeUpdate = (ctx, e) => ({ ...e, ...updateAudit(ctx) });

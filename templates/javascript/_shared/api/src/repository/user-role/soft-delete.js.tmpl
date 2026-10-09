@@ -1,0 +1,13 @@
+import { conn } from "../../abstraction/context.js";
+import { deleteAudit } from "../../abstraction/entity.js";
+import { userRoleWhere } from "../../dto/user-role.js";
+import { userRoles } from "../../model/user-role.js";
+
+// softDelete sets deleted_at/deleted_by on the matching rows; returns the row count.
+export async function softDelete(ctx, f) {
+  const res = await conn(ctx)
+    .update(userRoles)
+    .set(deleteAudit(ctx))
+    .where(userRoleWhere(f));
+  return res.rowCount ?? 0;
+}

@@ -1,0 +1,18 @@
+import { login } from "./login.js";
+import { logout } from "./logout.js";
+import { refresh } from "./refresh.js";
+
+export function newAuthService(f) {
+  const d = {
+    userRepository: f.userRepository,
+    refreshTokenRepository: f.refreshTokenRepository,
+    rateLimitRepository: f.rateLimitRepository,
+    keys: f.keys,
+    config: f.config,
+  };
+  return {
+    login: (ctx, req) => login(d, ctx, req),
+    refresh: (ctx, req) => refresh(d, ctx, req),
+    logout: (ctx, req) => logout(d, ctx, req),
+  };
+}

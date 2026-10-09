@@ -1,0 +1,68 @@
+import { randomUUID } from "node:crypto";
+import { afterAll, expect, test } from "vitest";
+import { paginationQuery } from "../../abstraction/pagination.js";
+import { pool } from "../../pkg/database/database.js";
+import { trxManager } from "../../pkg/trxmanager/trxmanager.js";
+import { userRepository as repo } from "./repository.js";
+
+// Needs the local Docker PostgreSQL with migrations applied: make pg-start migrate-up.
+afterAll(() => pool.end());
+
+const admin = {
+  requestId: "test",
+  auth: { id: randomUUID() },
+};
+
+// Each test runs in a transaction that is rolled back, so the database stays clean.
+const rollback = (fn) =>
+  trxManager
+    .withTrx(admin, async (ctx) => {
+      await fn(ctx);
+      throw new Error("rollback");
+    })
+    .catch((e) => {
+      if (e.message !== "rollback") throw e;
+    });
+
+// Hashing is the caller's job (hashPassword): create stores the value as given.
+test("create lowercases the email and sets audit columns", () =>
+  rollback(async (ctx) => {
+    const email = `IT-${randomUUID()}@Example.com`;
+    const [u] = await repo.create(ctx, {
+      name: "IT",
+      email,
+      password: "a".repeat(64),
+    });
+    expect(u?.password).toBe("a".repeat(64));
+    expect(u?.email).toBe(email.toLowerCase());
+    expect(u?.createdBy).toBe(admin.auth?.id);
+    expect(typeof u?.createdAt).toBe("bigint");
+  }));
+
+test("soft delete hides rows; count, exists, ids and pagination agree", () =>
+  rollback(async (ctx) => {
+    const tag = randomUUID();
+    const rows = await repo.create(
+      ctx,
+      [1, 2, 3].map((i) => ({
+        name: `IT ${i}`,
+        email: `it-${i}-${tag}@example.com`,
+        password: "password123",
+      })),
+    );
+    const f = { email: tag };
+    expect(await repo.count(ctx, f)).toBe(3);
+    const page1 = await repo.find(ctx, {
+      ...f,
+      pagination: paginationQuery.parse({
+        page_size: 2,
+        sort_by: "email",
+        sort: "asc",
+      }),
+    });
+    expect(page1.map((u) => u.name)).toEqual(["IT 1", "IT 2", "IT 3"]); // page_size + 1
+    await repo.softDelete(ctx, { ids: [rows[0]?.id ?? ""] });
+    expect(await repo.count(ctx, f)).toBe(2);
+    expect(await repo.exists(ctx, { ids: [rows[0]?.id ?? ""] })).toBe(false);
+    expect((await repo.ids(ctx, f)).length).toBe(2);
+  }));

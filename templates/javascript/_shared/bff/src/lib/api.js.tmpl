@@ -1,0 +1,61 @@
+// Browser client for the BFF (same origin). Tokens never reach JavaScript: the BFF keeps them
+// in encrypted HttpOnly cookies. State-changing calls echo the CSRF cookie in a header.
+const CSRF_COOKIE = "__Host-csrf";
+const UNSAFE = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export class ApiError extends Error {
+  status;
+
+  constructor(status, message) {
+    super(message);
+    this.status = status;
+  }
+}
+
+function csrfToken() {
+  const prefix = `${CSRF_COOKIE}=`;
+  const found = document.cookie.split("; ").find((c) => c.startsWith(prefix));
+  return found ? found.slice(prefix.length) : "";
+}
+
+// api calls /api<path> and unwraps the { meta, data } envelope.
+export async function api(path, init = {}) {
+  const method = (init.method ?? "GET").toUpperCase();
+  const headers = new Headers(init.headers);
+  const unsafe = UNSAFE.has(method);
+  // State-changing calls always send JSON: a request without a content type looks like a form
+  // post to framework CSRF guards (SvelteKit), and JSON cannot be sent by a cross-site form.
+  const payload = init.body ?? (unsafe ? "{}" : undefined);
+  if (payload) headers.set("content-type", "application/json");
+  if (unsafe) headers.set("x-csrf-token", csrfToken());
+  const res = await fetch(`/api${path}`, {
+    ...init,
+    method,
+    headers,
+    body: payload,
+    cache: "no-store",
+  });
+  const body = await res.json().catch(() => null);
+
+  if (!res.ok)
+    throw new ApiError(res.status, body?.meta?.message ?? res.statusText);
+  return body?.data;
+}
+
+// session sets the CSRF cookie on first visit and says whether a session exists.
+export const session = () => api("/auth/session");
+
+export async function login(email, password) {
+  await session();
+  await api("/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export async function logout() {
+  await session();
+  await api("/auth/logout", { method: "POST" });
+}
+
+// roles: branch on code (stable handle), show name.

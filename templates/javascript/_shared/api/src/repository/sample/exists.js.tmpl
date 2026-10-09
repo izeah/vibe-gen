@@ -1,0 +1,13 @@
+import { sql } from "drizzle-orm";
+import { conn } from "../../abstraction/context.js";
+import { sampleWhere } from "../../dto/sample.js";
+import { samples } from "../../model/sample.js";
+
+export async function exists(ctx, f) {
+  const rows = await conn(ctx)
+    .select({ one: sql`1` })
+    .from(samples)
+    .where(sampleWhere(f))
+    .limit(1);
+  return rows.length > 0;
+}

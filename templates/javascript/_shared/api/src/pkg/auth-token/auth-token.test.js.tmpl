@@ -1,0 +1,95 @@
+import { expect, test } from "vitest";
+import { testKeys } from "../../testutil/keys.js";
+import {
+  newAuthToken,
+  TYPE_ACCESS,
+  TYPE_REFRESH,
+  verify,
+} from "./auth-token.js";
+
+const keys = testKeys();
+const input = {
+  subject: "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b",
+  tokenId: "jti-1",
+  refreshTokenId: "jti-2",
+  familyId: "fam",
+  issuer: "test-api",
+  ttlSec: 60,
+};
+const token = newAuthToken(input);
+
+test("round trip keeps claims and no PII", async () => {
+  const claims = await verify(
+    await token.accessToken(keys.privateKey),
+    keys.publicKey,
+    "test-api",
+    TYPE_ACCESS,
+  );
+  expect(claims).toMatchObject({
+    sub: input.subject,
+    jti: "jti-1",
+    typ: "access",
+    iss: "test-api",
+    aud: "test-api",
+  });
+  expect(JSON.stringify(claims)).not.toContain("@");
+  expect(claims).not.toHaveProperty("role"); // roles are read per request, never trusted from a token
+  expect(claims).not.toHaveProperty("fid"); // the family belongs to refresh tokens only
+});
+
+test("the refresh token has its own jti, family and lifetime", async () => {
+  const claims = await verify(
+    await token.refreshToken(3600, keys.privateKey),
+    keys.publicKey,
+    "test-api",
+    TYPE_REFRESH,
+  );
+  expect(claims).toMatchObject({ jti: "jti-2", fid: "fam", typ: "refresh" });
+  const access = await verify(
+    await token.accessToken(keys.privateKey),
+    keys.publicKey,
+    "test-api",
+    TYPE_ACCESS,
+  );
+  expect(claims.exp - access.exp).toBeGreaterThan(3000); // signing one never changes the other
+  await expect(
+    newAuthToken({ ...input, familyId: undefined }).refreshToken(
+      60,
+      keys.privateKey,
+    ),
+  ).rejects.toThrow();
+});
+
+test("a refresh token is not an access token", async () => {
+  const refresh = await token.refreshToken(60, keys.privateKey);
+  await expect(
+    verify(refresh, keys.publicKey, "test-api", TYPE_ACCESS),
+  ).rejects.toThrow();
+});
+
+test("another issuer or another key is rejected", async () => {
+  const access = await token.accessToken(keys.privateKey);
+  await expect(
+    verify(access, keys.publicKey, "other-api", TYPE_ACCESS),
+  ).rejects.toThrow();
+  await expect(
+    verify(access, testKeys().publicKey, "test-api", TYPE_ACCESS),
+  ).rejects.toThrow();
+});
+
+test("alg none is rejected", async () => {
+  const header = Buffer.from('{"alg":"none"}').toString("base64url");
+  const body = Buffer.from(
+    JSON.stringify({
+      sub: "x",
+      jti: "y",
+      typ: "access",
+      exp: 9e9,
+      iss: "test-api",
+      aud: "test-api",
+    }),
+  ).toString("base64url");
+  await expect(
+    verify(`${header}.${body}.`, keys.publicKey, "test-api", TYPE_ACCESS),
+  ).rejects.toThrow();
+});

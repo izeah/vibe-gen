@@ -1,0 +1,12 @@
+import { conn } from "../../abstraction/context.js";
+import { rolePermissionWhere } from "../../dto/role.js";
+import { beforeUpdate, rolePermissions } from "../../model/role-permission.js";
+
+// update writes every domain column of e to the matching rows; returns the row count.
+export async function update(ctx, f, e) {
+  const res = await conn(ctx)
+    .update(rolePermissions)
+    .set(await beforeUpdate(ctx, e))
+    .where(rolePermissionWhere(f));
+  return res.rowCount ?? 0;
+}

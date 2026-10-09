@@ -1,0 +1,43 @@
+import { z } from "zod";
+
+// Server-only settings. Never expose them through NEXT_PUBLIC_* / NUXT_PUBLIC_* / VITE_*.
+// Read lazily (first request), so builds do not need the secrets.
+const schema = z.object({
+  // Backend API origin (+ optional path prefix), e.g. http://localhost:3000 or https://example.com/api-go
+  API_BASE_URL: z.url().transform((u) => u.replace(/\/+$/, "")),
+  // Public origin of this frontend, used for the Origin check on state-changing requests.
+  APP_ORIGIN: z.url().transform((u) => new URL(u).origin),
+  // Encrypts the token cookies (AES-256-GCM). At least 32 random characters; rotating it logs everyone out.
+  BFF_COOKIE_SECRET: z.string().min(32),
+  // Path prefixes the proxy may reach under /api (e.g. "/v1/"). /v1/auth/* is always blocked.
+  BFF_PROXY_PREFIXES: z
+    .string()
+    .default("/v1/")
+    .transform((s) =>
+      s
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean),
+    ),
+  // Reverse proxies in front of this app that append to X-Forwarded-For. 0 = none: the header
+  // is client-controlled and is not forwarded (the API then rate-limits logins per BFF IP + email).
+  BFF_TRUSTED_PROXY_HOPS: z.coerce.number().int().min(0).default(0),
+  BFF_TIMEOUT_MS: z.coerce.number().int().positive().default(10_000),
+  BFF_MAX_BODY_BYTES: z.coerce.number().int().positive().default(1_048_576),
+});
+
+let cached;
+
+export function bffConfig(env = process.env) {
+  if (cached) return cached;
+  const res = schema.safeParse(env);
+  if (!res.success) {
+    // Names and rules only: the values may be secrets.
+    const issues = res.error.issues
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ");
+    throw new Error(`invalid BFF configuration: ${issues}`);
+  }
+  cached = res.data;
+  return cached;
+}

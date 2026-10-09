@@ -1,0 +1,13 @@
+import { applyFilter } from "../../abstraction/pagination.js";
+import { conn } from "../../abstraction/context.js";
+import { userRoleSortColumns, userRoleWhere } from "../../dto/user-role.js";
+import { userRoles } from "../../model/user-role.js";
+
+export function find(ctx, f = {}) {
+  const q = conn(ctx)
+    .select()
+    .from(userRoles)
+    .where(userRoleWhere(f))
+    .$dynamic();
+  return applyFilter(q, f, userRoleSortColumns);
+}

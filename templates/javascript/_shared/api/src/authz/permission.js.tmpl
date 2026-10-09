@@ -1,0 +1,36 @@
+// The permission catalog and how a held permission resolves to a scope. Which role holds which
+// permission lives in the database (roles, role_permissions); which permissions exist lives
+// here, so a typo can never be granted.
+
+// Scope of a granted action: any row, or only rows the user created (created_by).
+
+// DEFAULT_ROLE_CODE is the role (roles.code) a user created through the API starts with.
+export const DEFAULT_ROLE_CODE = "user";
+
+// Every permission the API checks: "<resource>:<action>" for actions without a row (create,
+// manage) and "<resource>:<action>:any|own" for actions on existing rows.
+// Adding an endpoint = add its permission here + a migration granting it to admin.
+export const CATALOG = [
+  "users:read:any",
+  "users:create",
+  "users:update:any",
+  "roles:manage",
+  "samples:read:any",
+  "samples:read:own",
+  "samples:create",
+  "samples:update:any",
+  "samples:update:own",
+  "samples:delete:any",
+  "samples:delete:own",
+];
+
+export const isValidPermission = (p) => CATALOG.includes(p);
+
+// resolve returns the scope the held permissions grant for resource:action (undefined =
+// denied). ":any" wins over ":own"; an unscoped permission (e.g. "samples:create") means any.
+export function resolve(held, resource, action) {
+  const p = `${resource}:${action}`;
+  if (held.has(`${p}:any`) || held.has(p)) return "any";
+  if (held.has(`${p}:own`)) return "own";
+  return undefined;
+}

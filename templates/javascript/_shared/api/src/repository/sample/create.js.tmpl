@@ -1,0 +1,10 @@
+import { conn } from "../../abstraction/context.js";
+import { beforeCreate, samples } from "../../model/sample.js";
+
+// create inserts one or many rows (one statement) and returns them with their ids.
+export async function create(ctx, e) {
+  const rows = await Promise.all(
+    (Array.isArray(e) ? e : [e]).map((r) => beforeCreate(ctx, r)),
+  );
+  return conn(ctx).insert(samples).values(rows).returning();
+}

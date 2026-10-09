@@ -1,0 +1,37 @@
+// AppError is an error with an HTTP status and a message that is safe to show clients.
+// Anything that is not an AppError becomes a generic 500 and is only logged server-side.
+export class AppError extends Error {
+  status;
+  description;
+
+  constructor(status, message, description, options) {
+    super(message, options);
+    this.status = status;
+    this.description = description;
+  }
+}
+
+// Factories, not shared constants: every call returns a fresh error, so request-specific
+// messages can never leak into another request.
+export const errors = {
+  badRequest: (message = "bad request", description) =>
+    new AppError(400, message, description),
+  unauthorized: (message = "unauthorized") => new AppError(401, message),
+  forbidden: (message = "forbidden") => new AppError(403, message),
+  notFound: (message = "not found") => new AppError(404, message),
+  duplicate: (message = "duplicate") => new AppError(409, message),
+  payloadTooLarge: (message = "payload too large") =>
+    new AppError(413, message),
+  tooManyRequests: (message = "too many requests") =>
+    new AppError(429, message),
+  internal: (cause) =>
+    new AppError(500, "internal server error", undefined, { cause }),
+};
+
+// isUniqueViolation detects PostgreSQL unique_violation (23505), also when wrapped.
+export function isUniqueViolation(err) {
+  for (let e = err; e instanceof Error; e = e.cause) {
+    if (e.code === "23505") return true;
+  }
+  return false;
+}

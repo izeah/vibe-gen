@@ -1,0 +1,19 @@
+import { errors } from "./error.js";
+
+// parse validates untrusted input (body, params, query) against a zod schema and throws a
+// 400 listing the invalid fields. Validation messages never echo the submitted values.
+export function parse(schema, input) {
+  const res = schema.safeParse(input);
+  if (res.success) return res.data;
+  const description = {};
+  for (const issue of res.error.issues) {
+    const field = issue.path.join(".") || "body";
+    description[field.toLowerCase()] ??= {
+      field,
+      tag: issue.code,
+      param: "",
+      message: issue.message,
+    };
+  }
+  throw errors.badRequest("bad request", description);
+}

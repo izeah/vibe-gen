@@ -1,0 +1,45 @@
+import { errors } from "../../abstraction/error.js";
+import { isValidPermission } from "../../authz/permission.js";
+import { newAuthzService } from "../authz/service.js";
+import { create } from "./create.js";
+import { remove } from "./delete.js";
+import { find } from "./find.js";
+import { findById } from "./find-by-id.js";
+import { setPermissions } from "./set-permissions.js";
+import { update } from "./update.js";
+
+// RoleService manages roles and their permissions (route permission: roles:manage).
+
+export function newRoleService(f) {
+  const d = {
+    roleRepository: f.roleRepository,
+    rolePermissionRepository: f.rolePermissionRepository,
+    userRoleRepository: f.userRoleRepository,
+    trxManager: f.trxManager,
+    authzService: newAuthzService(f),
+  };
+  return {
+    find: (ctx, q) => find(d, ctx, q),
+    findById: (ctx, id) => findById(d, ctx, id),
+    create: (ctx, req) => create(d, ctx, req),
+    update: (ctx, id, req) => update(d, ctx, id, req),
+    delete: (ctx, id) => remove(d, ctx, id),
+    setPermissions: (ctx, id, req) => setPermissions(d, ctx, id, req),
+  };
+}
+
+// checkPermissions rejects anything outside the catalog and drops duplicates.
+export function checkPermissions(perms) {
+  const bad = perms.find((p) => !isValidPermission(p));
+  if (bad) throw errors.badRequest(`unknown permission: ${bad}`);
+  return [...new Set(perms)];
+}
+
+// permissionsOf lists a role's permissions.
+export async function permissionsOf(d, ctx, roleId) {
+  const rows = await d.rolePermissionRepository.find(ctx, {
+    roleIds: [roleId],
+    sorts: [{ field: "permission", order: "asc" }],
+  });
+  return rows.map((r) => r.permission);
+}

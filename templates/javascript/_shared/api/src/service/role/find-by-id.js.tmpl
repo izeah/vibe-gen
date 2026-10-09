@@ -1,0 +1,9 @@
+import { errors } from "../../abstraction/error.js";
+import { toRoleResponse } from "../../dto/role.js";
+import { permissionsOf } from "./service.js";
+
+export async function findById(d, ctx, id) {
+  const role = await d.roleRepository.findOne(ctx, { ids: [id] });
+  if (!role) throw errors.notFound("role not found");
+  return toRoleResponse(role, await permissionsOf(d, ctx, role.id));
+}

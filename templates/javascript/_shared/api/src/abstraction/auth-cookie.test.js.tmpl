@@ -1,0 +1,75 @@
+import { expect, test } from "vitest";
+import { config } from "../config/config.js";
+import { clear, deliver, guard, refreshTokenOf } from "./auth-cookie.js";
+
+const cfg = {
+  ...config,
+  AUTH_COOKIE_MODE: true,
+  APP_CORS_ALLOW_ORIGIN: ["https://app.example.com"],
+  APP_BASE_PATH: "/api",
+};
+const io = (over = {}) => {
+  const set = [];
+  return {
+    set,
+    io: {
+      origin: "https://app.example.com",
+      csrf: "1",
+      setCookie: (v) => set.push(v),
+      ...over,
+    },
+  };
+};
+const status = (fn) => {
+  try {
+    fn();
+    return 0;
+  } catch (e) {
+    return e.status;
+  }
+};
+
+test("guard needs an allowlisted origin and the CSRF header", () => {
+  expect(status(() => guard(cfg, io().io))).toBe(0);
+  expect(status(() => guard(cfg, io({ csrf: undefined }).io))).toBe(403);
+  expect(
+    status(() => guard(cfg, io({ origin: "https://evil.example" }).io)),
+  ).toBe(403);
+  expect(status(() => guard(cfg, io({ origin: undefined }).io))).toBe(403);
+  expect(
+    status(() =>
+      guard({ ...cfg, AUTH_COOKIE_MODE: false }, io({ origin: undefined }).io),
+    ),
+  ).toBe(0);
+});
+
+test("deliver moves the refresh token into a strict cookie", () => {
+  const { io: x, set } = io();
+  const body = deliver(cfg, x, {
+    access_token: "a",
+    refresh_token: "r",
+    expires_in: 900,
+  });
+  expect(body).toEqual({ access_token: "a", expires_in: 900 });
+  expect(set[0]).toBe(
+    `__Secure-refresh_token=r; Path=/api/v1/auth; Max-Age=${cfg.AUTH_REFRESH_TOKEN_TTL_MIN * 60}; HttpOnly; Secure; SameSite=Strict`,
+  );
+  clear(cfg, x);
+  expect(set[1]).toContain("Max-Age=0");
+});
+
+test("cookie mode reads the token only from the cookie", async () => {
+  const fromBody = async () => ({ refresh_token: "from-body" });
+  const { io: x } = io({
+    cookieHeader: "a=1; __Secure-refresh_token=from-cookie; b=2",
+  });
+  expect(await refreshTokenOf(cfg, x, fromBody)).toEqual({
+    refresh_token: "from-cookie",
+  });
+  await expect(refreshTokenOf(cfg, io().io, fromBody)).rejects.toMatchObject({
+    status: 400,
+  });
+  expect(
+    await refreshTokenOf({ ...cfg, AUTH_COOKIE_MODE: false }, x, fromBody),
+  ).toEqual({ refresh_token: "from-body" });
+});

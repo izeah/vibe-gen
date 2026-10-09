@@ -1,0 +1,13 @@
+import { sql } from "drizzle-orm";
+import { conn } from "../../abstraction/context.js";
+import { rolePermissionWhere } from "../../dto/role.js";
+import { rolePermissions } from "../../model/role-permission.js";
+
+export async function exists(ctx, f) {
+  const rows = await conn(ctx)
+    .select({ one: sql`1` })
+    .from(rolePermissions)
+    .where(rolePermissionWhere(f))
+    .limit(1);
+  return rows.length > 0;
+}

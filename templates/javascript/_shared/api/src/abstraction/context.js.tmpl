@@ -1,0 +1,12 @@
+import { db } from "../pkg/database/database.js";
+
+// Roles are not in the token: middleware reads them per request (authz service, cached), so a
+// role change applies at once.
+
+// ownerId is the user a query must be limited to (created_by) when the route's permission is
+// scoped to the user's own rows, or undefined when any row is allowed.
+export const ownerId = (ctx) =>
+  ctx.permissionScope === "own" ? ctx.auth?.id : undefined;
+
+// conn is what every repository queries through: the active transaction, or the pool.
+export const conn = (ctx) => ctx.tx ?? db;

@@ -1,0 +1,12 @@
+import { ownerId } from "../../abstraction/context.js";
+import { errors } from "../../abstraction/error.js";
+
+// remove soft-deletes a sample.
+export async function remove(d, ctx, id) {
+  // Rows of other users are "not found" (no existence leak) when the permission is "own".
+  const changed = await d.sampleRepository.softDelete(ctx, {
+    ids: [id],
+    createdBy: ownerId(ctx),
+  });
+  if (changed === 0) throw errors.notFound("sample not found");
+}

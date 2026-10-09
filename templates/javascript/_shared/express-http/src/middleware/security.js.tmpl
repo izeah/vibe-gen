@@ -1,0 +1,20 @@
+import { SWAGGER_CSP } from "../openapi/swagger-ui.js";
+
+const API_CSP = "default-src 'none'; frame-ancestors 'none'";
+
+// securityHeaders sets defensive headers. API routes are JSON, so the CSP denies everything;
+// only the Swagger UI (non-production) gets a same-origin policy.
+export const securityHeaders = (swaggerPrefix) => (req, res, next) => {
+  res.set({
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "X-XSS-Protection": "0",
+    "Strict-Transport-Security": "max-age=31536000",
+    "Content-Security-Policy": req.path.startsWith(swaggerPrefix)
+      ? SWAGGER_CSP
+      : API_CSP,
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+  });
+  next();
+};

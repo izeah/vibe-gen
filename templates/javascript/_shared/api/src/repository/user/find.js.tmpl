@@ -1,0 +1,9 @@
+import { applyFilter } from "../../abstraction/pagination.js";
+import { conn } from "../../abstraction/context.js";
+import { userSortColumns, userWhere } from "../../dto/user.js";
+import { users } from "../../model/user.js";
+
+export function find(ctx, f = {}) {
+  const q = conn(ctx).select().from(users).where(userWhere(f)).$dynamic();
+  return applyFilter(q, f, userSortColumns);
+}

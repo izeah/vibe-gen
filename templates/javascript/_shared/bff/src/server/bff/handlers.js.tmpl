@@ -1,0 +1,299 @@
+import { z } from "zod";
+import { bffConfig } from "./config.js";
+import {
+  CSRF,
+  clearCookies,
+  newCsrfCookie,
+  parseCookies,
+  readTokens,
+  tokenCookies,
+} from "./cookies.js";
+import { checkCsrf } from "./csrf.js";
+
+// The BFF owns /api/auth/* and proxies /api/<prefix>/* to the API with the access token taken
+// from an encrypted HttpOnly cookie. The browser never sees a token.
+//
+// Framework adapters only route: POST /api/auth/login → login, POST /api/auth/logout → logout,
+// GET /api/auth/session → session, any method on /api/** → proxy(req, pathAfterApi).
+
+const loginBody = z.object({
+  email: z.email().max(254),
+  password: z.string().min(1).max(72),
+});
+
+const json = (status, body, cookies = []) => {
+  const headers = new Headers({
+    "content-type": "application/json",
+    "cache-control": "no-store",
+  });
+  for (const c of cookies) headers.append("set-cookie", c);
+  return new Response(JSON.stringify(body), { status, headers });
+};
+
+const fail = (status, message, cookies = []) =>
+  json(status, { meta: { success: false, message }, data: null }, cookies);
+
+// clientIp returns the client address as seen by the first trusted proxy, or undefined when
+// no proxy is trusted: the leftmost X-Forwarded-For entry is whatever the client typed.
+export function clientIp(forwardedFor, hops) {
+  if (!hops || !forwardedFor) return undefined;
+  const chain = forwardedFor
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return chain[chain.length - hops];
+}
+
+// Forward only what the API needs: never the browser's Cookie header.
+function apiHeaders(cfg, req, accessToken) {
+  const h = new Headers({ accept: "application/json" });
+  const type = req.headers.get("content-type");
+  if (type) h.set("content-type", type);
+  const requestId = req.headers.get("x-request-id");
+  if (requestId) h.set("x-request-id", requestId);
+  // The API rate-limits logins per client IP: pass on a trustworthy one only (configure the API
+  // to trust this BFF as its proxy).
+  const ip = clientIp(
+    req.headers.get("x-forwarded-for"),
+    cfg.BFF_TRUSTED_PROXY_HOPS,
+  );
+  if (ip) h.set("x-forwarded-for", ip);
+  if (accessToken) h.set("authorization", `Bearer ${accessToken}`);
+  return h;
+}
+
+// jsonHeaders is for the BFF's own JSON calls (refresh, logout).
+function jsonHeaders(cfg, req) {
+  const h = apiHeaders(cfg, req);
+  h.set("content-type", "application/json");
+  return h;
+}
+
+const callApi = (cfg, path, init) =>
+  fetch(`${cfg.API_BASE_URL}${path}`, {
+    ...init,
+    redirect: "manual",
+    signal: AbortSignal.timeout(cfg.BFF_TIMEOUT_MS),
+  });
+
+// readLimited reads the body up to max bytes, or null when it is larger. The bytes are counted
+// while streaming, so a chunked upload without Content-Length is never buffered whole.
+export async function readLimited(req, max) {
+  if (Number(req.headers.get("content-length") ?? 0) > max) return null;
+  if (!req.body) return new Uint8Array();
+  const chunks = [];
+  let size = 0;
+  for await (const chunk of req.body) {
+    size += chunk.byteLength;
+    if (size > max) return null; // leaving the loop cancels the stream
+    chunks.push(chunk);
+  }
+  return new Uint8Array(Buffer.concat(chunks));
+}
+
+const LOGIN_MAX_BYTES = 4096;
+
+// ---- refresh: one in-flight refresh per session --------------------------------------------
+// ponytail: in-process lock. With several BFF instances use sticky sessions or a Redis lock,
+// otherwise two instances refreshing the same session look like token reuse to the API.
+// "revoked": the API rejected the session (clear the cookies). "unavailable": the API is down,
+// timed out or rate-limited us; keep the session and let the client retry.
+
+const inflight = new Map();
+
+function refreshOnce(cfg, req, refresh) {
+  let p = inflight.get(refresh);
+  if (!p) {
+    p = (async () => {
+      try {
+        const res = await callApi(cfg, "/v1/auth/refresh", {
+          method: "POST",
+          headers: jsonHeaders(cfg, req),
+          body: JSON.stringify({ refresh_token: refresh }),
+        });
+        if (res.status === 429 || res.status >= 500) return "unavailable";
+        if (!res.ok) return "revoked";
+        return (await res.json()).data;
+      } catch {
+        return "unavailable";
+      }
+    })();
+    // A rotated result is shared for a moment (concurrent requests of the same page); a failure
+    // to reach the API is not cached.
+    void p.then((r) =>
+      setTimeout(
+        () => inflight.delete(refresh),
+        r === "unavailable" ? 0 : 5_000,
+      ),
+    );
+    inflight.set(refresh, p);
+  }
+  return p;
+}
+
+// ---- handlers -----------------------------------------------------------------------------
+
+export async function login(req) {
+  const cfg = bffConfig();
+  if (!checkCsrf(cfg, req)) return fail(403, "csrf check failed");
+  const raw = await readLimited(req, LOGIN_MAX_BYTES);
+  if (raw === null) return fail(413, "payload too large");
+  let body;
+  try {
+    body = JSON.parse(Buffer.from(raw).toString("utf8"));
+  } catch {
+    return fail(400, "invalid JSON body");
+  }
+  const creds = loginBody.safeParse(body);
+  if (!creds.success) return fail(400, "bad request");
+
+  let res;
+  try {
+    res = await callApi(cfg, "/v1/auth/login", {
+      method: "POST",
+      headers: apiHeaders(cfg, req),
+      body: JSON.stringify(creds.data),
+    });
+  } catch {
+    return fail(502, "upstream unavailable");
+  }
+  const payload = await res.json().catch(() => null);
+
+  if (res.status >= 500 || (res.ok && !payload?.data?.refresh_token)) {
+    return fail(502, "login failed"); // never pass internal API errors to the browser
+  }
+  if (!res.ok || !payload?.data) {
+    // 4xx messages are meant for clients (invalid credentials, rate limit).
+    return fail(res.status, payload?.meta?.message ?? "login failed");
+  }
+  // A new session gets a new CSRF token (rotate on privilege change).
+  return json(
+    200,
+    { meta: { success: true, message: "OK" }, data: { authenticated: true } },
+    [...tokenCookies(cfg, payload.data), newCsrfCookie()],
+  );
+}
+
+export async function logout(req) {
+  const cfg = bffConfig();
+  if (!checkCsrf(cfg, req)) return fail(403, "csrf check failed");
+  const { refresh } = readTokens(cfg, req);
+  if (refresh) {
+    // Best effort: the cookies are cleared either way.
+    await callApi(cfg, "/v1/auth/logout", {
+      method: "POST",
+      headers: jsonHeaders(cfg, req),
+      body: JSON.stringify({ refresh_token: refresh }),
+    }).catch(() => undefined);
+  }
+  // The next visitor of a shared browser gets a new CSRF token too.
+  return json(200, { meta: { success: true, message: "OK" } }, [
+    ...clearCookies(),
+    newCsrfCookie(),
+  ]);
+}
+
+// session tells the page whether a session exists and sets the CSRF cookie on first visit (the
+// page reads the token from that cookie). It never returns tokens.
+export async function session(req) {
+  const cfg = bffConfig();
+  const hasCsrf = parseCookies(req.headers.get("cookie")).has(CSRF);
+  const { access, refresh } = readTokens(cfg, req);
+  return json(
+    200,
+    {
+      meta: { success: true, message: "OK" },
+      data: { authenticated: Boolean(access || refresh) },
+    },
+    hasCsrf ? [] : [newCsrfCookie()],
+  );
+}
+
+// isAllowedPath accepts only allowlisted prefixes, never /v1/auth (the BFF owns auth), and no
+// traversal tricks (.., //, backslash, encoded slash/dot/backslash). The checks run on the
+// decoded path too: some routers decode before matching, so /v1/%61uth must count as /v1/auth.
+export function isAllowedPath(cfg, path) {
+  if (/%2f|%2e|%5c/i.test(path)) return false;
+  let decoded;
+  try {
+    decoded = decodeURIComponent(path);
+  } catch {
+    return false; // malformed escape
+  }
+  return [path, decoded].every(
+    (p) =>
+      cfg.BFF_PROXY_PREFIXES.some((prefix) => p.startsWith(prefix)) &&
+      !/^\/v1\/auth(\/|$)/i.test(p) &&
+      !p.includes("//") &&
+      !p.includes("\\") &&
+      !p.split("/").some((seg) => seg === "." || seg === ".."),
+  );
+}
+
+const METHODS_WITH_BODY = new Set(["POST", "PUT", "PATCH", "DELETE"]);
+
+export async function proxy(req, path) {
+  const cfg = bffConfig();
+  if (!isAllowedPath(cfg, path)) return fail(404, "route not found");
+  if (!checkCsrf(cfg, req)) return fail(403, "csrf check failed");
+
+  const body = METHODS_WITH_BODY.has(req.method)
+    ? await readLimited(req, cfg.BFF_MAX_BODY_BYTES)
+    : undefined;
+  if (body === null) return fail(413, "payload too large");
+
+  const tokens = readTokens(cfg, req);
+  const setCookies = [];
+  const refreshed = async () => {
+    if (!tokens.refresh) return "revoked";
+    const pair = await refreshOnce(cfg, req, tokens.refresh);
+    if (pair === "unavailable") return pair;
+    if (pair === "revoked") {
+      setCookies.push(...clearCookies());
+      tokens.access = tokens.refresh = undefined;
+      return pair;
+    }
+    setCookies.push(...tokenCookies(cfg, pair));
+    tokens.access = pair.access_token;
+    tokens.refresh = pair.refresh_token;
+    return "ok";
+  };
+  const unavailable = () =>
+    fail(503, "session refresh unavailable, retry shortly");
+
+  if (
+    !tokens.access &&
+    tokens.refresh &&
+    (await refreshed()) === "unavailable"
+  ) {
+    return unavailable();
+  }
+  const search = new URL(req.url).search;
+  const send = () =>
+    callApi(cfg, path + search, {
+      method: req.method,
+      headers: apiHeaders(cfg, req, tokens.access),
+      body: body ?? undefined,
+    });
+
+  let res;
+  try {
+    res = await send();
+    // Access token expired between the cookie check and the call: refresh once and retry.
+    if (res.status === 401 && tokens.refresh && !setCookies.length) {
+      const r = await refreshed();
+      if (r === "unavailable") return unavailable();
+      if (r === "ok") res = await send();
+    }
+  } catch {
+    return fail(502, "upstream unavailable", setCookies);
+  }
+
+  const headers = new Headers({ "cache-control": "no-store" });
+  for (const name of ["content-type", "x-request-id"]) {
+    const v = res.headers.get(name);
+    if (v) headers.set(name, v);
+  }
+  for (const c of setCookies) headers.append("set-cookie", c);
+  return new Response(res.body, { status: res.status, headers });
+}

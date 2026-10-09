@@ -1,0 +1,16 @@
+// Response envelopes. The shape matches the Go templates so a frontend works with either.
+export const success = (data, info) => ({
+  meta: { success: true, message: "OK", ...(info && { info }) },
+  data,
+});
+
+export const created = (data) => ({
+  meta: { success: true, message: "Created" },
+  data,
+});
+
+export const failure = (e) => ({
+  meta: { success: false, message: e.message },
+  data: null,
+  ...(e.description !== undefined && { description: e.description }),
+});

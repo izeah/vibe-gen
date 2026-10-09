@@ -1,0 +1,17 @@
+-- users: application accounts (roles: user_roles, migration 000003). Timestamps are Unix nanoseconds (UTC); deleted_at IS NULL = active.
+CREATE TABLE IF NOT EXISTS users (
+    id         UUID         PRIMARY KEY DEFAULT uuidv7(),
+    name       VARCHAR(100) NOT NULL,
+    email      VARCHAR(254) NOT NULL,
+    password   VARCHAR(72)  NOT NULL, -- bcrypt hash (60 chars)
+    created_at BIGINT       NOT NULL,
+    created_by UUID         NOT NULL,
+    updated_at BIGINT,
+    updated_by UUID,
+    deleted_at BIGINT,
+    deleted_by UUID
+);
+
+-- Login matches LOWER(email); one active account per email, case-insensitive.
+CREATE UNIQUE INDEX IF NOT EXISTS users_email_lower_key ON users (LOWER(email)) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS users_deleted_at_idx ON users (deleted_at);

@@ -1,0 +1,42 @@
+const USER = "authz:user:";
+const ROLE = "authz:role:";
+
+// A role as cached for a user: the id keys its permission set, the code is what requireRole
+// matches.
+
+export const newPermissionCache = (redis) => ({
+  async getUserRoles(userId) {
+    const raw = await redis.get(USER + userId);
+    return raw === null ? undefined : JSON.parse(raw);
+  },
+  async setUserRoles(userId, roles, ttlSec) {
+    await redis.set(USER + userId, JSON.stringify(roles), {
+      expiration: { type: "EX", value: ttlSec },
+    });
+  },
+  async getRolePermissions(roleIds) {
+    const sets = new Map();
+    if (roleIds.length === 0) return sets;
+    const vals = await redis.mGet(roleIds.map((id) => ROLE + id));
+    vals.forEach((raw, i) => {
+      const id = roleIds[i];
+      if (raw !== null && id !== undefined) sets.set(id, JSON.parse(raw));
+    });
+    return sets;
+  },
+  async setRolePermissions(sets, ttlSec) {
+    const tx = redis.multi();
+    for (const [id, perms] of sets) {
+      tx.set(ROLE + id, JSON.stringify(perms), {
+        expiration: { type: "EX", value: ttlSec },
+      });
+    }
+    await tx.exec();
+  },
+  async delUsers(...userIds) {
+    if (userIds.length) await redis.del(userIds.map((id) => USER + id));
+  },
+  async delRoles(...roleIds) {
+    if (roleIds.length) await redis.del(roleIds.map((id) => ROLE + id));
+  },
+});

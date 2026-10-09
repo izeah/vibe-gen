@@ -1,0 +1,12 @@
+import { conn } from "../../abstraction/context.js";
+import { userWhere } from "../../dto/user.js";
+import { beforeUpdate, users } from "../../model/user.js";
+
+// update writes every domain column of e to the matching rows; returns the row count.
+export async function update(ctx, f, e) {
+  const res = await conn(ctx)
+    .update(users)
+    .set(await beforeUpdate(ctx, e))
+    .where(userWhere(f));
+  return res.rowCount ?? 0;
+}

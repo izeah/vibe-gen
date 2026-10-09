@@ -1,0 +1,17 @@
+import { errors } from "../../abstraction/error.js";
+
+export async function remove(d, ctx, id) {
+  const role = await d.roleRepository.findOne(ctx, { ids: [id] });
+  if (!role) throw errors.notFound("role not found");
+  if (role.isSystem) throw errors.forbidden("system roles cannot be deleted");
+  // user_roles.role_id is ON DELETE RESTRICT (rows of soft-deleted users included): report it
+  // instead of a database error.
+  if (
+    await d.userRoleRepository.exists(ctx, { roleIds: [id], withDeleted: true })
+  ) {
+    throw errors.duplicate("role is still assigned to users");
+  }
+  // Hard delete: role_permissions go with it (ON DELETE CASCADE).
+  await d.roleRepository.delete(ctx, { ids: [id] });
+  await d.authzService.invalidateRoles(id);
+}

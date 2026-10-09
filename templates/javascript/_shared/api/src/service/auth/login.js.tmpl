@@ -1,0 +1,51 @@
+import { createHash, randomUUID } from "node:crypto";
+import { sql } from "drizzle-orm";
+import { errors } from "../../abstraction/error.js";
+import { users } from "../../model/user.js";
+import { comparePassword, dummyHash } from "../../pkg/password/password.js";
+import { issueTokens, refreshTtlMs } from "./token.js";
+
+const WINDOW_SEC = 15 * 60;
+const MAX_PER_EMAIL_IP = 5; // attempts per email+IP per window (successes are taken back)
+const MAX_PER_EMAIL = 20; // per email across IPs: backstop when the client IP is spoofable
+
+// The email is hashed so no raw PII lands in Redis keys.
+const failKey = (email, ip) =>
+  `auth:login:fail:${createHash("sha256").update(email).digest("hex")}:${ip}`;
+
+export async function login(d, ctx, req) {
+  const email = req.email.trim().toLowerCase();
+  const ipKey = failKey(email, ctx.clientIp ?? "unknown");
+  const emailKey = failKey(email, "*");
+  // Count the attempt before checking the password: a read-then-increment would let parallel
+  // requests all pass the check before any of them is counted.
+  for (const [key, max] of [
+    [ipKey, MAX_PER_EMAIL_IP],
+    [emailKey, MAX_PER_EMAIL],
+  ]) {
+    const { count, ttlSec } = await d.rateLimitRepository.hit(key, WINDOW_SEC);
+    if (count > max) {
+      throw errors.tooManyRequests(
+        `too many failed login attempts, retry in ${ttlSec} seconds`,
+      );
+    }
+  }
+
+  // Exact, case-insensitive match (the email filter is a contains search).
+  const user = await d.userRepository.findOne(ctx, {
+    where: [sql`lower(${users.email}) = ${email}`],
+  });
+  const ok = await comparePassword(
+    req.password,
+    user?.password ?? (await dummyHash()),
+  );
+  if (!user || !ok) throw errors.unauthorized("invalid credentials");
+  // Success: forget this client's failures and take back the hit on the per-email backstop.
+  await d.rateLimitRepository.reset(ipKey);
+  await d.rateLimitRepository.undo(emailKey);
+
+  const familyId = randomUUID();
+  const jti = randomUUID();
+  await d.refreshTokenRepository.save(familyId, jti, refreshTtlMs(d));
+  return issueTokens(d, user, familyId, jti);
+}

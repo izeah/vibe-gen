@@ -1,0 +1,82 @@
+import { z } from "zod";
+
+// Every setting comes from the environment (.env is loaded by `node --env-file-if-exists=.env`).
+// The process refuses to start on an invalid value: fail fast instead of running half-configured.
+const csv = z
+  .string()
+  .default("")
+  .transform((s) =>
+    s
+      .split(",")
+      .map((v) => v.trim())
+      .filter(Boolean),
+  );
+const bool = z
+  .enum(["true", "false"])
+  .default("false")
+  .transform((v) => v === "true");
+const port = z.coerce.number().int().min(1).max(65535);
+const minutes = z.coerce.number().int().positive();
+
+const schema = z
+  .object({
+    APP_NAME: z.string().min(1),
+    // Unset = production (safe default: no Swagger UI); .env.example sets local.
+    APP_ENV: z
+      .enum(["local", "development", "staging", "production"])
+      .default("production"),
+    APP_PORT: port.default(3000),
+    APP_BASE_PATH: z
+      .string()
+      .regex(/^(\/[\w.-]+)*$/, "must look like /prefix (no trailing slash)")
+      .default(""),
+    APP_CORS_ALLOW_ORIGIN: csv,
+    APP_TRUST_PROXY: z.string().default(""),
+    APP_BODY_LIMIT: z.coerce.number().int().positive().default(1_048_576), // bytes
+    LOG_LEVEL: z
+      .enum(["trace", "debug", "info", "warn", "error", "fatal", "silent"])
+      .default("info"),
+
+    DB_HOST: z.string().min(1),
+    DB_PORT: port.default(5432),
+    DB_USER: z.string().min(1),
+    DB_PASS: z.string().default(""),
+    DB_NAME: z.string().min(1),
+    DB_SSLMODE: z
+      .enum(["disable", "require", "verify-full"])
+      .default("disable"),
+    DB_MAX_CONNS: z.coerce.number().int().positive().default(10),
+
+    REDIS_ADDRESS: z.string().min(1).default("localhost:6379"),
+    REDIS_PASSWORD: z.string().default(""),
+    REDIS_TLS: bool, // true for managed Redis (rediss://): never send REDIS_PASSWORD in clear
+
+    AUTH_PRIVATE_KEY_PATH: z.string().default("./secret-auth/privateKey.pem"),
+    AUTH_PUBLIC_KEY_PATH: z.string().default("./secret-auth/pubKey.pem"),
+    // Access tokens cannot be revoked (a deleted user keeps access until they expire; role
+    // changes apply at once, roles are not in the token), so keep them short-lived.
+    AUTH_ACCESS_TOKEN_TTL_MIN: minutes.max(60).default(15),
+    AUTH_REFRESH_TOKEN_TTL_MIN: minutes.default(10080),
+    // SPA without a BFF (React/Vue): refresh token in an HttpOnly cookie, access token in memory.
+    AUTH_COOKIE_MODE: bool,
+  })
+  // Cookie mode guards auth requests with an Origin allowlist: without one every request fails.
+  .refine((c) => !c.AUTH_COOKIE_MODE || c.APP_CORS_ALLOW_ORIGIN.length > 0, {
+    message:
+      "AUTH_COOKIE_MODE requires APP_CORS_ALLOW_ORIGIN (the exact SPA origin)",
+    path: ["AUTH_COOKIE_MODE"],
+  });
+
+export function loadConfig(env = process.env) {
+  const res = schema.safeParse(env);
+  if (!res.success) {
+    // Names and rules only: the values may be secrets.
+    const issues = res.error.issues
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ");
+    throw new Error(`invalid configuration: ${issues}`);
+  }
+  return res.data;
+}
+
+export const config = loadConfig();
